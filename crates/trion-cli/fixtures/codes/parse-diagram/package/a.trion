@@ -1,0 +1,9 @@
+namespace p
+diagram kind transition:
+    element "$from -> $event -> $to;"
+    types "$from: value, $event: value, $to: value"
+    expansion "While the door is $from, when the bell is $event, the light shall be $to."
+    preserves "Each element means exactly its expansion sentence."
+[T] diagram transition:
+    closed to red;
+

@@ -1,0 +1,4 @@
+verify
+--json
+--prover
+sh prover.sh

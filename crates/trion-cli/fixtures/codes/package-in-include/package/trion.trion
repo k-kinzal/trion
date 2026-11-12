@@ -1,0 +1,2 @@
+package p edition "1"
+include "a.trion"

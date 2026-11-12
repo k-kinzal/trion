@@ -1,0 +1,5 @@
+namespace p
+primitive API
+alias buyer = customer
+alias buyer = client
+The API shall stop.

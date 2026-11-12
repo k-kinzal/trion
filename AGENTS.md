@@ -1,0 +1,29 @@
+# AGENTS
+
+## Vision
+
+trion is a formal specification language grounded in the principles of Controlled Natural Language. Equipped with strict syntax and formal semantics, it expresses specifications in a mechanically verifiable form. This enables the formal verification of consistency, completeness, and the satisfaction of expected properties, allowing verified specifications to be systematically managed.
+
+Rather than relying on abstract mathematical notation like traditional formal specification languages, trion aims to combine formal rigor with the readability of natural language. Built on a foundation of rigorous specification definition and mechanical verification, trion is designed to serve directly as human-readable specification documentation. However, unambiguity and mechanical verifiability remain the highest priorities; whenever a trade-off arises between natural readability and formal rigor, formal rigor strictly takes precedence.
+
+Furthermore, all specifications written in trion are grounded in evidence. Evidence provides traceability to the origin and rationale of a specification—identifying where it came from and what problem it is intended to solve. While formal verification mathematically guarantees internal consistency, evidence does not guarantee the validity of a specification; rather, it establishes the traceability necessary for humans to audit and evaluate its validity.
+
+Through this architecture, trion ensures that specifications remain trustworthy and governable, even as AI generates them at a scale beyond human reading capacity.
+
+## Language Principles
+
+The atomic unit of trion is the short sentence: a syntactically restricted statement that admits a single, unambiguous interpretation as an assume-guarantee contract. Formalization and verification operate exclusively on these short sentences. A specification is defined as a set of short sentences, and its formal semantics is the logical conjunction of their underlying contracts. A specification is satisfiable precisely when there exists a behavior that satisfies all of its contracts simultaneously; this notion of satisfiability is the semantic criterion against which the language is proven. Because a contract is satisfied vacuously whenever its assumption does not hold, satisfiability alone does not establish consistency. Sentences without normative force determine which situations can occur; a specification is consistent only when, in every such situation, the guarantees of all contracts whose assumptions hold are jointly satisfiable.
+
+Complex sentences and broader document structures are pure compositions of short sentences. Composition introduces no additional semantics of its own; rather, it desugars into a set of short sentences that remains valid trion. Conversely, a composition that expresses selection or sequential ordering among its clauses is not decomposed, but is preserved as a single, unified contract.
+
+Verbs bear formal semantics on par with nouns. Whereas a noun denotes an entity, a verb denotes a relation among entities; a formal assertion is formed only when a verb relates nouns. For example, in `The trion language shall express specifications in a controlled natural language.`, the verb `express` establishes a relation among the three noun phrases, while the modal `shall` confers normative force upon that relation. Consequently, a specification must formally define its verbs just as rigorously as it defines its nouns.
+
+Every constituent phrase within a sentence maps strictly to either the assumption or the guarantee of the contract. In the example above, `in a controlled natural language` belongs to the guarantee, whereas a phrase such as `in the production environment` may implicitly constitute an assumption even without an explicit conditional marker like `When`. The formal mechanism for determining whether a phrase binds to the assumption or the guarantee remains an open design question.
+
+## Proof
+
+The trustworthiness of trion rests upon two distinct levels of formal proof: a metatheoretic proof of the trion language itself, and an object-level proof certifying each verification result that trion produces.
+
+The metatheoretic proof concerns the inference rules that govern trion's logical vocabulary, through which sets of contracts are resolved. These rules are mathematically proven to be mutually consistent, sound (deriving a contradiction only when the contracts are genuinely mutually unsatisfiable), and refutationally complete (deriving a contradiction whenever they are). Furthermore, the resolution calculus is proven to be both terminating and confluent, guaranteeing a canonical result independent of the order in which the rules are applied. Established once for the language as a whole, this metatheory is what entitles a verification result to serve as a mathematical guarantee of internal consistency; merely verifying trion's specification within trion itself does not constitute such a proof.
+
+The proof of an individual verification result is a formal derivation verified by an external proof checker independent of trion. Crucially, this derivation originates directly from the surface text of the specification rather than from an intermediate formula generated by trion. Every step of the derivation is mechanically checked against the formal rules of the language: desugaring a composition, interpreting a short sentence as a contract, and applying the inference rules of the logical vocabulary. Because each sentence admits a single, unambiguous interpretation, the language rules leave the implementation no discretion over the contracts yielded by a text; any formula that does not strictly follow from the source text fails verification. Consequently, the implementation of trion itself removes the need to be trusted; the trusted computing base is confined strictly to the formal rules of the language and the independent proof checker.

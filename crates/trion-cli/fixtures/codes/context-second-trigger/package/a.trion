@@ -1,0 +1,4 @@
+namespace main
+When the API receives a call:
+    When the bell rings, the API shall stop.
+

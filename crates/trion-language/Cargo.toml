@@ -1,0 +1,15 @@
+[package]
+name = "trion-language"
+version.workspace = true
+edition.workspace = true
+description = "The trion language: controlled English statements, and the contracts that they are read as."
+
+[lib]
+name = "trion_language"
+path = "src/lib.rs"
+
+[dependencies]
+trion-solver.workspace = true
+serde.workspace = true
+regex.workspace = true
+thiserror.workspace = true

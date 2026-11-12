@@ -1,0 +1,91 @@
+namespace trion:
+    use formal
+
+    section "What a verification answers":
+        A verification means an examination of a specification by the trion processor.
+        A verification result means the answer of a verification.
+        The verdict of a verification result is consistent, inconsistent, or unknown.
+        A bound means a finite limit of a verification.
+        Each verification result names the bounds of the verification.
+
+        [VERIFY-UNKNOWN]
+        If a verification reaches a bound, then the trion processor shall report the verdict "unknown".
+
+        [VERIFY-UNKNOWN-NO-SUCCESS]
+        The trion processor shall not accept a specification whose verdict is "unknown".
+
+    section "Consistency":
+        A conflict means a set of contracts that no behavior satisfies in a possible situation.
+
+        [VERIFY-CONSISTENCY]
+        If a specification has a conflict, then the trion processor shall report the specification as inconsistent.
+
+        [VERIFY-CONFLICT-NAMED]
+        The trion processor shall name each statement of each conflict.
+
+        example CONFLICT-UNDER-A-CONDITION:
+            kind consistency
+            input """
+[D] The door is open or closed.
+[A] While the door is open, the lamp shall be lit.
+[B] While the door is open, the lamp shall not be lit.
+"""
+            expect inconsistent
+
+        A normative sentence excludes no situation.
+        A descriptive sentence excludes each situation that fails the descriptive sentence.
+
+        example CONDITIONS-TOGETHER:
+            kind consistency
+            input """
+[A] When a user sends a message, the API shall store the message.
+[B] While the room is archived, the API shall not store the message.
+"""
+            expect inconsistent
+
+        example CONDITIONS-EXCLUDED:
+            kind consistency
+            input """
+[A] When a user sends a message, the API shall store the message.
+[B] While the room is archived, the API shall not store the message.
+[C] While the room is archived, no user sends a message.
+"""
+            expect consistent
+
+        Each statement of a conflict allows the possible situation of the conflict.
+
+        example PROHIBITION-AND-ITS-BREACH:
+            kind consistency
+            input """
+[A] The user shall not send a message.
+[B] When the user sends a message, the API shall store the message.
+"""
+            expect consistent
+
+    section "Completeness":
+        A closed attribute means an attribute that an enumeration closes.
+        An open attribute means an attribute that no enumeration closes.
+        A missing case means a value of a closed attribute that no statement covers.
+
+        [VERIFY-COMPLETENESS]
+        If a specification has a missing case, then the trion processor shall report the missing case.
+
+        [VERIFY-OPEN-DOMAIN]
+        Each missing case that the trion processor reports shall be a value of a closed attribute.
+
+    section "Expected properties":
+        An expected property means a relation between statements that an author expects.
+        A check means a declaration that states an expected property.
+        The outcome of a check is proved, refuted, or unknown.
+
+        [VERIFY-PROPERTY]
+        The trion processor shall decide each check of a specification.
+
+        [VERIFY-PROPERTY-PROVED]
+        If the outcome of a check is proved, then the trion processor shall accept the check.
+
+        [VERIFY-PROPERTY-REFUTED]
+        If the outcome of a check is refuted, then the trion processor shall report the check as an error.
+
+        [VERIFY-PROPERTY-UNKNOWN]
+        If the outcome of a check is unknown, then the trion processor shall report the check as an error.

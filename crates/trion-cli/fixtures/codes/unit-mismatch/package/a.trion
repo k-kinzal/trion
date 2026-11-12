@@ -1,0 +1,11 @@
+package p edition "1"
+
+namespace p.x:
+    [A]
+    The timeout is less than the size.
+
+    [B]
+    The timeout is at most 5 seconds.
+
+    [C]
+    The size is at least 10 bytes.

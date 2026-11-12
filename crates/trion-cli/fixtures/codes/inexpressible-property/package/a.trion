@@ -1,0 +1,4 @@
+namespace x
+[H4]
+The API shall respond deterministically.
+

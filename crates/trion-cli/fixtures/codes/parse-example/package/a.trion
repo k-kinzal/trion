@@ -1,0 +1,8 @@
+namespace main
+example E:
+    kind syntax
+    form statement
+    input "The API shall stop."
+    expect accepted
+    expect accepted
+

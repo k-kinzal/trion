@@ -1,0 +1,9 @@
+namespace main
+[A] The API shall stop.
+[B] The API shall log the call.
+check SAME:
+    relation equivalent
+    left [A]
+    right [B]
+    using definitions
+

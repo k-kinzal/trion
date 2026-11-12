@@ -1,0 +1,4 @@
+namespace p.c:
+    use p.a
+    use p.b
+    [S] The API shall stop.

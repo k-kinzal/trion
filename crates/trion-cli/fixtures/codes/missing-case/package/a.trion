@@ -1,0 +1,4 @@
+namespace main
+[D] The status is Open or Closed.
+[L] When the status is Open, the API shall stop.
+

@@ -1,0 +1,102 @@
+// The Easy Approach to Requirements Syntax, as a specification set. Importing
+// this package requires the sentences of the importing namespace to be EARS,
+// unless the namespace declares a form as an extension.
+
+package ears edition "2026-11-09"
+
+namespace ears:
+    source EARS:
+        title "EARS: The Easy Approach to Requirements Syntax"
+        kind citation
+        locator "https://alistairmavin.com/ears/"
+        retrieved "2026-11-09"
+        path "sources/ears-patterns.txt"
+        sha256 "a9136d024ec0ada6103b8e45dc36218b62530f6097f3994d7d811858f26e980e"
+        quote Q1 "The application of the EARS notation produces requirements in a small number of patterns, depending on the clauses that are used. The patterns are illustrated below."
+        quote Q2 """
+The EARS Patterns
+Generic EARS syntax
+"""
+        quote Q3 "The clauses of a requirement written in EARS always appear in the same order. The basic structure of an EARS requirement is:"
+        quote Q4 "While <optional pre-condition>, when <optional trigger>, the <system name> shall <system response>"
+        quote Q5 "The EARS ruleset states that a requirement must have: Zero or many preconditions; Zero or one trigger; One system name; One or many system responses."
+        quote Q6 """
+Ubiquitous requirements
+Ubiquitous requirements are always active (so there is no EARS keyword)
+"""
+        quote Q7 "The <system name> shall <system response>"
+        quote Q8 "Example: The mobile phone shall have a mass of less than XX grams."
+        quote Q9 """
+State driven requirements
+State driven requirements are active as long as the specified state remains true and are denoted by the keyword While.
+"""
+        quote Q10 "While <precondition(s)>, the <system name> shall <system response>"
+        quote Q11 "Example: While there is no card in the ATM, the ATM shall display “insert card to begin”."
+        quote Q12 """
+Event driven requirements
+Event driven requirements specify how a system must respond when a triggering event occurs and are denoted by the keyword When.
+When <trigger>, the <system name> shall <system response>
+"""
+        quote Q13 "Example: When “mute” is selected, the laptop shall suppress all audio output."
+        quote Q14 """
+Optional feature requirements
+Optional feature requirements apply in products or systems that include the specified feature and are denoted by the keyword Where.
+"""
+        quote Q15 "Where <feature is included>, the <system name> shall <system response>"
+        quote Q16 "Example: Where the car has a sunroof, the car shall have a sunroof control panel on the driver door."
+        quote Q17 """
+Unwanted behaviour requirements
+Unwanted behaviour requirements are used to specify the required system response to undesired situations and are denoted by the keywords If and Then.
+"""
+        quote Q18 "If <trigger>, then the <system name> shall <system response>"
+        quote Q19 "Example: If an invalid credit card number is entered, then the website shall display “please re-enter credit card details”."
+        quote Q20 """
+Complex requirements
+The simple building blocks of the EARS patterns described above can be combined to specify requirements for richer system behaviour. Requirements that include more than one EARS keyword are called Complex requirements.
+"""
+        quote Q21 "While <precondition(s)>, When <trigger>, the <system name> shall <system response>"
+        quote Q22 "Example: While the aircraft is on ground, when reverse thrust is commanded, the engine control system shall enable reverse thrust."
+        quote Q23 "Complex requirements for unwanted behaviour also include the If-Then keywords."
+
+    classify sentences as syntax.
+
+    [EARS-SYNTAX] syntax is Ubiquitous, State-driven, Event-driven, Optional-feature, Unwanted-behaviour and Complex.
+        cite EARS#Q1
+        cite EARS#Q2
+
+    [EARS-PATTERN] An EARS pattern means one fixed form of a requirement.
+        cite EARS#Q3
+        cite EARS#Q4
+
+    [EARS-RULESET] A requirement shall have one system name and at least one system response.
+        cite EARS#Q5
+
+    [EARS-UBIQUITOUS] A Ubiquitous requirement means a requirement without an EARS keyword.
+        cite EARS#Q6
+        cite EARS#Q7
+        cite EARS#Q8
+
+    [EARS-STATE] A State-driven requirement means a requirement under the keyword `While`.
+        cite EARS#Q9
+        cite EARS#Q10
+        cite EARS#Q11
+
+    [EARS-EVENT] An Event-driven requirement means a requirement under the keyword `When`.
+        cite EARS#Q12
+        cite EARS#Q13
+
+    [EARS-OPTIONAL] An Optional-feature requirement means a requirement under the keyword `Where`.
+        cite EARS#Q14
+        cite EARS#Q15
+        cite EARS#Q16
+
+    [EARS-UNWANTED] An Unwanted-behaviour requirement means a requirement under the keywords `If` and `Then`.
+        cite EARS#Q17
+        cite EARS#Q18
+        cite EARS#Q19
+
+    [EARS-COMPLEX] A Complex requirement means a requirement under more than one EARS keyword.
+        cite EARS#Q20
+        cite EARS#Q21
+        cite EARS#Q22
+        cite EARS#Q23

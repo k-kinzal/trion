@@ -1,0 +1,21 @@
+package software edition "2026-11-12"
+
+namespace software:
+    primitive text, person
+
+    section "Programs":
+
+        A program means a text that a computer runs.
+        A command means a program that a person runs by name.
+        A subcommand means a command that is a part of a command.
+        An option means a word of a command line that changes the behavior of a command.
+        An exit status means the number that a command returns.
+        An editor means a program that shows a text to a person.
+        A language server means a program that serves an editor.
+
+    section "Files":
+
+        A file means a named text that a computer keeps.
+        A directory means a named set of files.
+        A path means the name that locates a file or a directory.
+        A digest means the SHA-256 value of a file.

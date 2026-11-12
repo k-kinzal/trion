@@ -1,0 +1,9 @@
+namespace main
+[F] When a request arrives, the API shall follow this flow:
+    step check: validate the request;
+    step save: store the request;
+    start check
+    start save
+    check -> save
+    finish save
+

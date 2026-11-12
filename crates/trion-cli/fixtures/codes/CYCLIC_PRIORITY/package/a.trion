@@ -1,0 +1,10 @@
+package p edition "1"
+
+namespace p.x:
+    [D1]
+    The door shall be open.
+        overrides [D2]
+
+    [D2]
+    While the alarm is active, the door shall be closed.
+        overrides [D1]

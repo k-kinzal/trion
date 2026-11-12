@@ -1,0 +1,16 @@
+# The trion package: the specification of trion, written in trion.
+
+[package]
+name = "trion"
+entry = "spec/trion.trion"
+
+[dependencies]
+formal = { path = "stdlib/formal" }
+software = { path = "stdlib/software" }
+
+# How `trion verify` verifies the trion package: the game between the
+# environment and the system, the properties of the reading, and the
+# stability of each outcome when a bound is raised.
+[verify]
+properties = true
+stability = true

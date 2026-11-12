@@ -1,0 +1,6 @@
+namespace p
+primitive API
+role service:
+    activate: The $subject shall use gRPC communication.
+    form METHOD: The $subject $operation shall $action. where $operation matches /^(/
+The API shall stop.

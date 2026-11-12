@@ -1,0 +1,7 @@
+package p edition "1"
+
+namespace p.x:
+    [D1]
+    The door shall be open.
+
+    overrides [D1]

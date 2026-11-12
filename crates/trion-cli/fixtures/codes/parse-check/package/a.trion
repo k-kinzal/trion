@@ -1,0 +1,8 @@
+namespace main
+[A] The API shall stop.
+[B] The API shall stop.
+check SAME:
+    relation equivalent
+    left [A]
+    right [B]
+

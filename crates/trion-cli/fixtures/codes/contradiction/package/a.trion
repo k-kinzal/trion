@@ -1,0 +1,7 @@
+namespace p
+[O] There is an order.
+[B] There is a buyer.
+[C] concept:
+    each order -> has -> exactly one buyer;
+    each order -> has -> at least two buyers;
+

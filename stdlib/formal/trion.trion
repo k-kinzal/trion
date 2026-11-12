@@ -1,0 +1,42 @@
+package formal edition "2026-11-12"
+
+namespace formal:
+    primitive situation, symbol, set, pair, sequence, collection
+
+    section "Formulas and what satisfies them":
+
+        A formula means a statement that has a truth value in each situation.
+        The truth value of a formula is true or false.
+        An atom means a formula that has no part that is a formula.
+        A situation satisfies a formula exactly when the formula is true in the situation.
+        A conjunction means a formula that is true exactly when each part of the formula is true.
+        A disjunction means a formula that is true exactly when at least one part of the formula is true.
+        A negation means a formula that is true exactly when the part of the formula is false.
+        An implication means a formula that has a premise and a conclusion.
+        An implication is false exactly when the premise of the implication is true and the conclusion of the implication is false.
+
+        A formula set means a collection of formulas.
+        A formula set is satisfiable exactly when at least one situation satisfies each formula of the formula set.
+        A formula set is unsatisfiable exactly when no situation satisfies each formula of the formula set.
+        A model means a situation that satisfies each formula of a formula set.
+
+    section "Contracts":
+
+        A contract means a pair of an assumption and a guarantee.
+        An assumption means the formula that a contract supposes.
+        A guarantee means the formula that a contract requires.
+        A situation satisfies a contract exactly when the situation does not satisfy the assumption of the contract or the situation satisfies the guarantee of the contract.
+        A contract holds vacuously in a situation exactly when the situation does not satisfy the assumption of the contract.
+
+    section "Proofs":
+
+        An inference rule means a rule that derives a formula from formulas.
+        A derivation means a sequence of applications of inference rules.
+        A contradiction means a formula that no situation satisfies.
+        A proof means a derivation that a proof checker accepts.
+        A proof checker means a program that checks each step of a derivation against the inference rules.
+        A calculus means a set of inference rules.
+        A calculus is sound exactly when each formula set that yields a contradiction in the calculus is unsatisfiable.
+        A calculus is refutationally complete exactly when each unsatisfiable formula set yields a contradiction in the calculus.
+        A calculus is terminating exactly when each derivation of the calculus ends.
+        A calculus is confluent exactly when each order of rule applications reaches the same result.

@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+trion-solver = { path = "crates/trion-solver" }
+trion-language = { path = "crates/trion-language" }
+trion-verification = { path = "crates/trion-verification" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+sha2 = "0.10"
+tempfile = "3"
+
+# The analysis searches for conflicts over a trace; without optimisation one
+# run takes more than a minute, and the editors run the command on every change.
+[profile.dev.package.trion-solver]
+opt-level = 3
+
+[profile.dev.package.trion-language]
+opt-level = 3
+
+[profile.dev.package.trion-verification]
+opt-level = 3
+

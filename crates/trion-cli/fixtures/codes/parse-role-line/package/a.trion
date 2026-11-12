@@ -1,0 +1,6 @@
+namespace p
+primitive API
+role service:
+    activate: The $subject shall use gRPC communication.
+    sometimes X: The $subject shall stop.
+The API shall stop.

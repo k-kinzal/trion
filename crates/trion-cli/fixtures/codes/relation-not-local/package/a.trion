@@ -1,0 +1,7 @@
+namespace p
+primitive user
+primitive message
+primitive room
+[M] The user may delete the message.
+[R] The room shall be archived.
+[P] While the room is archived, the user shall not delete the message.

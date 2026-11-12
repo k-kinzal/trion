@@ -1,0 +1,26 @@
+namespace trion:
+    use software
+
+    section "Files, packages and namespaces":
+        A source file means a file that holds statements of the trion language.
+        A package means a directory that holds a manifest and source files.
+        A manifest means the file "trion.toml" of a package.
+        An entry file means the source file that a manifest names.
+        A namespace means a named group of terms and statements.
+        A section means a titled group of statements inside a namespace.
+        A dependency means a package that a manifest names.
+        The standard library means the packages that the trion project provides for reuse.
+
+        Each package has exactly one manifest.
+        Each manifest names exactly one entry file.
+        Each source file belongs to exactly one package.
+        Each statement belongs to exactly one namespace.
+
+        [DOCUMENT-INCLUDE]
+        The trion processor shall read each source file that the entry file includes.
+
+        [DOCUMENT-USE]
+        Where a namespace uses a namespace of a dependency, the trion processor shall resolve the terms of that dependency.
+
+        [DOCUMENT-SECTION-NO-MEANING]
+        A section shall add no contract to a specification.

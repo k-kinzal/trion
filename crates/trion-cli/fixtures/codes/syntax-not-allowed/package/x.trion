@@ -1,0 +1,4 @@
+namespace p.x:
+    use ears
+    extend ears::syntax with Prohibition.
+    The API shall not stop.

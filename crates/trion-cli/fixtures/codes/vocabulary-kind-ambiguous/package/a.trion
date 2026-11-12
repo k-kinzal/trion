@@ -1,0 +1,11 @@
+package p edition "1"
+
+namespace p.x:
+    [I]
+    Each guest is a user.
+
+    [J]
+    Each user is a person.
+
+    [N]
+    No guest is a person.

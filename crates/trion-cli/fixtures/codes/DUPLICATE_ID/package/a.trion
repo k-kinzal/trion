@@ -1,0 +1,10 @@
+namespace p
+source R:
+    title "One"
+    locator "https://example.com/1"
+    quote X "x"
+source R:
+    title "Two"
+    locator "https://example.com/2"
+    quote X "x"
+

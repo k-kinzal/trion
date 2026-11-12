@@ -1,0 +1,59 @@
+package trion edition "0.2.0-draft.1"
+
+include "sentences.trion"
+include "words.trion"
+include "composition.trion"
+include "verification.trion"
+include "evidence.trion"
+include "proof.trion"
+include "documents.trion"
+include "tool.trion"
+
+namespace trion:
+    use formal
+    use software
+
+    primitive person, problem, readability, rigor, system, source
+
+    section "What trion is":
+        The trion language means a formal specification language that is a controlled natural language.
+        A statement means a sentence of the trion language.
+        A specification means a set of statements.
+        An author means a person or a program that writes a specification.
+        A reader means a person who reads a specification.
+
+        Each statement has exactly one formal meaning.
+        The trion language has a strict syntax and a formal semantics.
+        The trion processor means the program that reads a specification and verifies that specification.
+
+        A specification has consistency, completeness, and expected properties.
+
+        [TRION-VERIFIABLE]
+        The trion processor shall verify the consistency, the completeness, and the expected properties of each specification.
+
+    section "A specification is a document":
+        Each specification describes a system.
+        Each specification is a document.
+        The documentation of a system means a document that a reader reads in order to understand the system.
+
+        [TRION-DOCUMENT]
+        Each specification shall serve as the documentation of a system.
+
+        [TRION-RIGOR-FIRST]
+        If readability conflicts with rigor, then the trion language shall prefer rigor.
+
+    section "A specification rests on evidence":
+        Evidence means a source that states the origin or the rationale of a statement.
+        An origin means a source that yields a statement.
+        A rationale means a problem that a statement solves.
+        The validity of a specification means the fitness of the specification for the problem of an author.
+
+        [TRION-EVIDENCE]
+        Each statement shall have evidence.
+
+        [TRION-EVIDENCE-AUDIT]
+        The trion processor shall trace each statement to the evidence of the statement.
+
+        Verification guarantees the internal consistency of a specification.
+        Evidence guarantees no validity.
+        A person audits the validity of a specification with the evidence of the specification.

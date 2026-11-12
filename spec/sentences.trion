@@ -1,0 +1,175 @@
+namespace trion:
+    use formal
+
+    primitive behavior, moment
+
+    section "The short sentence is the unit of meaning":
+        A short sentence means a statement that has exactly one reading.
+        The reading of a short sentence is exactly one contract.
+        A specification is a set of short sentences.
+        The formal meaning of a specification is the conjunction of the contracts of the short sentences of the specification.
+
+        [SENTENCE-ONE-READING]
+        The trion processor shall read each short sentence as exactly one contract.
+
+        [SENTENCE-ONLY-UNIT]
+        Each statement that the trion processor verifies shall be a short sentence.
+
+    section "Satisfiable is less than consistent":
+        A behavior satisfies a contract exactly when the assumption of the contract does not hold in the behavior or the guarantee of the contract holds in the behavior.
+        A specification is satisfiable exactly when at least one behavior satisfies each contract of the specification.
+
+        A normative sentence means a short sentence that obliges, forbids, recommends, or permits.
+        A descriptive sentence means a short sentence that has no normative force.
+        A possible situation means a situation that satisfies each descriptive sentence of a specification.
+        A specification is consistent exactly when each possible situation satisfies the guarantee of each contract whose assumption holds in the situation.
+
+        [SENTENCE-VACUOUS]
+        The trion processor shall accept a specification as consistent only if each possible situation satisfies the guarantee of each contract whose assumption holds in the situation.
+
+    section "What a contract is made of":
+        A contract atom means an atom of the assumption or of the guarantee of a contract.
+        The kind of a contract atom is act, forbid, discouraged, event, value, domain, or configuration.
+
+        An act atom means a contract atom that states the completion of an action by a subject.
+        A forbid atom means a contract atom that forbids an action.
+        A discouraged atom means a contract atom that discourages an action.
+        An event atom means a contract atom that states the occurrence of an event.
+        A value atom means a contract atom that gives a value to an attribute.
+        A domain atom means a contract atom that admits a value of an attribute.
+        A configuration atom means a contract atom that states a feature of a system.
+
+    section "A normative sentence and its contract":
+        The modal verb of a normative sentence is "shall", "must", "should", or "may".
+        The normative force of a normative sentence is obligation, prohibition, recommendation, or permission.
+        An obligation means a normative sentence that requires an action.
+        A prohibition means a normative sentence that forbids an action.
+        A recommendation means a normative sentence that advises an action.
+        A permission means a normative sentence that allows an action.
+
+        The guarantee of an obligation holds an act atom, the negation of a forbid atom, and the negation of a discouraged atom.
+
+        example OBLIGATION:
+            kind reading
+            form contract
+            input "The API shall stop."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        The guarantee of a prohibition holds the negation of an act atom and a forbid atom.
+
+        example PROHIBITION:
+            kind reading
+            form contract
+            input "The API shall not stop."
+            expect "assume: ⊤"
+            expect "guarantee: (¬Act(API|stop) ∧ Forbid(API|stop))"
+
+        The guarantee of a recommendation holds the negation of a forbid atom and the negation of a discouraged atom.
+
+        example RECOMMENDATION:
+            kind reading
+            form contract
+            input "The API should stop."
+            expect "assume: ⊤"
+            expect "guarantee: (¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        The guarantee of a permission holds the negation of a forbid atom.
+
+        example PERMISSION:
+            kind reading
+            form contract
+            input "The API may stop."
+            expect "assume: ⊤"
+            expect "guarantee: ¬Forbid(API|stop)"
+
+        No behavior satisfies an obligation and a prohibition of the same action.
+
+        example OBLIGATION-AGAINST-PROHIBITION:
+            kind consistency
+            input """
+[A] The API shall stop.
+[B] The API shall not stop.
+"""
+            expect inconsistent
+
+    section "A condition is the assumption":
+        A condition means a clause that restricts the situations of a short sentence.
+        Each phrase of a short sentence belongs to the assumption or to the guarantee of the contract of the short sentence.
+        Each condition of a short sentence belongs to the assumption of the contract of the short sentence.
+
+        A "When" clause names an event, and the assumption holds at each occurrence of the event.
+
+        example WHEN:
+            kind reading
+            form contract
+            input "When the door opens, the bell shall ring."
+            expect "assume: Event(door open)"
+            expect "guarantee: (Act(bell|ring) ∧ ¬Forbid(bell|ring) ∧ ¬Discouraged(bell|ring))"
+
+        A "While" clause names a state, and the assumption holds throughout the state.
+
+        example WHILE:
+            kind reading
+            form contract
+            input "While the door is open, the lamp shall be lit."
+            expect "assume: Val(door, open)"
+            expect "guarantee: Val(lamp, lit)"
+
+        An "If" clause names an unwanted event.
+
+        example IF:
+            kind reading
+            form contract
+            input "If the sensor fails, then the alarm shall sound."
+            expect "assume: Event(sensor fail)"
+            expect "guarantee: (Act(alarm|sound) ∧ ¬Forbid(alarm|sound) ∧ ¬Discouraged(alarm|sound))"
+
+        A "Where" clause names a feature that a system includes.
+
+        example WHERE:
+            kind reading
+            form contract
+            input "Where the car has a sunroof, the car shall have a sunroof control."
+            expect "assume: Config(car have sunroof)"
+            expect "guarantee: (Act(car|have sunroof control) ∧ ¬Forbid(car|have sunroof control) ∧ ¬Discouraged(car|have sunroof control))"
+
+        A behavior satisfies each contract whose assumption does not hold in the behavior.
+
+        example CONDITIONS-APART:
+            kind consistency
+            input """
+[A] While the door is open, the lamp shall be lit.
+[B] While the door is closed, the lamp shall not be lit.
+"""
+            expect consistent
+
+    section "A descriptive sentence and its contract":
+        A descriptive sentence has no modal verb.
+        The contract of a descriptive sentence holds in each possible situation.
+        A definition means a descriptive sentence that gives a meaning to a term.
+        An enumeration means a descriptive sentence that lists the values of an attribute.
+
+        example ENUMERATION:
+            kind reading
+            form contract
+            input "The door is open or closed."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(door, open) ∧ Dom(door, closed))"
+
+        example DEFINITION:
+            kind reading
+            form contract
+            input "A guest means a user without an account."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(guest, user) ∧ (¬Act(guest|has account) ∧ ¬Act(guest|have account)))"
+
+        An enumeration closes the values of an attribute.
+
+        example VALUE-OUTSIDE:
+            kind consistency
+            input """
+[D] The door is open or closed.
+[A] The door shall be ajar.
+"""
+            expect inconsistent

@@ -1,0 +1,5 @@
+[package]
+name = "p"
+
+[vocabulary]
+mode = "guess"

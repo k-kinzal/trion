@@ -1,0 +1,9 @@
+namespace p
+source S:
+    kind requirement
+    path "s.txt"
+    sha256 "57cb5681628e1eb9936e5ddccb4c7f0531d89b9bda73c8c9831069635039982f"
+    title "S"
+    locator "file:s.txt"
+    quote ALL "The API stops."
+

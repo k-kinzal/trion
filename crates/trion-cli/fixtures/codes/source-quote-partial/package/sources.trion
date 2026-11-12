@@ -1,0 +1,11 @@
+namespace p
+source R:
+    kind requirement
+    path "source.txt"
+    sha256 "0c0acec98aa144875d882416be5fc94c69ae6685ec1b19761b6fcdc57c8f1827"
+    title "R"
+    locator "file:source.txt"
+    transcript first
+    quote ONE "要求その一"
+    quote TWO "要求その二です。"
+

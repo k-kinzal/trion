@@ -1,0 +1,10 @@
+namespace p
+source R:
+    kind requirement
+    path "r.txt"
+    sha256 "59c3dd85851e3ae2c9ede2a95253439767fff6915df52eeb0b63e04967d56784"
+    title "R"
+    locator "file:r.txt"
+    quote ONE "The API never stops."
+    quote TWO "The API shall log each call."
+

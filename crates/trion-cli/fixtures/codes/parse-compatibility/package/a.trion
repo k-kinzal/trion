@@ -1,0 +1,13 @@
+namespace p
+source ORACLE:
+    title "The base grammar"
+    kind citation
+    locator "https://example.test/grammar"
+    revision "abc123"
+compatibility BASE-SENTENCES:
+    source ORACLE
+    form Definition
+    form Event-driven
+[A] The API shall stop.
+    unsourced "A fixture."
+

@@ -1,0 +1,5 @@
+namespace main
+note "first
+second"
+[A] The API shall stop.
+

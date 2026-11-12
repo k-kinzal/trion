@@ -1,0 +1,39 @@
+namespace trion:
+    use software
+
+    section "The trion command":
+        The trion command means the command that runs the trion processor.
+        The trion verify command means the subcommand of the trion command that verifies a package.
+        The trion doc command means the subcommand of the trion command that writes a document of a package.
+        The trion lsp command means the subcommand of the trion command that serves an editor.
+        A diagnostic means a message that the trion command reports about a package.
+        The severity of a diagnostic is error, warning, or information.
+        A gate means a step of the trion verify command.
+        The state of a gate is passed, failed, or skipped.
+        A verified package means a package that has no failed gate.
+        Each package has one or more readings.
+
+        [TOOL-VERIFY]
+        When an author runs the trion verify command on a package P,
+        the trion verify command shall follow this flow:
+            step check: check the statements of P;
+            step sources: check the sources of P;
+            step prover: decide the queries of P with the external prover;
+            step properties: check the readings of P;
+            step stability: decide P at raised bounds;
+
+            start check
+            check -> sources
+            sources -> prover
+            prover -> properties
+            properties -> stability
+            finish stability
+
+        [TOOL-EXIT]
+        If a gate of a package is failed, then the trion verify command shall fail.
+
+        [TOOL-DOC-VERIFIED]
+        The trion doc command shall write a document of a verified package only.
+
+        [TOOL-LSP]
+        The trion lsp command shall report the diagnostics of each open source file to the editor.

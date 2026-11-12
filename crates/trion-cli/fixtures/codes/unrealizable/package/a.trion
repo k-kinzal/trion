@@ -1,0 +1,10 @@
+namespace x
+primitive API
+primitive room
+primitive user
+primitive message
+[C1]
+The API shall lock the room before the user sends a message.
+
+[C0]
+When the user sends a message, the API shall store the message.

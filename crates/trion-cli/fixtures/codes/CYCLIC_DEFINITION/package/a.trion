@@ -1,0 +1,4 @@
+namespace main
+alias statement = normative statement
+[D] A statement means a normative statement.
+

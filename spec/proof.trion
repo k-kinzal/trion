@@ -1,0 +1,77 @@
+namespace trion:
+    use formal
+    use software
+
+    section "Two levels of proof":
+        The metatheoretic proof means the proof about the trion language.
+        A result proof means the proof that certifies exactly one verification result.
+        The trustworthiness of the trion language rests on the metatheoretic proof and on the result proofs.
+
+    section "The metatheoretic proof":
+        The logical vocabulary means the words of the trion language that join formulas.
+        The resolution calculus means the calculus that resolves a set of contracts with the inference rules of the logical vocabulary.
+
+        [PROOF-RULES-CONSISTENT]
+        The inference rules of the logical vocabulary shall be mutually consistent.
+
+        The resolution calculus has soundness, refutational completeness, termination, and confluence.
+
+        [PROOF-SOUND]
+        The metatheoretic proof shall establish the soundness of the resolution calculus.
+
+        [PROOF-COMPLETE]
+        The metatheoretic proof shall establish the refutational completeness of the resolution calculus.
+
+        [PROOF-TERMINATING]
+        The metatheoretic proof shall establish the termination of the resolution calculus.
+
+        [PROOF-CONFLUENT]
+        The metatheoretic proof shall establish the confluence of the resolution calculus.
+
+        [PROOF-NOT-SELF-VERIFICATION]
+        The trion processor shall not accept a verification result as the metatheoretic proof.
+
+    section "The proof of a verification result":
+        An external proof checker means a proof checker that is independent of the trion processor.
+        The surface text means the text of a specification that an author wrote.
+        An expansion rule means a rule that expands a composition.
+        A reading rule means a rule that reads a short sentence as a contract.
+        A language rule means an expansion rule, a reading rule, or an inference rule of the logical vocabulary.
+        Each result proof has one or more steps.
+
+        [PROOF-EXTERNAL]
+        An external proof checker shall check each result proof.
+
+        [PROOF-FROM-TEXT]
+        Each result proof shall start from the surface text of the specification.
+
+        [PROOF-EVERY-STEP]
+        The external proof checker shall check each step of a result proof against the language rules.
+
+    section "What is trusted":
+        The trusted base means the set of things that a person trusts for a verification result.
+        The trusted base has one or more members.
+
+        [PROOF-NO-DISCRETION]
+        The language rules shall determine the contracts of each surface text.
+
+        Each surface text has one or more contracts.
+
+        [PROOF-REJECT-FOREIGN]
+        If a formula of a result proof does not follow from the surface text, then the external proof checker shall reject the result proof.
+
+        [PROOF-TRUSTED-BASE]
+        Each member of the trusted base shall be a language rule or the external proof checker.
+
+    section "An external prover decides each query again":
+        A query means a formula set that the trion processor decides for a verification result.
+        The external prover means a program outside the trion processor that decides a query.
+
+        [PROVER-ASKED]
+        The trion processor shall send each query of a verification result to the external prover.
+
+        [PROVER-DIFFERENCE]
+        If the answer of the external prover differs from the answer of the trion processor, then the trion processor shall report an error.
+
+        [PROVER-OPEN]
+        If the external prover gives no answer to a query, then the trion processor shall report an error.

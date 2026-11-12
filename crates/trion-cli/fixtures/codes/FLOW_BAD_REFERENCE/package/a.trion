@@ -1,0 +1,11 @@
+namespace main
+[F] When the checker receives a result R, the checker shall follow this flow:
+    step inspect: read R;
+    step good: publish the success for R;
+    step bad: publish the failure for R;
+    start inspect
+    choose after inspect
+        otherwise -> bad
+    finish good
+    finish bad
+

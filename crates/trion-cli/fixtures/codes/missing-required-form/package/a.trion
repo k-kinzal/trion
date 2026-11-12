@@ -1,0 +1,7 @@
+namespace p
+primitive API
+primitive gRPC communication
+role service:
+    activate: The $subject shall use gRPC communication.
+    required ERRORS: The $subject shall define status codes.
+The API shall use gRPC communication.

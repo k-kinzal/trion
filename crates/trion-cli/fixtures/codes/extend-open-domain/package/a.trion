@@ -1,0 +1,4 @@
+namespace main
+kind is A.
+extend kind with C.
+

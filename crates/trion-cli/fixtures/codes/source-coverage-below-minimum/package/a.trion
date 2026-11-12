@@ -1,0 +1,6 @@
+namespace p
+[A] The API shall stop.
+    cite R#ONE
+[B] The API shall log each call.
+    cite R#TWO
+

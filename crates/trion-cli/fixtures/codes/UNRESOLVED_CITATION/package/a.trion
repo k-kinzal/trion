@@ -1,0 +1,11 @@
+namespace p
+source R:
+    title "R"
+    locator "https://example.com/r"
+    quote ONE "Stop."
+source S:
+    title "S"
+    locator "https://example.com/s"
+[A] The API shall stop.
+    cite S#ONE
+

@@ -1,0 +1,10 @@
+package p edition "1"
+
+namespace p.x:
+    [A]
+    The language shall support sentence composition.
+        detailed by [B]
+
+    [B]
+    The parser shall read the action list.
+        detailed by [A]

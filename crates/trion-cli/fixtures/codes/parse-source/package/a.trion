@@ -1,0 +1,6 @@
+namespace main
+source DOC:
+    title "t"
+    locator "l"
+    author "me"
+

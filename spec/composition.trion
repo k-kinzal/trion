@@ -1,0 +1,108 @@
+namespace trion:
+    use formal
+
+    section "A composition stands for short sentences":
+        A composition means a statement that joins short sentences.
+        An expansion means a set of short sentences that replaces a composition.
+        Each composition has exactly one expansion.
+        A complex sentence means a composition that is exactly one sentence.
+        A document structure means a composition that spans more than one sentence.
+        Each complex sentence is a composition, and each document structure is a composition.
+
+        [COMPOSITION-EXPANDS]
+        The trion processor shall read each composition as the expansion of the composition.
+
+        [COMPOSITION-NO-MEANING]
+        The trion processor shall add no contract to the contracts of the expansion of a composition.
+
+        [COMPOSITION-VALID]
+        Each short sentence of an expansion shall be a statement of the trion language.
+
+    section "A shared condition":
+        A shared condition means a document structure that states exactly one condition for a group of statements.
+        The expansion of a shared condition holds each statement with the condition.
+
+        example SHARED-CONDITION:
+            kind reading
+            form contract
+            input """
+When the bell rings:
+    [A] the API shall stop.
+    [B] the API shall log the call.
+"""
+            expect "assume: Event(bell ring)"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+            expect "assume: Event(bell ring)"
+            expect "guarantee: (Act(API|log call) ∧ ¬Forbid(API|log call) ∧ ¬Discouraged(API|log call))"
+
+    section "A selection and a sequence stay one contract":
+        A selection means a composition that offers alternatives.
+        A sequence means a composition that orders actions.
+        An action list means a composition that lists actions under exactly one modal verb.
+        The operator of an action list is conjunction, inclusive choice, exclusive choice, or order.
+
+        [COMPOSITION-KEPT]
+        The trion processor shall read each selection and each sequence as exactly one contract.
+
+        The guarantee of a selection is a disjunction.
+
+        example ONE-OR-MORE:
+            kind reading
+            form contract
+            input """
+The API shall perform one or more of the following actions:
+    accept the call;
+    reject the call;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|accept call) ∧ ¬Forbid(API|accept call) ∧ ¬Discouraged(API|accept call)) ∨ (Act(API|reject call) ∧ ¬Forbid(API|reject call) ∧ ¬Discouraged(API|reject call)))"
+
+        An action list of the exclusive choice operator excludes each further alternative.
+
+        example EXACTLY-ONE:
+            kind reading
+            form contract
+            input """
+The API shall perform exactly one of the following actions:
+    accept the call;
+    reject the call;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: (((Act(API|accept call) ∧ ¬Forbid(API|accept call) ∧ ¬Discouraged(API|accept call)) ∧ ¬(Act(API|reject call))) ∨ ((Act(API|reject call) ∧ ¬Forbid(API|reject call) ∧ ¬Discouraged(API|reject call)) ∧ ¬(Act(API|accept call))))"
+
+        The guarantee of a sequence orders the completions of the actions.
+
+        example IN-ORDER:
+            kind reading
+            form contract
+            input """
+The API shall perform the following actions in order:
+    stop;
+    log the stop;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop)) ∧ (Act(API|log stop) ∧ ¬Forbid(API|log stop) ∧ ¬Discouraged(API|log stop)) ∧ Before(API|stop, API|log stop))"
+
+        An action list of the conjunction operator requires each action of the action list.
+
+        example ALL:
+            kind reading
+            form contract
+            input """
+The API shall perform all of the following actions:
+    stop;
+    log the stop;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop)) ∧ (Act(API|log stop) ∧ ¬Forbid(API|log stop) ∧ ¬Discouraged(API|log stop)))"
+
+    section "An exception narrows the assumption":
+        An exception means a clause that begins with the word "unless".
+        The assumption of a short sentence that has an exception holds the negation of that exception.
+
+        example UNLESS:
+            kind reading
+            form contract
+            input "When the door closes, the door shall become locked, unless the key is present."
+            expect "assume: (Event(door close) ∧ ¬Val(key, present))"
+            expect "guarantee: Val(door, locked)"

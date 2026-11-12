@@ -1,0 +1,5 @@
+[package]
+name = "p"
+
+[dependencies]
+ears = { path = "/Users/ab/Projects/trion/stdlib/ears" }

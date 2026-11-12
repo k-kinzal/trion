@@ -1,0 +1,9 @@
+namespace p
+source R:
+    kind requirement
+    path "r.txt"
+    sha256 "6e4f644e1898ed72913529a7e62699e8fef6c60983dea39a793c663e2f0e9392"
+    title "R"
+    locator "file:r.txt"
+    quote SAME "同じ文です。"
+

@@ -1,0 +1,5 @@
+namespace p
+primitive API
+primitive call
+[C] The API shall either accept the call or reject the call.
+

@@ -1,0 +1,4 @@
+namespace p.svc:
+    use p.shapes
+    The API shall use gRPC communication.
+    The API `GET /foo` shall return foo.

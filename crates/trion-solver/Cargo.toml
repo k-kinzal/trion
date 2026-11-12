@@ -1,0 +1,12 @@
+[package]
+name = "trion-solver"
+version.workspace = true
+edition.workspace = true
+description = "The solver of trion: formulas, and whether a set of them has an interpretation, with a certificate for each answer."
+
+[lib]
+name = "trion_solver"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true

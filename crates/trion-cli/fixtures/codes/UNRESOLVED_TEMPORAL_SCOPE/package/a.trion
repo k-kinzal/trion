@@ -1,0 +1,4 @@
+namespace x
+[O2]
+When the timer expires, the API shall respond within 5 seconds of the last failure.
+

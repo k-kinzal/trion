@@ -1,0 +1,6 @@
+namespace main
+[F] The API shall follow this flow:
+    step check: validate the request;
+    start check
+    finish check
+

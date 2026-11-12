@@ -1,0 +1,29 @@
+namespace trion:
+    use software
+
+    section "Sources and citations":
+        A source declaration means a declaration that names a source and the quotes of the source.
+        A quote means an exact sentence of a source.
+        A citation means an annotation of a statement that names a source or a quote.
+        A local copy means a file that holds the text of a source.
+
+        [EVIDENCE-CITED]
+        The trion processor shall report each statement that has no citation.
+
+        [EVIDENCE-QUOTE-EXACT]
+        If the number of occurrences of a quote in a local copy is less than 1 or the number of occurrences of the quote in the local copy is greater than 1, then the trion processor shall report the quote.
+
+        [EVIDENCE-COPY-UNCHANGED]
+        If the digest of a local copy differs from the digest that the source declaration states, then the trion processor shall report the source.
+
+        The coverage of a source means the share of the local copy that the cited quotes cover.
+
+        [EVIDENCE-COVERAGE]
+        The trion processor shall report the coverage of each source that has a local copy.
+
+    section "Evidence is no proof of validity":
+        [EVIDENCE-NO-VALIDITY]
+        The trion processor shall not report a citation as a proof of validity.
+
+        [EVIDENCE-NO-CONSTRAINT]
+        A citation shall add no contract to a specification.

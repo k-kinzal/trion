@@ -1,0 +1,6 @@
+namespace p
+term API: entity
+term stop: action
+The API shall stop.
+The log shall rotate.
+

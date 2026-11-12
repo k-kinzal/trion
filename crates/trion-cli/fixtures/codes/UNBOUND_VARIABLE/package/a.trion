@@ -1,0 +1,4 @@
+namespace main
+When the checker completes an analysis A, the checker shall create an analysis report R for A.
+The checker shall retain R.
+

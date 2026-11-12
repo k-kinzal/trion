@@ -1,0 +1,3 @@
+package p edition "test"
+include "a.trion"
+include "b.trion"

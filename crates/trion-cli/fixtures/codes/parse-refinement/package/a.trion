@@ -1,0 +1,6 @@
+package p edition "1"
+
+namespace p.x:
+    [A]
+    The language shall support sentence composition.
+        detailed by C1

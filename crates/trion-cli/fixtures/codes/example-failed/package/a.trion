@@ -1,0 +1,20 @@
+namespace p
+source R:
+    title "Outer"
+    locator "https://example.com/r"
+[A] The API shall stop.
+example E:
+    kind syntax
+    form fragment
+    input """
+package q edition "x"
+include "missing.trion"
+namespace q:
+    source R:
+        title "Inner"
+        locator "https://example.com/inner"
+    [A] A room means a place.
+    [B] The room shall shall open.
+"""
+    expect accepted
+

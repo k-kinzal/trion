@@ -46,19 +46,9 @@ namespace trion:
         example CONDITIONS-EXCLUDED:
             kind consistency
             input """
-[A] When a user sends a message, the API shall store the message.
-[B] While the room is archived, the API shall not store the message.
-[C] While the room is archived, no user sends a message.
-"""
-            expect consistent
-
-        Each statement of a conflict allows the possible situation of the conflict.
-
-        example PROHIBITION-AND-ITS-BREACH:
-            kind consistency
-            input """
-[A] The user shall not send a message.
-[B] When the user sends a message, the API shall store the message.
+[A] While the door is open, the fan shall run.
+[B] While the alarm is active, the fan shall not run.
+[C] While the door is open, the alarm is never active.
 """
             expect consistent
 

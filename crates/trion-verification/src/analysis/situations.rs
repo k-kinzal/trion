@@ -1,5 +1,4 @@
-//! The situations of a specification: which conditions of its statements
-//! can hold together, and whether the statements can all be kept in each.
+//! The situations of a specification, and whether each has a response.
 //!
 //! The statements without normative force say which situations can occur. A
 //! specification is consistent only when, in each such situation, the
@@ -7,136 +6,85 @@
 //! That a behaviour keeps every contract is less: a contract is kept
 //! wherever its assumption does not hold.
 //!
-//! A statement with normative force can end a situation or forbid it: `When
-//! the door is open, the door shall become closed` cannot be kept where the
-//! door stays open. Such a statement excludes the situation alone, and it
-//! is in conflict with no other statement there. A conflict is a set of
-//! statements each of which can be kept in the situation alone, and which
-//! cannot all be kept in it.
+//! A situation is read at the level of the contracts: the assumption and
+//! the guarantee of a statement, without the moments of a trace. Which
+//! moment a response completes at, and what a deadline or an order adds,
+//! belongs to one activation of a statement and is decided over the trace.
+//!
+//! A term is a *response term* when the guarantee of a statement with
+//! normative force speaks about it: the action that the statement requires
+//! or forbids, the attribute whose state it requires. Every other term is
+//! named by a statement is *given*: a situation fixes it, and no response
+//! changes it. Two kinds of terms go with the response by rule. The event
+//! of an action is the occurrence of the action. A term that no statement
+//! names is made by the reading (the time of a moment, the count of an
+//! action, the time of a completion): a situation is told in the terms of
+//! the statements, so it fixes none of them.
+//!
+//! Two claims are decided, each as one formula with a universal and an
+//! existential quantifier ([`trion_solver::for_all_exists`]), and never by
+//! listing the situations:
+//!
+//! - *Each situation has a behaviour.* For every valuation of the given
+//!   terms that the descriptions allow, some valuation of the response
+//!   terms keeps the descriptions and every contract.
+//! - *The guarantees that apply fit together.* A condition can read a
+//!   response term, as `When the API stores the message` does. For every
+//!   valuation of all terms that the descriptions allow, read as what the
+//!   conditions see, some valuation of the response terms keeps the
+//!   descriptions and the guarantee of each contract whose condition holds
+//!   in the first valuation. A response cannot escape a guarantee by making
+//!   its condition false.
+//!
+//! Where no condition reads a response term the two claims are one.
 
 use crate::proof::Question;
 use std::collections::{BTreeMap, BTreeSet};
-use trion_language::reading::Model;
-use trion_solver::{Atom, Formula, Instance, Status};
-
-/// The truth value of a formula in a situation that a witness gives, or
-/// `None` where the witness does not tell it.
-fn holds(formula: &Formula, atoms: &BTreeMap<Atom, bool>, quantities: &BTreeMap<(String, String), i64>) -> Option<bool> {
-    use trion_solver::Cmp;
-    let compare = |value: i64, cmp: Cmp, n: i64| match cmp {
-        Cmp::Eq => value == n,
-        Cmp::Ge => value >= n,
-        Cmp::Le => value <= n,
-        Cmp::Gt => value > n,
-        Cmp::Lt => value < n,
-    };
-    match formula {
-        Formula::True => Some(true),
-        Formula::Atom(atom) => atoms.get(atom).copied().or_else(|| match atom {
-            Atom::Num { attr, unit, cmp, n } => quantities.get(&(attr.clone(), unit.clone())).map(|value| compare(*value, *cmp, *n)),
-            Atom::Lin { terms, unit, cmp, n } => {
-                let mut sum = 0i64;
-                for (attr, coefficient) in terms {
-                    sum = sum.checked_add(quantities.get(&(attr.clone(), unit.clone()))?.checked_mul(*coefficient)?)?;
-                }
-                Some(compare(sum, *cmp, *n))
-            }
-            _ => None,
-        }),
-        Formula::Not(inner) => holds(inner, atoms, quantities).map(|value| !value),
-        Formula::And(items) => {
-            let values: Vec<Option<bool>> = items.iter().map(|item| holds(item, atoms, quantities)).collect();
-            if values.contains(&Some(false)) {
-                Some(false)
-            } else if values.contains(&None) {
-                None
-            } else {
-                Some(true)
-            }
-        }
-        Formula::Or(items) => {
-            let values: Vec<Option<bool>> = items.iter().map(|item| holds(item, atoms, quantities)).collect();
-            if values.contains(&Some(true)) {
-                Some(true)
-            } else if values.contains(&None) {
-                None
-            } else {
-                Some(false)
-            }
-        }
-        Formula::Implies(a, b) => match (holds(a, atoms, quantities), holds(b, atoms, quantities)) {
-            (Some(false), _) | (_, Some(true)) => Some(true),
-            (Some(true), Some(false)) => Some(false),
-            _ => None,
-        },
-    }
-}
-
-
-/// The most largest situations that are examined.
-const ROUNDS: usize = 256;
-/// The most steps of the search within the largest situations.
-const STEPS: usize = 4096;
+use trion_language::reading::{ConstraintKind, Model};
+use trion_solver::{for_all_exists, Atom, ForAll, Formula, Instance, Status};
 
 /// A situation in which statements cannot all be kept.
 pub(super) struct Conflict {
-    /// The contracts whose conditions hold in the situation. No condition
-    /// can be left out.
+    /// The statements with a condition among them.
     pub(super) conditions: Vec<usize>,
-    /// The contracts that cannot all be kept there.
+    /// The contracts that cannot all be kept in the situation.
     pub(super) statements: Vec<usize>,
-    /// The groups of the conditions.
-    forced: Vec<usize>,
+    /// What the situation fixes, as far as the conflict needs it.
+    pub(super) facts: Vec<String>,
+    /// The situation can occur: the descriptions with what it fixes.
+    occurs: Vec<usize>,
+    /// The statements with what it fixes.
+    refuted: Vec<usize>,
 }
 
-/// What the search of the situations found.
+/// What the examination of the situations found.
 pub(super) struct Situations {
     pub(super) conflicts: Vec<Conflict>,
-    /// `true` when every situation was examined.
+    /// `true` when each claim was decided.
     pub(super) decided: bool,
-    /// How far the situations were examined, for a report.
+    /// How the situations were examined, for a report.
     pub(super) examined: String,
-    /// The groups that say which situations can occur.
-    possible: Vec<usize>,
-    /// Each situation in which the statements are kept: the groups of its
-    /// conditions and of the statements.
-    kept: Vec<Vec<usize>>,
-    /// Each statement that excludes a situation alone: the groups of the
-    /// conditions, and the statement.
-    excluded: Vec<(Vec<usize>, usize)>,
-    /// For each largest situation: a condition outside it holds, as a formula.
-    outside: Vec<usize>,
+    /// The queries whose refutation shows that every situation has a response.
+    answered: Vec<Vec<usize>>,
 }
 
 impl Situations {
     /// The questions that the answer rests on, each with its name. For a
-    /// conflict: its conditions hold together, each of its statements can
-    /// be kept under them alone, and the statements cannot all be kept
-    /// under them. Without a conflict: the statements are kept in each
-    /// situation that the search ended at, each statement that was left
-    /// out of one excludes it alone, and every situation lies within a
-    /// largest one. `None` when the solver does not give each answer that
-    /// the claim needs.
+    /// conflict: its situation can occur, and the statements cannot all be
+    /// kept in it. Without a conflict: no situation is left that the
+    /// responses found do not answer. `None` when the solver does not give
+    /// each answer that the claim needs.
     pub(super) fn questions(&self, inst: &Instance) -> Option<Vec<(String, Question)>> {
-        let with = |groups: &[usize], more: &[usize]| inst.query(&groups.iter().chain(more).copied().collect::<Vec<_>>(), &[]);
         let mut out = Vec::new();
-        let mut ask = |name: String, query: Vec<usize>, expected: Status| {
-            let question = Question::ask(inst, query);
+        let mut ask = |name: String, query: &[usize], expected: Status| {
+            let question = Question::ask(inst, query.to_vec());
             let given = question.status() == expected;
             out.push((name, question));
             given
         };
         for (number, conflict) in self.conflicts.iter().enumerate() {
             let number = number + 1;
-            if !ask(format!("situation {number}: the conditions hold together"), with(&self.possible, &conflict.forced), Status::Satisfiable) {
-                return None;
-            }
-            for (member, &statement) in conflict.statements.iter().enumerate() {
-                if !ask(format!("situation {number}: statement {} can be kept alone", member + 1), with(&self.possible, &[conflict.forced.as_slice(), &[statement]].concat()), Status::Satisfiable) {
-                    return None;
-                }
-            }
-            if !ask(format!("situation {number}: the statements cannot all be kept"), with(&self.possible, &[conflict.forced.as_slice(), conflict.statements.as_slice()].concat()), Status::Unsatisfiable) {
+            if !(ask(format!("situation {number}: the situation can occur"), &conflict.occurs, Status::Satisfiable) && ask(format!("situation {number}: the statements cannot all be kept"), &conflict.refuted, Status::Unsatisfiable)) {
                 return None;
             }
         }
@@ -144,204 +92,134 @@ impl Situations {
             if !self.decided {
                 return None;
             }
-            for (number, groups) in self.kept.iter().enumerate() {
-                if !ask(format!("situations: the statements are kept in the situation {}", number + 1), with(groups, &[]), Status::Satisfiable) {
+            for (number, query) in self.answered.iter().enumerate() {
+                if !ask(format!("situations: no situation is left without a response ({})", number + 1), query, Status::Unsatisfiable) {
                     return None;
                 }
-            }
-            for (number, (forced, statement)) in self.excluded.iter().enumerate() {
-                if !ask(format!("situations: the statement {} excludes its situation alone", number + 1), with(&self.possible, &[forced.as_slice(), &[*statement]].concat()), Status::Unsatisfiable) {
-                    return None;
-                }
-            }
-            if !self.outside.is_empty() && !ask("situations: every situation lies within a largest one".to_string(), with(&self.possible, &[]).into_iter().chain(self.outside.iter().copied()).collect(), Status::Unsatisfiable) {
-                return None;
             }
         }
         Some(out)
     }
 }
 
-/// Examines the situations of a model. `standing` gives, for a contract with
-/// a condition, the group that makes the condition hold while the response
-/// is due. `soft` tells whether a contract is only advice, and `described`
-/// whether its statement has no normative force.
-///
-/// A situation is a set of conditions that hold together. It can occur when
-/// the statements without normative force allow it. The largest situations
-/// are sought one after another: after each one the solver is asked for a
-/// situation that holds a condition outside every one found so far, until
-/// there is none. Only `ROUNDS` largest situations are sought.
-///
-/// Within a largest situation the statements are kept, or a least set of
-/// its conditions is found under which they are not. When a statement
-/// excludes that least situation alone, the statement is left out wherever
-/// those conditions hold together; otherwise the least situation is a
-/// conflict. Either way the search goes on in the situations that lack one
-/// of those conditions. Only `STEPS` steps are made.
-pub(super) fn search(model: &Model, inst: &Instance, standing: &BTreeMap<usize, usize>, soft: &dyn Fn(usize) -> bool, described: &dyn Fn(usize) -> bool) -> Situations {
+/// The mark of a term as a condition sees it, apart from what a response makes of it.
+const SEEN: char = '?';
+
+/// A formula with each response term replaced by the term as a condition sees it.
+fn seen(formula: &Formula, response: &dyn Fn(&str) -> bool) -> Formula {
+    let mark = |name: String| if response(&name) { format!("{SEEN}{name}") } else { name };
+    formula.clone().map_atoms(&|atom| match atom {
+        Atom::Dom { attr, value } => Atom::Dom { attr: mark(attr), value },
+        Atom::Val { attr, value } => Atom::Val { attr: mark(attr), value },
+        Atom::Act { key } => Atom::Act { key: mark(key) },
+        Atom::Forbid { key } => Atom::Forbid { key: mark(key) },
+        Atom::Discouraged { key } => Atom::Discouraged { key: mark(key) },
+        Atom::Event { key } => Atom::Event { key: mark(key) },
+        Atom::Config { key } => Atom::Config { key: mark(key) },
+        Atom::Role { subject, role } => Atom::Role { subject: mark(subject), role },
+        Atom::Num { attr, unit, cmp, n } => Atom::Num { attr: mark(attr), unit, cmp, n },
+        Atom::Lin { terms, unit, cmp, n } => Atom::Lin { terms: terms.into_iter().map(|(attr, coefficient)| (mark(attr), coefficient)).collect(), unit, cmp, n },
+        Atom::Before { first, second } => Atom::Before { first: mark(first), second: mark(second) },
+        Atom::Rel { name, args } => Atom::Rel { name: mark(name), args },
+    })
+}
+
+/// Examines the situations of a model. `environment` holds what is known
+/// of the events of the environment beyond the background of the model, and
+/// `events` names the action behind each event. `soft` tells whether a
+/// contract is only advice, and `described` whether its statement has no
+/// normative force. The formulas of the contracts are added to the instance.
+pub(super) fn search(model: &Model, inst: &Instance, environment: &[Formula], events: &BTreeMap<String, String>, soft: &dyn Fn(usize) -> bool, described: &dyn Fn(usize) -> bool) -> Situations {
     let count = model.constraints.len();
-    let hard = |i: usize| !model.constraints[i].kind.is_axiom() && !soft(i);
-    let all: Vec<usize> = (0..count).filter(|&i| model.constraints[i].kind.is_axiom() || hard(i)).collect();
-    let possible: Vec<usize> = all.iter().copied().filter(|&i| model.constraints[i].kind.is_axiom() || described(i)).collect();
-    // One condition for each distinct condition of a statement with normative force.
-    let mut conditions: Vec<(usize, usize)> = Vec::new();
-    let mut seen = BTreeSet::new();
-    for (&contract, &group) in standing {
-        if hard(contract) && !described(contract) && seen.insert(model.constraints[contract].assume.to_string()) {
-            conditions.push((group, contract));
+    let normative = |i: usize| matches!(model.constraints[i].kind, ConstraintKind::Spec | ConstraintKind::Permission) && !soft(i) && !described(i);
+    // The response terms: what a guarantee with normative force speaks about.
+    let mut terms: BTreeSet<String> = BTreeSet::new();
+    for c in (0..count).filter(|&i| normative(i)).map(|i| &model.constraints[i]) {
+        c.guarantee.atoms(true, &mut |atom, _| terms.extend(atom.symbols().into_iter().map(str::to_string)));
+    }
+    // An event is the occurrence of its action: it is a response where the action is one.
+    terms.extend(events.iter().filter(|(_, action)| terms.contains(action.as_str())).map(|(event, _)| event.clone()).collect::<Vec<_>>());
+    // A situation is told in the terms of the statements. A term that no
+    // statement names is made by the reading, as the count of an action is:
+    // it comes with the behaviour, and no situation fixes it.
+    let mut named: BTreeSet<String> = BTreeSet::new();
+    for c in &model.constraints {
+        for formula in [&c.assume, &c.guarantee] {
+            formula.atoms(true, &mut |atom, _| named.extend(atom.symbols().into_iter().map(str::to_string)));
         }
     }
-    let k = conditions.len();
-    let mut found = Situations { conflicts: Vec::new(), decided: true, examined: "no statement with normative force has a condition, so one situation was examined".to_string(), possible: possible.clone(), kept: Vec::new(), excluded: Vec::new(), outside: Vec::new() };
-    if k == 0 {
-        return found;
+    let response = |symbol: &str| !symbol.starts_with(SEEN) && (terms.contains(symbol) || !named.contains(symbol));
+    // What says which situations can occur, and what a behaviour must keep besides.
+    let mut contract_of: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut descriptions: Vec<usize> = model.background.iter().chain(environment).map(|axiom| inst.add(axiom)).collect();
+    for i in (0..count).filter(|&i| !normative(i) && !soft(i) && model.constraints[i].kind != ConstraintKind::Refinement) {
+        let id = inst.add(&model.constraints[i].formula());
+        contract_of.insert(id, i);
+        descriptions.push(id);
     }
-    let groups = |members: &[usize]| members.iter().map(|&m| conditions[m].0).collect::<Vec<_>>();
-    let mut open = false;
-    let formulas = inst.formulas();
-    let condition = |member: usize| formulas[inst.group(conditions[member].0)].clone();
-    // A situation that can occur and that holds a condition outside each
-    // largest situation found so far, with the conditions that hold in the
-    // witness that was found.
-    let allowed = |members: &[usize], outside: &[usize], open: &mut bool| -> Option<Vec<usize>> {
-        let mut active = possible.clone();
-        active.extend(groups(members));
-        let mut query = inst.query(&active, &[]);
-        query.extend_from_slice(outside);
-        let answer = inst.decide(&query);
-        match answer.status {
-            Status::Satisfiable => {
-                let (atoms, quantities) = answer.witness().map(|w| (w.atoms(), w.quantities())).unwrap_or_default();
-                Some((0..k).filter(|&member| holds(&condition(member), &atoms, &quantities) == Some(true)).collect())
-            }
-            Status::Unknown => {
-                *open = true;
-                None
-            }
-            Status::Unsatisfiable => None,
-        }
-    };
-    let mut largest: Vec<Vec<usize>> = Vec::new();
-    let mut outside: Vec<usize> = Vec::new();
-    let mut left = false;
-    loop {
-        let Some(mut members) = allowed(&[], &outside, &mut open) else { break };
-        if largest.len() == ROUNDS {
-            left = true;
-            break;
-        }
-        // The situation grows while one more condition can hold with it:
-        // then it is a largest one.
-        loop {
-            let rest: Vec<usize> = (0..k).filter(|other| !members.contains(other)).collect();
-            if rest.is_empty() {
-                break;
-            }
-            let more = inst.add(&Formula::Or(rest.iter().map(|&other| condition(other)).collect()));
-            let mut wanted = outside.clone();
-            wanted.push(more);
-            let Some(next) = allowed(&members, &wanted, &mut open) else { break };
-            let size = members.len();
-            members.extend(next.into_iter().filter(|member| rest.contains(member)));
-            if members.len() == size {
-                // The witness tells no further condition: each is asked for.
-                for other in rest {
-                    members.push(other);
-                    if allowed(&members, &outside, &mut open).is_none() {
-                        members.pop();
-                    }
-                }
-                break;
-            }
-        }
-        members.sort_unstable();
-        let rest: Vec<Formula> = (0..k).filter(|other| !members.contains(other)).map(condition).collect();
-        // A condition outside this situation holds; none is left when every condition is in it.
-        outside.push(inst.add(&Formula::Or(rest.clone())));
-        largest.push(members);
-        // Every condition holds together: no other situation is left.
-        if rest.is_empty() {
-            break;
-        }
-    }
-    found.outside = outside;
-    // Within each largest situation: the statements are kept, or a least
-    // set of conditions under which they are not is examined.
-    let refuted = |active: &[usize], open: &mut bool| match inst.status(active, &[]) {
-        Status::Unsatisfiable => true,
-        Status::Unknown => {
-            *open = true;
-            false
-        }
-        Status::Satisfiable => false,
-    };
-    let mut steps = 0usize;
-    let mut limited = false;
-    let mut visited: BTreeSet<(Vec<usize>, Vec<usize>)> = BTreeSet::new();
-    let mut stack: Vec<(Vec<usize>, Vec<usize>)> = largest.iter().rev().map(|members| (members.clone(), Vec::new())).collect();
-    while let Some((members, removed)) = stack.pop() {
-        if !visited.insert((members.clone(), removed.clone())) {
-            continue;
-        }
-        if steps == STEPS {
-            limited = true;
-            break;
-        }
-        steps += 1;
-        let statements: Vec<usize> = all.iter().copied().filter(|g| !removed.contains(g)).collect();
-        let under = |members: &[usize]| [statements.as_slice(), groups(members).as_slice()].concat();
-        if !refuted(&under(&members), &mut open) {
-            if !open {
-                found.kept.push(under(&members));
-            }
-            continue;
-        }
-        // The fewest of the conditions under which the statements are not kept.
-        let mut least = members.clone();
-        let mut at = 0;
-        while at < least.len() {
-            let mut fewer = least.clone();
-            fewer.remove(at);
-            if refuted(&under(&fewer), &mut open) {
-                least = fewer;
+    let premises: Vec<usize> = descriptions
+        .iter()
+        .map(|&id| {
+            let formula = inst.formulas()[id].clone();
+            let as_seen = seen(&formula, &response);
+            if as_seen == formula {
+                id
             } else {
-                at += 1;
+                inst.add(&as_seen)
             }
-        }
-        let forced = groups(&least);
-        let (core, _) = inst.unsat_subset(&under(&least), &[]);
-        let named: Vec<usize> = core.into_iter().filter(|&g| g < count && !possible.contains(&g)).collect();
-        // A statement that cannot be kept under the conditions alone ends
-        // the situation or forbids it: it is in conflict with nothing there.
-        let alone: Vec<usize> = named.iter().copied().filter(|&statement| refuted(&[possible.as_slice(), forced.as_slice(), &[statement]].concat(), &mut open)).collect();
-        if alone.is_empty() {
-            if !open && !found.conflicts.iter().any(|c| c.forced == forced) {
-                found.conflicts.push(Conflict { conditions: least.iter().map(|&m| conditions[m].1).collect(), statements: named, forced });
-            }
+        })
+        .collect();
+    // Each contract as a behaviour keeps it, and with its condition read apart from the response.
+    let mut kept: Vec<usize> = descriptions.clone();
+    let mut applied: Vec<usize> = descriptions.clone();
+    let mut reads_response = false;
+    for i in (0..count).filter(|&i| normative(i)) {
+        let c = &model.constraints[i];
+        let id = inst.add(&c.formula());
+        contract_of.insert(id, i);
+        kept.push(id);
+        let as_seen = seen(&c.assume, &response);
+        if as_seen == c.assume {
+            applied.push(id);
         } else {
-            found.excluded.extend(alone.iter().map(|&statement| (forced.clone(), statement)));
-            let mut without = removed.clone();
-            without.extend(alone);
-            without.sort_unstable();
-            without.dedup();
-            stack.push((members.clone(), without));
+            reads_response = true;
+            let apart = inst.add(&Formula::implies(as_seen, c.guarantee.clone()));
+            contract_of.insert(apart, i);
+            applied.push(apart);
         }
-        // What lacks one of those conditions is another situation.
-        for skip in 0..least.len() {
-            let fewer: Vec<usize> = members.iter().copied().filter(|m| *m != least[skip]).collect();
-            if !fewer.is_empty() {
-                stack.push((fewer, removed.clone()));
+    }
+    let mut found = Situations { conflicts: Vec::new(), decided: true, examined: String::new(), answered: Vec::new() };
+    let mut open: Option<String> = None;
+    let claims: Vec<&Vec<usize>> = if reads_response { vec![&kept, &applied] } else { vec![&kept] };
+    for conclusions in claims {
+        match for_all_exists(inst, &premises, conclusions, &response) {
+            ForAll::Holds { refuted } => found.answered.extend(refuted),
+            ForAll::Open { reason } => open = Some(reason),
+            ForAll::Fails { situations } => {
+                for unanswered in situations {
+                    let mut statements: Vec<usize> = unanswered.conclusions.iter().filter_map(|id| contract_of.get(id).copied()).collect();
+                    statements.sort_unstable();
+                    statements.dedup();
+                    if found.conflicts.iter().any(|c| c.statements == statements) {
+                        continue;
+                    }
+                    let current = inst.formulas();
+                    found.conflicts.push(Conflict {
+                        conditions: statements.iter().copied().filter(|&i| normative(i) && model.constraints[i].has_guard()).collect(),
+                        statements,
+                        facts: unanswered.given.iter().map(|&id| current[id].to_string().replace(SEEN, "")).collect(),
+                        occurs: premises.iter().chain(&unanswered.given).copied().collect(),
+                        refuted: unanswered.conclusions.iter().chain(&unanswered.given).copied().collect(),
+                    });
+                }
             }
         }
     }
-    found.decided = !(open || limited || left);
-    let scope = if left { format!("{} largest situations of the {k} conditions were examined, which is the limit, and further ones were left", largest.len()) } else { format!("each of the {} largest situations of the {k} conditions was examined, and every situation lies within one of them", largest.len()) };
-    let answer = match (found.conflicts.is_empty(), found.decided) {
-        (false, _) => format!("the statements cannot all be kept in {} situation(s)", found.conflicts.len()),
-        (true, true) => "the statements can all be kept in each situation".to_string(),
-        (true, false) => "no conflict was found, which decides nothing about the situations that were left".to_string(),
+    found.decided = open.is_none();
+    found.examined = match (&open, found.conflicts.len()) {
+        (_, conflicts) if conflicts > 0 => format!("the statements cannot all be kept in {conflicts} situation(s)"),
+        (Some(reason), _) => format!("not every situation was examined: {reason}"),
+        (None, _) => format!("every situation was examined through {} questions, without listing the situations; the statements can all be kept in each situation", found.answered.len()),
     };
-    found.examined = format!("{scope}; {answer}");
     found
 }

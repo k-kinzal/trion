@@ -122,9 +122,6 @@ struct Findings<'a> {
     conflicted: bool,
     /// A query ended at the bounds.
     unknown: bool,
-    /// The conflicts that are reported now are conflicts of a situation:
-    /// the questions of the situations certify them.
-    situation: bool,
     /// Refutations that have no row of their own in the inventory: the kind
     /// of the claim, the conditions that were forced and the refuted groups.
     refuted: Vec<(&'static str, Vec<Lit>, Vec<usize>)>,
@@ -136,6 +133,12 @@ impl Findings<'_> {
     /// Reports one conflict set. `conditions` are the statements whose
     /// conditions were forced; `minimal` tells whether the set was proved minimal.
     fn report(&mut self, model: &Model, members: &[usize], conditions: &[usize], minimal: bool) {
+        self.report_in(model, members, conditions, minimal, None);
+    }
+
+    /// Reports one conflict set. `facts` are what the situation of the
+    /// conflict fixes, when the conflict is one of a situation.
+    fn report_in(&mut self, model: &Model, members: &[usize], conditions: &[usize], minimal: bool, facts: Option<&[String]>) {
         let context: Vec<&SpecRef> = conditions.iter().filter_map(|&g| model.constraints[g].refs.first()).collect();
         let mut refs: Vec<SpecRef> = Vec::new();
         for r in members.iter().flat_map(|&m| &model.constraints[m].refs).chain(context.iter().copied()) {
@@ -165,19 +168,18 @@ impl Findings<'_> {
         let size = if minimal { String::new() } else { " (the analysis bounds ended before this set was proved minimal)".to_string() };
         let size = if reached.is_empty() { size } else { format!("{size}; {}, so the detailed statement cannot hold either", reached.join(" and ")) };
         let soft = members.iter().any(|&m| self.authored.is_recommendation(&model.constraints[m]));
-        if !self.situation && members.iter().any(|&m| model.constraints[m].kind == ConstraintKind::Form) {
+        if facts.is_none() && members.iter().any(|&m| model.constraints[m].kind == ConstraintKind::Form) {
             self.refuted.push(("shape-violation", conditions.iter().filter_map(|&g| self.guards.get(g).copied().flatten()).collect(), members.to_vec()));
         }
         // What the conflict is a conflict under.
-        let met = match context.as_slice() {
-            [] => String::new(),
-            [one] => format!(" when the condition of `{}` is met", one.text),
-            several => format!(" when the conditions of {} are met together, and no statement without a modal verb says that these conditions exclude each other", several.iter().map(|r| format!("`{}`", r.id)).collect::<Vec<_>>().join(", ")),
-        };
-        let advice = match context.len() {
-            0 => "",
-            1 => "; if one is an exception to the other, write it with `, unless`, or write `overrides [ID]` under the statement that wins",
-            _ => "; write the exception with `, unless`, write `overrides [ID]` under the statement that wins, or state without a modal verb that the conditions cannot hold together",
+        let (met, advice) = match (facts, context.as_slice()) {
+            (Some(facts), _) => (
+                format!(" in a situation that can occur: no statement without a modal verb excludes it{}", if facts.is_empty() { String::new() } else { format!(" ({})", facts.join(", ")) }),
+                "; write the exception with `, unless`, write `overrides [ID]` under the statement that wins, or state without a modal verb that the situation cannot occur",
+            ),
+            (None, []) => (String::new(), ""),
+            (None, [one]) => (format!(" when the condition of `{}` is met", one.text), "; if one is an exception to the other, write it with `, unless`, or write `overrides [ID]` under the statement that wins"),
+            (None, several) => (format!(" when the conditions of {} are met together", several.iter().map(|r| format!("`{}`", r.id)).collect::<Vec<_>>().join(", ")), "; write the exception with `, unless`, or write `overrides [ID]` under the statement that wins"),
         };
         let diagnostic = if members.iter().any(|&m| model.constraints[m].kind == ConstraintKind::Form) {
             Diagnostic::error("shape-violation", "this specification does not have the form its bound role requires: no such thing exists in that specification set", refs.clone())
@@ -192,7 +194,7 @@ impl Findings<'_> {
         // the specification unsatisfiable. A conflict under conditions leaves
         // it satisfiable, where the conditions never hold, and inconsistent
         // all the same: the conditions can hold.
-        self.unsatisfiable |= diagnostic.code != "recommendation-violation" && conditions.is_empty();
+        self.unsatisfiable |= diagnostic.code != "recommendation-violation" && conditions.is_empty() && facts.is_none();
         self.conflicted |= diagnostic.code != "recommendation-violation";
         let elements: Vec<ConflictElement> = refs.iter().map(|r| self.authored.element(r)).collect();
         let definitions = self.authored.definitions(&elements);
@@ -242,35 +244,52 @@ impl Conflicts {
     }
 }
 
+/// What the examination of the situations reads besides the model.
+pub(super) struct Situated {
+    /// What is known of the events of the environment beyond the background of the model.
+    environment: Vec<Formula>,
+    /// The action behind each event.
+    events: BTreeMap<String, String>,
+}
+
+impl Situated {
+    pub(super) fn of(model: &Model, control: &environment::Control) -> Self {
+        Self { environment: environment::environment_events(model, control), events: environment::event_actions(model) }
+    }
+}
+
 /// Decides the consistency of the contracts of a model and reports each
-/// conflict set. `standing` gives, for a contract with a condition, the
-/// group of the instance that makes the condition hold while the response is due.
+/// conflict set.
 ///
-/// The statements without normative force say which situations can occur.
-/// The statements are consistent when they can all hold, when they can all
-/// hold while the condition of each one is met, and when they can all be
-/// kept in each situation in which several conditions hold together.
-pub(super) fn search(model: &Model, inst: &Instance, standing: &BTreeMap<usize, usize>, authored: &Authored, diagnostics: &mut Vec<Diagnostic>) -> Conflicts {
-    let mut found = Findings { authored, diagnostics, conflicts: Vec::new(), seen: BTreeSet::new(), unsatisfiable: false, conflicted: false, unknown: false, situation: false, refuted: Vec::new(), guards: (0..model.constraints.len()).map(|g| inst.guard(g)).collect() };
-    let coverage = find_conflicts(model, inst, &mut found);
+/// Three things are decided. A behaviour keeps every statement: otherwise
+/// the statements are unsatisfiable. Each situation that the statements
+/// without normative force allow has a response that keeps every statement
+/// that applies in it: otherwise the statements are inconsistent. The
+/// condition of each statement can hold in a behaviour that keeps every
+/// statement: otherwise that statement requires nothing.
+pub(super) fn search(model: &Model, inst: &Instance, situated: &Situated, authored: &Authored, diagnostics: &mut Vec<Diagnostic>) -> Conflicts {
+    let mut found = Findings { authored, diagnostics, conflicts: Vec::new(), seen: BTreeSet::new(), unsatisfiable: false, conflicted: false, unknown: false, refuted: Vec::new(), guards: (0..model.constraints.len()).map(|g| inst.guard(g)).collect() };
+    let (active, advised) = find_conflicts(model, inst, &mut found);
     let mut examined = None;
     if !found.conflicted && !found.unknown {
         let soft = |i: usize| authored.is_recommendation(&model.constraints[i]);
-        let situations = situations::search(model, inst, standing, &soft, &|i| authored.is_description(&model.constraints[i]));
-        found.situation = true;
+        let situations = situations::search(model, inst, &situated.environment, &situated.events, &soft, &|i| authored.is_description(&model.constraints[i]));
         for conflict in &situations.conflicts {
-            found.report(model, &conflict.statements, &conflict.conditions, true);
+            found.report_in(model, &conflict.statements, &conflict.conditions, true, Some(&conflict.facts));
         }
         found.unknown |= situations.conflicts.is_empty() && !situations.decided;
         examined = Some(situations);
     }
+    let coverage = find_unreachable(model, inst, &mut found, &active, &advised);
     let Findings { conflicts, unsatisfiable, conflicted, unknown, refuted, .. } = found;
     Conflicts { conflicts, coverage, unsatisfiable, conflicted, unknown, refuted, situations: examined }
 }
 
 /// Extracts unsatisfiable subsets until the rest is satisfiable: first among
 /// the hard constraints, then with the recommendations added.
-fn find_conflicts(model: &Model, inst: &Instance, found: &mut Findings) -> CoverageExplanation {
+/// The first value holds the hard constraints that can all hold; the second
+/// adds the recommendations that can be followed with them.
+fn find_conflicts(model: &Model, inst: &Instance, found: &mut Findings) -> (Vec<usize>, Vec<usize>) {
     let all: Vec<usize> = (0..model.constraints.len()).collect();
     let soft: BTreeSet<usize> = all.iter().copied().filter(|&g| found.authored.is_recommendation(&model.constraints[g])).collect();
     let mut active: Vec<usize> = all.iter().copied().filter(|g| !soft.contains(g)).collect();
@@ -305,6 +324,18 @@ fn find_conflicts(model: &Model, inst: &Instance, found: &mut Findings) -> Cover
         let Some(last) = core.iter().rev().find(|g| soft.contains(g)) else { break };
         advised.retain(|g| g != last);
     }
+    (active, advised)
+}
+
+/// Examines each condition: a statement whose condition cannot hold in a
+/// behaviour that keeps the statements requires nothing, and is reported.
+/// A recommendation that cannot be followed where its condition holds is
+/// reported as well.
+fn find_unreachable(model: &Model, inst: &Instance, found: &mut Findings, active: &[usize], advised: &[usize]) -> CoverageExplanation {
+    let active = active.to_vec();
+    let advised = advised.to_vec();
+    // A contradiction that is reported already may be what keeps a condition from holding.
+    let conflicted = found.conflicted;
     let mut coverage = CoverageExplanation::default();
     // What says which situations can occur: the meaning of the terms and
     // each statement without normative force.
@@ -358,39 +389,29 @@ fn find_conflicts(model: &Model, inst: &Instance, found: &mut Findings) -> Cover
                     }
                     Status::Satisfiable => {}
                 }
-                // A statement that cannot be kept alone while the condition
-                // is met forbids the situation or ends it: it is in conflict
-                // with nothing there, and what is left is examined without it.
-                let mut kept = hard.clone();
-                let mut excluding: Vec<usize> = Vec::new();
-                let conflict = loop {
-                    let (core, minimal) = inst.unsat_subset(&kept, &[guard]);
-                    let alone: Vec<usize> = core.iter().copied().filter(|&c| c != g && !possible.contains(&c) && inst.status(&[possible.as_slice(), &[c]].concat(), &[guard]) == Status::Unsatisfiable).collect();
-                    if alone.is_empty() {
-                        break Some((core, minimal));
-                    }
-                    kept.retain(|c| !alone.contains(c));
-                    excluding.extend(alone);
-                    match inst.status(&kept, &[guard]) {
-                        Status::Unsatisfiable => {}
-                        Status::Unknown => {
-                            found.unknown = true;
-                            break None;
-                        }
-                        Status::Satisfiable => break None,
-                    }
-                };
-                for &statement in &excluding {
-                    let (core, _) = inst.unsat_subset(&[possible.as_slice(), &[statement]].concat(), &[guard]);
-                    found.refuted.push(("condition-excluded-by-a-statement", vec![guard], core));
-                }
-                let Some((core, minimal)) = conflict else {
-                    let by: Vec<String> = excluding.iter().filter_map(|&c| model.constraints[c].refs.first()).map(|r| format!("`{}`", r.id)).collect();
-                    vacuous(&format!("excluded by {}", by.join(" and ")));
+                let (core, minimal) = inst.unsat_subset(&hard, &[guard]);
+                // A statement of the wrong form is an error of its own.
+                if core.iter().any(|&c| model.constraints[c].kind == ConstraintKind::Form) {
+                    vacuous("unreachable under the other statements");
+                    found.report(model, &core, &[g], minimal);
                     continue;
-                };
-                vacuous("unreachable under the other statements");
-                found.report(model, &core, &[g], minimal);
+                }
+                // The condition holds in a situation that can occur, and in
+                // no behaviour that keeps the statements: the statements
+                // forbid the situation, and this one requires nothing.
+                let by: Vec<&SpecRef> = core.iter().filter(|&&c| c != g).filter_map(|&c| model.constraints[c].refs.first()).collect();
+                let reason = if by.is_empty() { "excluded by the statement itself".to_string() } else { format!("excluded by {}", by.iter().map(|r| format!("`{}`", r.id)).collect::<Vec<_>>().join(" and ")) };
+                vacuous(&reason);
+                found.refuted.push(("condition-unreachable", vec![guard], core.clone()));
+                if let (false, Some(at)) = (conflicted, model.constraints[g].refs.first()) {
+                    let mut refs = vec![at.clone()];
+                    refs.extend(by.into_iter().filter(|r| r.id != at.id).cloned());
+                    let mut key: Vec<String> = refs.iter().map(|r| r.id.clone()).collect();
+                    key.sort();
+                    if found.seen.insert(key) {
+                        found.diagnostics.push(Diagnostic::error("condition-unreachable", format!("the condition of `{}` holds in no behaviour that keeps the statements ({reason}): the statement requires nothing", at.id), refs));
+                    }
+                }
             }
             Status::Satisfiable => {
                 let wide = advised.clone();

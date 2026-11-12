@@ -362,19 +362,6 @@ fn members_of(entries: &[proof::Entry]) -> Vec<proof::Member> {
     entries.iter().enumerate().map(|(n, e)| proof::Member { entry: n, formula: e.formula, condition: e.condition, recommendation: e.kind == proof::EntryKind::Recommendation, weight: e.weight.unwrap_or(1) }).collect()
 }
 
-/// The contracts of a model over a bounded trace as the solver is asked
-/// them, and after them the condition of each contract that has one, while
-/// its response is due: the second value gives the group of that condition.
-fn encode(trace: &trion_language::reading::Trace, model: &Model, bounds: Bounds) -> (Instance, BTreeMap<usize, usize>) {
-    let mut parts = trace.groups.clone();
-    let mut standing: BTreeMap<usize, usize> = BTreeMap::new();
-    for (index, condition) in trion_language::reading::standing_conditions(model, bounds.trace_length) {
-        standing.insert(index, parts.len());
-        parts.push((condition, None));
-    }
-    (Instance::new(&trace.background, &parts, bounds.decisions), standing)
-}
-
 /// The relations between the entries of a model: each yielding, and each
 /// statement that its details stand for.
 fn relations_of(model: &Model) -> Vec<proof::Relation> {
@@ -464,11 +451,11 @@ fn analyze_from(set: &SpecSet, options: &Options, prior: Option<(&Analysis, Boun
     lap("compiled");
     let (trace, control) = trace_of(set, &model, &lex, bounds.trace_length);
     lap("unrolled");
-    let (inst, standing) = encode(&trace, &model, bounds);
+    let inst = Instance::new(&trace.background, &trace.groups, bounds.decisions);
     lap("encoded");
     let authored = Authored::new(set, &lex);
     let before_conflicts = diagnostics.len();
-    let found = conflicts::search(&model, &inst, &standing, &authored, &mut diagnostics);
+    let found = conflicts::search(&model, &inst, &conflicts::Situated::of(&model, &control), &authored, &mut diagnostics);
     let verdict = found.verdict();
     let Conflicts { conflicts, coverage, unsatisfiable, unknown, refuted, situations, .. } = found;
     // The checker reports each contradiction, then each form violation

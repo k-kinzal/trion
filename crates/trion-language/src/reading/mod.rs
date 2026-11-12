@@ -38,5 +38,5 @@ pub use meaning::check as check_refinements;
 pub use model::{compile, group_formula, match_core, np_key, role_prefix, subject_key, SUBJECT_VARIABLE};
 pub use priority::{authored_condition, check as check_priorities};
 pub use rules::entry_lines;
-pub use temporal::{at_each_moment, at_every_moment, at_first_moment, diagnostics as temporal_diagnostics, activations, unroll, unroll_axiom, unroll_background, Activation, Trace};
+pub use temporal::{at_each_moment, at_every_moment, at_first_moment, diagnostics as temporal_diagnostics, unroll, unroll_axiom, unroll_background, Activation, Trace};
 pub use vocabulary::build_table;

@@ -407,7 +407,7 @@ pub struct Uncertified {
 
 /// Every kind of claim that a report can make from solver answers, and
 /// whether the inventory has a row for it.
-pub const CLAIM_KINDS: [(&str, bool); 15] = [
+pub const CLAIM_KINDS: [(&str, bool); 14] = [
     ("status", true),
     ("conflict-set-minimal", true),
     ("recommendations-followed", true),
@@ -421,7 +421,6 @@ pub const CLAIM_KINDS: [(&str, bool); 15] = [
     ("reader-query", true),
     ("situations", true),
     ("condition-unreachable", true),
-    ("condition-excluded-by-a-statement", true),
     ("shape-violation", true),
 ];
 

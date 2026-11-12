@@ -1381,15 +1381,6 @@ fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: 
     parts
 }
 
-/// For each contract of a model that is no axiom about terms: its
-/// activations over a trace of `length` moments. Each activation is the
-/// condition at one moment, when the contract has a condition, and the
-/// response that it opens there.
-pub fn activations(model: &Model, length: usize) -> Vec<(usize, Vec<(Option<Formula>, Formula)>)> {
-    let length = length.max(2);
-    model.constraints.iter().enumerate().filter(|(_, c)| !c.kind.is_axiom()).map(|(index, c)| (index, activations_of(model, c, length))).collect()
-}
-
 /// Reads the contracts of a model over a trace of `length` moments.
 ///
 /// - A state response holds at every moment; under `While S` it holds at

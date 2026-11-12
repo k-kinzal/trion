@@ -21,6 +21,19 @@ pub enum Cmp {
 }
 
 impl Atom {
+    /// The symbols that the atom speaks about: the attribute, the action, the
+    /// event or the relation, or each quantity of a comparison.
+    pub fn symbols(&self) -> Vec<&str> {
+        match self {
+            Atom::Dom { attr, .. } | Atom::Val { attr, .. } | Atom::Num { attr, .. } => vec![attr],
+            Atom::Act { key } | Atom::Forbid { key } | Atom::Discouraged { key } | Atom::Event { key } | Atom::Config { key } => vec![key],
+            Atom::Role { subject, .. } => vec![subject],
+            Atom::Lin { terms, .. } => terms.iter().map(|(attr, _)| attr.as_str()).collect(),
+            Atom::Before { first, second } => vec![first, second],
+            Atom::Rel { name, .. } => vec![name],
+        }
+    }
+
     /// `first − second cmp n`: a relation between two quantities, or between
     /// two moments when the quantities are times.
     pub fn difference(first: &str, second: &str, unit: &str, cmp: Cmp, n: i64) -> Atom {

@@ -417,10 +417,10 @@ fn run_example(set: &SpecSet, doc: &Document, pkg: &Package, engine: Option<(&Mo
             let mini = trion_language::reading::compile(&isolated, &lex, bounds.scope);
             // The example is decided as the package is: over its own unrolled
             // formulas, by the rows of the status.
-            let (trace, _) = trace_of(&isolated, &mini, &lex, bounds.trace_length);
-            let (own, standing) = encode(&trace, &mini, bounds);
+            let (trace, control) = trace_of(&isolated, &mini, &lex, bounds.trace_length);
+            let own = Instance::new(&trace.background, &trace.groups, bounds.decisions);
             let authored = Authored::new(&isolated, &lex);
-            let found = conflicts::search(&mini, &own, &standing, &authored, &mut Vec::new());
+            let found = conflicts::search(&mini, &own, &conflicts::Situated::of(&mini, &control), &authored, &mut Vec::new());
             let hard: Vec<(usize, usize)> = (0..mini.constraints.len()).filter(|&i| !authored.is_recommendation(&mini.constraints[i])).map(|i| (i, own.group(i))).collect();
             let status = proof::status_outcome(&own, own.background(), &hard);
             // A satisfiable example is consistent only when its statements

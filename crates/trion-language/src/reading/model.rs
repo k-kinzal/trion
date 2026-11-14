@@ -88,9 +88,21 @@ impl Constraint {
     }
 }
 
+/// An instance of a statement that bounds a share: what one activation of
+/// the statement is and what answers it. It requires nothing by itself; the
+/// statement counts it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Counted {
+    /// The statement that bounds the share.
+    pub statement: String,
+    pub constraint: Constraint,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct Model {
     pub constraints: Vec<Constraint>,
+    /// The instances that the statements that bound a share count.
+    pub counted: Vec<Counted>,
     /// Axioms that always hold, such as the exclusivity of attribute values.
     pub background: Vec<Formula>,
     /// Attributes whose whole domain is known, with their values.
@@ -124,6 +136,9 @@ pub struct Model {
     /// The parts of each key of an action or of an event, by the text of the key.
     #[serde(skip)]
     pub keys: BTreeMap<String, Vec<crate::reading::key::Part>>,
+    /// The reading over individuals of a set that declares the types of its
+    /// individuals: the meaning of each typed statement and its instances.
+    pub individuals: Option<crate::reading::ground::Individuals>,
 }
 
 /// How much a model holds.
@@ -235,6 +250,18 @@ pub(crate) fn proportion(vp: &Vp) -> Option<(&Measure, String)> {
     let name = np.render();
     let name = name.strip_prefix("the ").or_else(|| name.strip_prefix("all ")).unwrap_or(&name).to_lowercase();
     Some((measure, name))
+}
+
+/// The sentence without the bound on a share: what the statement requires
+/// of one activation.
+pub(crate) fn without_share(sentence: &mut Sentence) {
+    let Core::Deontic { vp: VpGroup::Single(vp), .. } = &mut sentence.core else { return };
+    if proportion(vp).is_none() {
+        return;
+    }
+    if let Some(at) = vp.roles.iter().position(|role| matches!(role, RolePp::Duration(m) if !is_time_measure(m))) {
+        vp.roles.drain(at..(at + 2).min(vp.roles.len()));
+    }
 }
 
 /// How often an action occurs in one activation: `at most 3 times`.
@@ -1438,6 +1465,10 @@ fn core_formula(core: &Core, scope: &str, guarded: bool, universe: &BTreeMap<Str
                         if let Some(all) = universe.get(&attr) {
                             parts.extend(all.iter().filter(|v| !normalized.contains(v)).map(|v| Formula::not(Formula::atom(atom_of(v)))));
                         }
+                        // And it says what it says: the subject is one of the
+                        // listed values, at each moment. Without this the
+                        // prohibitions of each value were consistent.
+                        parts.push(Formula::Or(normalized.iter().map(|v| Formula::atom(Atom::Val { attr: attr.clone(), value: v.clone() })).collect()));
                         return Formula::And(parts);
                     }
                     // `is a document of the trion language`, `is a verb phrase or a
@@ -1485,10 +1516,30 @@ fn core_formula(core: &Core, scope: &str, guarded: bool, universe: &BTreeMap<Str
 /// guarantees nothing.
 fn claim_formula(s: &Sentence, universe: &BTreeMap<String, BTreeSet<String>>, lex: &Lexicon) -> Option<Formula> {
     let guarded = !s.frames.is_empty() || s.exception.is_some() || s.iff.is_some() || s.necessary.is_some();
+    // What a necessary condition says of a claim where the condition fails.
+    // Of an action it is the prohibition of the action (advice against it
+    // under `should`): `shall stop only when the door is open` forbids
+    // stopping while the door is not open. The claim itself implying the
+    // condition would say less: a required action is one that completes
+    // and is not forbidden, so a completion that is marked forbidden would
+    // satisfy the implication without the condition. Of a state it is that
+    // the state does not hold.
+    let outside = |core: &Core, cond: &Formula| -> Option<Formula> {
+        if let Core::Deontic { subject, modal, negated: false, vp } = core {
+            let vp = match vp {
+                VpGroup::All { items, negated } => VpGroup::All { items: items.clone(), negated: vec![true; negated.len()] },
+                other => other.clone(),
+            };
+            let modal = if matches!(modal, Modal::Should) { Modal::Should } else { Modal::Shall };
+            let denied = core_formula(&Core::Deontic { subject: subject.clone(), modal, negated: true, vp }, &s.source, guarded, universe, lex)?;
+            return Some(Formula::Or(vec![cond.clone(), denied]));
+        }
+        Some(Formula::implies(core_formula(core, &s.source, guarded, universe, lex)?, cond.clone()))
+    };
     if let Some(cond) = &s.iff {
         let claim = core_formula(&s.core, &s.source, guarded, universe, lex)?;
         let cond = group_formula(cond, lex);
-        return Some(Formula::And(vec![Formula::implies(cond.clone(), claim.clone()), Formula::implies(claim, cond)]));
+        return Some(Formula::And(vec![Formula::implies(cond.clone(), claim), outside(&s.core, &cond)?]));
     }
     if let Some(cond) = &s.necessary {
         let cond = group_formula(cond, lex);
@@ -1497,11 +1548,11 @@ fn claim_formula(s: &Sentence, universe: &BTreeMap<String, BTreeSet<String>>, le
             if let (Some((last, first)), Some((last_negated, first_negated))) = (items.split_last(), polarity.split_last()) {
                 let core_of = |vp: VpGroup| Core::Deontic { subject: subject.clone(), modal: *modal, negated: *negated, vp };
                 let opening = core_formula(&core_of(VpGroup::All { items: first.to_vec(), negated: first_negated.to_vec() }), &s.source, guarded, universe, lex)?;
-                let closing = core_formula(&core_of(VpGroup::All { items: vec![last.clone()], negated: vec![*last_negated] }), &s.source, guarded, universe, lex)?;
-                return Some(Formula::And(vec![opening, Formula::implies(closing, cond)]));
+                let closing = outside(&core_of(VpGroup::All { items: vec![last.clone()], negated: vec![*last_negated] }), &cond)?;
+                return Some(Formula::And(vec![opening, closing]));
             }
         }
-        return Some(Formula::implies(core_formula(&s.core, &s.source, guarded, universe, lex)?, cond));
+        return outside(&s.core, &cond);
     }
     core_formula(&s.core, &s.source, guarded, universe, lex)
 }
@@ -1643,14 +1694,22 @@ fn collect_roles(set: &SpecSet) -> Vec<RoleInfo<'_>> {
 }
 
 /// Every value mentioned for each attribute across the specification set.
-fn value_universe(set: &SpecSet, lex: &Lexicon) -> BTreeMap<String, BTreeSet<String>> {
+/// The values that the statements name, attribute by attribute. `of_the_domain`
+/// tells the instances whose claim is a relation or a kind of the domain:
+/// their predicate names no value.
+fn value_universe(set: &SpecSet, lex: &Lexicon, of_the_domain: &dyn Fn(&str) -> bool, of_a_share: &dyn Fn(&str) -> bool) -> BTreeMap<String, BTreeSet<String>> {
     let empty = BTreeMap::new();
     let mut universe: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for doc in set.packages.iter().flat_map(|p| &p.documents) {
+    for (pkg, doc) in set.packages.iter().flat_map(|p| p.documents.iter().map(move |d| (p, d))) {
         let lex = lex.in_document(doc);
         for spec in &doc.specs {
+            let display = if pkg.is_root { spec.display_id() } else { format!("{}::{}", pkg.name, spec.display_id()) };
+            // A bound on a share names no state of one thing: its conditions select a population.
+            if of_a_share(&display) {
+                continue;
+            }
             let guard = guard_formula(&spec.sentence, &lex);
-            let claim = claim_formula(&spec.sentence, &empty, &lex);
+            let claim = if of_the_domain(&display) { None } else { claim_formula(&spec.sentence, &empty, &lex) };
             for f in std::iter::once(&guard).chain(claim.iter()) {
                 f.atoms(true, &mut |a, _| {
                     if let Atom::Dom { attr, value } | Atom::Val { attr, value } = a {
@@ -1783,6 +1842,35 @@ fn measure_axioms(model: &mut Model) {
         c.assume.atoms(true, &mut visit);
         c.guarantee.atoms(true, &mut visit);
     }
+    // The shares of one action in one population are shares of one set of
+    // cases. A case in which the action completes within 200 ms is a case
+    // in which it completes within 500 ms, and a case in which it completes
+    // within a deadline is a case in which it completes: the cases of the
+    // smaller deadline are among those of the larger one, so their share is
+    // no greater. Only a deadline tells two shares of one action apart
+    // here; a share with any other qualification is related to none.
+    let mut by_cases: BTreeMap<(String, String), Vec<(Option<i64>, String)>> = BTreeMap::new();
+    for share in &shares {
+        let Some((cases, population)) = share.rsplit_once(" share of ") else { continue };
+        let (action, deadline) = match cases.rsplit_once(" within ") {
+            Some((action, bound)) => {
+                let words: Vec<&str> = bound.split(' ').collect();
+                let [number, unit] = words.as_slice() else { continue };
+                let (factor, base) = canonical_unit(unit);
+                let Some(time) = parse_decimal(number).filter(|_| base == "ms").and_then(|n| n.checked_mul(factor)) else { continue };
+                (action, Some(time))
+            }
+            None => (cases, None),
+        };
+        by_cases.entry((action.to_string(), population.to_string())).or_default().push((deadline, share.clone()));
+    }
+    for mut related in by_cases.into_values() {
+        // No deadline is the largest one: every completion is within it.
+        related.sort_by_key(|(deadline, _)| deadline.map_or((1, 0), |time| (0, time)));
+        for pair in related.windows(2) {
+            model.background.push(Formula::atom(Atom::difference(&pair[1].1, &pair[0].1, "percent", Cmp::Ge, 0)));
+        }
+    }
     for share in shares {
         model.background.push(Formula::atom(Atom::Num { attr: share.clone(), unit: "percent".to_string(), cmp: Cmp::Ge, n: 0 }));
         model.background.push(Formula::atom(Atom::Num { attr: share, unit: "percent".to_string(), cmp: Cmp::Le, n: 100 * NUMERIC_SCALE }));
@@ -1875,7 +1963,11 @@ pub(crate) fn carry_to_others(model: &mut Model, carried: Vec<(SpecRef, Formula,
 /// Compiles a specification set; `scope` is the number of individuals of each
 /// carrier that the statements about individuals are read over.
 pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
-    let universe = value_universe(set, lex);
+    // A set that declares the types of its individuals is read over them:
+    // each statement about a declared type stands for its instances.
+    let grounded = crate::reading::ground::apply(set, lex, scope);
+    let set = grounded.as_ref().map_or(set, |g| &g.set);
+    let universe = value_universe(set, lex, &|id| grounded.as_ref().is_some_and(|g| g.claims.contains_key(id)), &|id| grounded.as_ref().is_some_and(|g| g.shares.contains(id)));
     let roles = collect_roles(set);
     let mut model = Model { background: background(&universe), ..Default::default() };
     let mut denied_values: Vec<(String, String)> = Vec::new();
@@ -1905,6 +1997,9 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     }
 
     let mut accounted: Option<SpecRef> = None;
+    // What each atom of an instance says of a concrete behaviour.
+    let mut atoms: Vec<crate::reading::ground::AtomOf> = Vec::new();
+    let mut shares: Vec<crate::reading::ground::ShareOf> = Vec::new();
     for pkg in &set.packages {
         for doc in &pkg.documents {
             let lex = &lex.in_document(doc);
@@ -1920,10 +2015,43 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 let sentence = &sentence;
                 let display = if pkg.is_root { spec.display_id() } else { format!("{}::{}", pkg.name, spec.display_id()) };
                 let reference = SpecRef { id: display, file: spec.file.clone(), line: spec.line, text: sentence.source.clone() };
+                // A statement about the domain of declared types is read over
+                // the individuals, and that is its whole reading.
+                if grounded.as_ref().is_some_and(|g| g.about_the_domain.contains(&reference.id)) {
+                    continue;
+                }
                 if let Some(at) = accounted.replace(reference.clone()) {
                     model.absorb(&at, crate::reading::key::end());
                 }
                 crate::reading::key::begin();
+                // A bound on a share speaks about the activations as a whole:
+                // its contract is the bound on the quantity of the share,
+                // under no condition of a moment. Its conditions select the
+                // population, and the reading over individuals reads them.
+                if grounded.as_ref().is_some_and(|g| g.shares.contains(&reference.id)) {
+                    let mut bounds: Vec<Formula> = Vec::new();
+                    if let Some(claim) = claim_formula(sentence, &alone, lex) {
+                        claim.atoms(true, &mut |atom, positive| {
+                            let about_a_share = match atom {
+                                Atom::Num { attr, .. } => attr.contains(" share of "),
+                                Atom::Lin { terms, .. } => terms.iter().all(|(attr, _)| attr.contains(" share of ")),
+                                _ => false,
+                            };
+                            if about_a_share {
+                                for quantity in atom.symbols() {
+                                    let entry = crate::reading::ground::ShareOf { quantity: quantity.to_string(), statement: reference.id.clone() };
+                                    if !shares.contains(&entry) {
+                                        shares.push(entry);
+                                    }
+                                }
+                                let bound = Formula::atom(atom.clone());
+                                bounds.push(if positive { bound } else { Formula::not(bound) });
+                            }
+                        });
+                    }
+                    model.constraints.push(Constraint { kind: ConstraintKind::Spec, assume: Formula::True, guarantee: Formula::And(bounds), refs: vec![reference.clone()] });
+                    continue;
+                }
                 model.temporal.extend(crate::reading::temporal::obligation(sentence, spec.otherwise, reference.clone(), &operations, lex));
                 let guard = guard_formula(sentence, lex);
                 let guard = if spec.otherwise { Formula::not(guard) } else { guard };
@@ -1944,13 +2072,44 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
 
                 // What the statement says alone. An enumeration also excludes the
                 // values that other statements name: that part is carried to them.
-                let Some(claim) = claim_formula(sentence, &alone, lex) else { continue };
-                if let Some(closed) = claim_formula(sentence, &closing, lex) {
+                let of_the_domain = grounded.as_ref().and_then(|g| g.claims.get(&reference.id));
+                let Some(claim) = of_the_domain.cloned().or_else(|| claim_formula(sentence, &alone, lex)) else { continue };
+                if let (None, Some(closed)) = (of_the_domain, claim_formula(sentence, &closing, lex)) {
                     let extra = beyond(&closed, &claim);
                     if !extra.is_empty() {
                         carried.push((reference.clone(), guard.clone(), extra));
                     }
                 }
+                // An instance whose response chooses an individual requires
+                // one of its alternatives, each of an individual that may
+                // be chosen: of the kind, and in the relations, that the
+                // statement names.
+                let mut alternatives: Option<Vec<(Sentence, Formula)>> = None;
+                let claim = match grounded.as_ref().and_then(|g| g.alternatives.get(&reference.id)) {
+                    Some(choices) => {
+                        // The statement about each individual that may be chosen, read by itself.
+                        let mut parts: Vec<(Sentence, Formula)> = Vec::new();
+                        for (_, group) in choices {
+                            let mut one = sentence.clone();
+                            if let Core::Deontic { vp, .. } = &mut one.core {
+                                *vp = group.clone();
+                            }
+                            match claim_formula(&one, &alone, lex) {
+                                Some(part) => parts.push((one, part)),
+                                None => break,
+                            }
+                        }
+                        if parts.is_empty() || parts.len() != choices.len() {
+                            // The alternatives are not told apart: nothing is read of the statement.
+                            model.unread.push((reference.clone(), crate::reading::key::Unread { part: sentence.core.render(), kind: "a response that chooses an individual,", place: "in a form whose alternatives the reading does not tell apart", phrase: String::new() }));
+                            continue;
+                        }
+                        let chosen: Vec<Formula> = choices.iter().zip(&parts).map(|((may, _), (_, part))| Formula::And(vec![may.clone(), part.clone()])).collect();
+                        alternatives = Some(parts);
+                        combine(Some(Conj::Or), chosen)
+                    }
+                    None => claim,
+                };
                 // A sentence that matches a role's activation binds its subject to the role.
                 let mut parts = vec![claim];
                 for info in &roles {
@@ -1965,7 +2124,31 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 let guarantee = if parts.len() == 1 { parts.remove(0) } else { Formula::And(parts) };
                 let is_permission = matches!(sentence.core, Core::Deontic { modal: Modal::May, .. });
                 let kind = if is_permission { ConstraintKind::Permission } else { ConstraintKind::Spec };
-                model.constraints.push(Constraint { kind, assume: guard.clone(), guarantee, refs: vec![reference.clone()] });
+                // An instance holds of its individuals: of those that are of
+                // the named types and stand in the named relations.
+                let assume = match grounded.as_ref().and_then(|g| g.guards.get(&reference.id)) {
+                    Some(of_the_domain) if guard == Formula::True => of_the_domain.clone(),
+                    Some(of_the_domain) => Formula::And(vec![guard.clone(), of_the_domain.clone()]),
+                    None => guard.clone(),
+                };
+                if let Some(grounded) = &grounded {
+                    let condition = |keyword: &str, clause: &Clause| frame_formula(keyword, &ClauseGroup::single(clause.clone()), lex);
+                    match &alternatives {
+                        // Each alternative is accounted as the instance of its individual.
+                        Some(parts) => {
+                            for (at, (one, part)) in parts.iter().enumerate() {
+                                grounded.account(&format!("{}|{at}", reference.id), one, part, &condition, &mut atoms);
+                            }
+                        }
+                        None => grounded.account(&reference.id, sentence, &guarantee, &condition, &mut atoms),
+                    }
+                }
+                // An instance of a statement that bounds a share is counted and not required.
+                if let Some(statement) = grounded.as_ref().and_then(|g| g.counted.get(&reference.id)) {
+                    model.counted.push(Counted { statement: statement.clone(), constraint: Constraint { kind, assume, guarantee, refs: vec![reference.clone()] } });
+                    continue;
+                }
+                model.constraints.push(Constraint { kind, assume, guarantee, refs: vec![reference.clone()] });
 
                 // A malformed name cannot exist in a role's specification set,
                 // whatever the sentence's conditions are.
@@ -2094,6 +2277,66 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     // Definitions, inclusions, exclusions and refinements relate the atoms above.
     crate::reading::meaning::apply(set, lex, &mut model);
     // Statements about individuals are read over a bounded domain.
-    crate::reading::instances::apply(set, lex, &mut model, scope);
+    let none = BTreeSet::new();
+    // The statements about the domain are read over the domain of the instances.
+    let scope = grounded.as_ref().map_or(scope, |g| g.individuals.scope);
+    let with_domain = grounded.as_ref().map_or(set, |g| &g.with_domain);
+    crate::reading::instances::apply(with_domain, lex, &mut model, scope, grounded.is_some(), grounded.as_ref().map_or(&none, |g| &g.relations));
+    let domain = if grounded.is_some() { crate::reading::instances::facts(with_domain, lex, scope) } else { Vec::new() };
+    if let Some(grounded) = grounded {
+        // A relation or a kind that a statement states of its individuals.
+        for direct in grounded.direct {
+            model.constraints.push(Constraint { kind: ConstraintKind::Axiom, assume: direct.assume, guarantee: direct.guarantee, refs: vec![direct.reference] });
+        }
+        model.instance_scope = Some(grounded.individuals.scope);
+        let mut individuals = grounded.individuals;
+        individuals.atoms.extend(atoms.into_iter().filter(|a| !individuals.atoms.contains(a)).collect::<Vec<_>>());
+        // What each atom about the domain says: the kind of an individual,
+        // or a relation between two. An individual is named by a noun of
+        // its carrier, and a fact names it by the declared noun.
+        let canonical: BTreeMap<String, String> = individuals.types.iter().cloned().collect();
+        let named = |individual: &str| individual.rsplit_once('#').map(|(noun, index)| format!("{}#{index}", canonical.get(noun).map_or(noun, String::as_str)));
+        let mut of_the_domain: BTreeSet<Atom> = BTreeSet::new();
+        for formula in model.constraints.iter().flat_map(|c| [&c.assume, &c.guarantee]).chain(&model.background) {
+            formula.atoms(true, &mut |atom, _| {
+                if matches!(atom, Atom::Rel { name, .. } if !name.ends_with(" between")) {
+                    of_the_domain.insert(atom.clone());
+                }
+            });
+        }
+        for atom in of_the_domain {
+            let Atom::Rel { name, args } = &atom else { continue };
+            let fact = match args.as_slice() {
+                [subject] => named(subject).map(|subject| crate::reading::ground::Fact::Kind { kind: name.clone(), subject }),
+                [owner, member] => named(owner).zip(named(member)).map(|(owner, member)| crate::reading::ground::Fact::Related { relation: name.clone(), owner, member }),
+                _ => None,
+            };
+            if let Some(fact) = fact {
+                let entry = crate::reading::ground::AtomOf { atom, fact };
+                if !individuals.atoms.contains(&entry) {
+                    individuals.atoms.push(entry);
+                }
+            }
+        }
+        // An occurrence with a role is an occurrence of the same action
+        // or event without it: `notify the author about the message` is a
+        // notifying of the author.
+        let occurrences: Vec<(&Atom, &crate::reading::ground::Fact)> = individuals.atoms.iter().filter(|a| matches!(a.fact, crate::reading::ground::Fact::Occurs { .. })).map(|a| (&a.atom, &a.fact)).collect();
+        for (narrow_atom, narrow) in &occurrences {
+            for (wide_atom, wide) in &occurrences {
+                let (crate::reading::ground::Fact::Occurs { verb: v1, particle: p1, actor: a1, object: o1, roles: r1 }, crate::reading::ground::Fact::Occurs { verb: v2, particle: p2, actor: a2, object: o2, roles: r2 }) = (narrow, wide) else { continue };
+                let same_kind = matches!((narrow_atom, wide_atom), (Atom::Act { .. }, Atom::Act { .. }) | (Atom::Event { .. }, Atom::Event { .. }));
+                if same_kind && (v1, p1, a1, o1) == (v2, p2, a2, o2) && r2.len() < r1.len() && r2.iter().all(|role| r1.contains(role)) {
+                    let axiom = Formula::implies(Formula::atom((*narrow_atom).clone()), Formula::atom((*wide_atom).clone()));
+                    if !model.background.contains(&axiom) {
+                        model.background.push(axiom);
+                    }
+                }
+            }
+        }
+        individuals.domain = domain;
+        individuals.shares = shares;
+        model.individuals = Some(individuals);
+    }
     model
 }

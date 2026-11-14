@@ -124,6 +124,12 @@ pub(crate) fn is_no_plural(word: &str) -> bool {
     ["does", "goes", "always", "besides", "sometimes", "perhaps", "towards", "afterwards", "whereas", "yes", "this", "thus", "alias", "basis", "series", "species"].contains(&word)
 }
 
+/// `true` for a preposition that excludes a part of what an action is
+/// about: `send the file except the header`.
+pub(crate) fn is_exclusion(word: &str) -> bool {
+    matches!(word, "except" | "excluding" | "without")
+}
+
 /// A modifier that denies its head: a former member is no member.
 pub(crate) fn is_privative(word: &str) -> bool {
     ["former", "fake", "false", "pseudo", "would-be", "alleged", "so-called", "non", "no", "not", "possible", "potential", "apparent", "missing"].contains(&word)
@@ -148,12 +154,13 @@ pub(crate) fn selects_last(word: &str) -> bool {
 /// What a verb says of the clause that follows it after `that`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ContentClass {
-    /// The action makes the clause hold or finds that it holds: when the
-    /// action completes, the clause holds. `ensure that`, `verify that`.
+    /// The action makes the clause hold: when the action completes, the
+    /// clause holds. `ensure that`, `guarantee that`.
     Establishing,
     /// The action is about the clause and says nothing of whether it holds:
     /// two such actions are one action only when their clauses are one
-    /// clause. `report that`, `assume that`.
+    /// clause. `report that`, `assume that`, and the verbs that examine a
+    /// proposition: `verify that`, `confirm that`, `prove that`.
     Reporting,
     /// The action leaves the clause open to its subject: `allow the gate to
     /// open` permits the gate to open, and its denial forbids it.
@@ -165,8 +172,10 @@ pub(crate) enum ContentClass {
 /// The class of a verb, in its base form, that takes a content clause. A
 /// verb that is in neither class takes no content clause.
 pub(crate) fn content_class(verb: &str) -> Option<ContentClass> {
-    const ESTABLISHING: &[&str] = &["ensure", "guarantee", "verify", "confirm", "prove", "establish"];
-    const REPORTING: &[&str] = &["report", "state", "assert", "declare", "record", "indicate", "assume", "check", "decide"];
+    // `verify`, `confirm` and `prove` examine a proposition and do not make
+    // it hold: they stand with the verbs that are about a proposition.
+    const ESTABLISHING: &[&str] = &["ensure", "guarantee", "establish"];
+    const REPORTING: &[&str] = &["report", "state", "assert", "declare", "record", "indicate", "assume", "check", "decide", "verify", "confirm", "prove"];
     const PERMITTING: &[&str] = &["let", "allow", "permit", "enable"];
     if ESTABLISHING.contains(&verb) {
         Some(ContentClass::Establishing)

@@ -1,0 +1,12 @@
+namespace x
+primitive member
+Each guest is a member.
+No guest is a member.
+Some guest is a member.
+[A] Each guest is a member.
+[B] Each guest is a member.
+check SAME:
+    relation equivalent
+    left [A]
+    right [B]
+    using definitions

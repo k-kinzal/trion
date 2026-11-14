@@ -1,0 +1,10 @@
+namespace x
+primitive API
+primitive token
+
+[H]
+The API shall not log the token.
+
+[S]
+The API should log the token.
+    weight 100

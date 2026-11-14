@@ -1,0 +1,21 @@
+id = "A01"
+title = "A simultaneous requirement after `while <gerund>` is read or the statement is stopped"
+work = "W02"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+`while retaining the origin` says that the origin is retained while the request is forwarded: with [B] the
+two statements cannot both be kept. An implementation that leaves the phrase out sees [A] and [B] as
+unrelated and verifies the package. Until a reading rule makes a requirement of the phrase, the only
+acceptable outcomes are a conflict of [A] and [B], or a stop that names the phrase. A success is not.
+"""
+
+[expect]
+verified = false
+blockers = ["UNSUPPORTED_SEMANTICS"]
+gates_failed = ["meaning"]
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = "the phrase was kept as a string of the tree and reached no rule: exit 0, every gate passed"

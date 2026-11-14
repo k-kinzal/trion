@@ -1,0 +1,27 @@
+id = "A12"
+title = "A response that follows a quantity of the situation"
+work = "W09"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+The environment decides the load, and [A] requires a capacity above it: for every load some capacity
+is greater. No list of constant capacities answers every load, so a search that tries constants ends
+at its limit; the claim holds all the same, with the response `capacity := load + 0.001`. The verdict
+is `proved` with that response named, and not `unknown` from the end of an enumeration.
+
+Before W09 the load was a term of the response, because the guarantee speaks about it: the response
+chose the load, and the claim held for the wrong reason. A term that a declaration gives to the
+environment is fixed by the situation.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+situation_total = "proved"
+contract_sat = "proved"
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = "verified at the baseline as well, by a response that chose the load"

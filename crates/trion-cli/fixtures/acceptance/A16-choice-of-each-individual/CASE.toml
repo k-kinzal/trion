@@ -1,0 +1,26 @@
+id = "A16"
+title = "Each message has a choice of its own"
+work = "W05"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+[A] holds for each message, and the choice between storing and rejecting stands inside the
+statement: for each message some alternative is taken, and two messages may take different ones
+(EACH-ITS-OWN). The choice is not shared: taking both alternatives for one message answers nothing
+for the other (ONE-LEFT-OUT).
+
+The other order, one alternative for all messages, is another statement, and no form of this
+version states it: a response that introduces or shares something across the individuals of a
+statement is outside the typed fragment and is rejected.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+"scenario_satisfiable:scenario EACH-ITS-OWN" = "proved"
+"scenario_satisfiable:scenario ONE-LEFT-OUT" = "refuted"
+
+[baseline]
+commit = "24cab2aa"
+note = "one representative message: the two messages could not be told apart"

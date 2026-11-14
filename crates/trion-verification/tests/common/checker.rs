@@ -4,7 +4,7 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashMap};
-use trion_verification::proof::{Answer, Certificate, Justification, LinearDerivation, LinearSource, Literal, Refutation, Side, Witness};
+use trion_verification::proof::{Answer, Certificate, Connective, Justification, LinearDerivation, LinearSource, Literal, Operand, Refutation, Side, Witness};
 use trion_solver::{Atom, Cmp, Formula, Status};
 
 type Key = (String, String);
@@ -77,6 +77,10 @@ pub fn check_witness(formulas: &[Formula], witness: &Witness) -> Result<(), Stri
 
 struct Clauses {
     vars: HashMap<Atom, i32>,
+    /// The variable of each subformula, by its connective (0 for the
+    /// formula that holds, 1 for a conjunction, 2 for a disjunction) and the
+    /// literals of its parts: a subformula that is written twice is one.
+    nodes: HashMap<(u8, Vec<i32>), i32>,
     next: i32,
     clauses: Vec<Vec<i32>>,
 }
@@ -87,11 +91,23 @@ impl Clauses {
         self.next
     }
 
+    /// The variable of a subformula, and `true` when it is met for the first time.
+    fn node(&mut self, connective: u8, parts: &[i32]) -> (i32, bool) {
+        if let Some(v) = self.nodes.get(&(connective, parts.to_vec())) {
+            return (*v, false);
+        }
+        let v = self.fresh();
+        self.nodes.insert((connective, parts.to_vec()), v);
+        (v, true)
+    }
+
     fn encode(&mut self, f: &Formula) -> i32 {
         match f {
             Formula::True => {
-                let v = self.fresh();
-                self.clauses.push(vec![v]);
+                let (v, new) = self.node(0, &[]);
+                if new {
+                    self.clauses.push(vec![v]);
+                }
                 v
             }
             Formula::Atom(a) => match self.vars.get(a) {
@@ -103,35 +119,42 @@ impl Clauses {
                 }
             },
             Formula::Not(x) => -self.encode(x),
+            // `a → b` is `¬a` or `b`.
             Formula::Implies(a, b) => {
-                let (a, b) = (self.encode(a), self.encode(b));
-                let v = self.fresh();
-                self.clauses.extend([vec![-v, -a, b], vec![v, a], vec![v, -b]]);
-                v
+                let parts = vec![-self.encode(a), self.encode(b)];
+                self.some(&parts)
             }
             Formula::And(xs) => {
                 let lits: Vec<i32> = xs.iter().map(|x| self.encode(x)).collect();
-                let v = self.fresh();
-                let mut long = vec![v];
-                for l in lits {
-                    self.clauses.push(vec![-v, l]);
-                    long.push(-l);
+                let (v, new) = self.node(1, &lits);
+                if new {
+                    let mut long = vec![v];
+                    for l in lits {
+                        self.clauses.push(vec![-v, l]);
+                        long.push(-l);
+                    }
+                    self.clauses.push(long);
                 }
-                self.clauses.push(long);
                 v
             }
             Formula::Or(xs) => {
                 let lits: Vec<i32> = xs.iter().map(|x| self.encode(x)).collect();
-                let v = self.fresh();
-                let mut long = vec![-v];
-                for l in lits {
-                    self.clauses.push(vec![v, -l]);
-                    long.push(l);
-                }
-                self.clauses.push(long);
-                v
+                self.some(&lits)
             }
         }
+    }
+
+    fn some(&mut self, lits: &[i32]) -> i32 {
+        let (v, new) = self.node(2, lits);
+        if new {
+            let mut long = vec![-v];
+            for &l in lits {
+                self.clauses.push(vec![v, -l]);
+                long.push(l);
+            }
+            self.clauses.push(long);
+        }
+        v
     }
 
     /// `true` when unit propagation from the assumptions reaches a conflict.
@@ -257,13 +280,31 @@ fn check_lemma(clause: &[Literal], derivation: &LinearDerivation) -> Result<(), 
 }
 
 pub fn check_refutation(formulas: &[Formula], refutation: &Refutation) -> Result<(), String> {
-    let mut clauses = Clauses { vars: HashMap::new(), next: 0, clauses: Vec::new() };
+    let mut clauses = Clauses { vars: HashMap::new(), nodes: HashMap::new(), next: 0, clauses: Vec::new() };
     for formula in formulas {
         let root = clauses.encode(formula);
         clauses.clauses.push(vec![root]);
     }
+    // Each definition names a subformula of the query: its variable is found, and none is made.
+    let mut named: Vec<i32> = Vec::new();
+    for (k, definition) in refutation.definitions.iter().enumerate() {
+        let mut parts = Vec::new();
+        for operand in &definition.operands {
+            let (v, positive) = match operand {
+                Operand::Atom(literal) => (*clauses.vars.get(&literal.atom).ok_or_else(|| format!("definition {k} names {}, which is no atom of the query", literal.atom))?, literal.positive),
+                Operand::Formula { definition, positive } => (*named.get(*definition).ok_or_else(|| format!("definition {k} names a definition that does not stand before it"))?, *positive),
+            };
+            parts.push(if positive { v } else { -v });
+        }
+        let connective = match definition.connective {
+            Connective::True => 0,
+            Connective::All => 1,
+            Connective::Any => 2,
+        };
+        named.push(*clauses.nodes.get(&(connective, parts)).ok_or_else(|| format!("definition {k} names no subformula of the query"))?);
+    }
     let Some(last) = refutation.steps.last() else { return Err("the refutation is empty".to_string()) };
-    if !last.clause.is_empty() {
+    if !last.clause.is_empty() || !last.formulas.is_empty() {
         return Err("the refutation does not end with the empty clause".to_string());
     }
     for (n, step) in refutation.steps.iter().enumerate() {
@@ -271,6 +312,10 @@ pub fn check_refutation(formulas: &[Formula], refutation: &Refutation) -> Result
         for literal in &step.clause {
             let v = *clauses.vars.get(&literal.atom).ok_or_else(|| format!("step {n} names {}, which is no atom of the query", literal.atom))?;
             lits.push(if literal.positive { v } else { -v });
+        }
+        for (definition, positive) in &step.formulas {
+            let v = *named.get(*definition).ok_or_else(|| format!("step {n} names a subformula without a definition"))?;
+            lits.push(if *positive { v } else { -v });
         }
         match &step.by {
             Justification::Propagation => {

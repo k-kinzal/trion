@@ -84,6 +84,24 @@ fn hover_shows_the_form_and_sources_of_a_specification() {
 }
 
 #[test]
+fn hover_shows_the_reading_of_a_statement_over_individuals() {
+    // The same lines that `verify` prints and the document shows: what the
+    // statement is about, where it applies and what it requires.
+    let text = "individuals user, room, ticket\nprimitive system, member\n\nEach member is a user.\n\n[N] When a user enters a room, the system shall notify a member of the room within 2 seconds.\n    unsourced \"Example.\"\n\n[K] Each room has exactly one member.\n    unsourced \"Example.\"\n";
+    let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", text)]);
+    let path = f.path().join("a.trion");
+    let line = |id: &str| f.read("a.trion").lines().position(|l| l.starts_with(id)).unwrap() as u64;
+    let replies = exchange(&[open(&path, &f.read("a.trion")), at(2, "textDocument/hover", &path, line("[N]"), 1), at(3, "textDocument/hover", &path, line("[K]"), 1)]);
+    let shown = result(&replies, 2)["contents"]["value"].as_str().unwrap().to_string();
+    assert!(shown.contains("Reading over individuals (semantic version 0.1.0, domains of 3 individuals):"), "{shown}");
+    for part in ["- about: each user; each room; some member (an individual of `user`) that is a member of the room, chosen by the response", "- applies at each occurrence at which: [the user enter the room] occurs", "- requires: [the system notify the member], completed at most 2000 ms after the occurrence (the end included)"] {
+        assert!(shown.contains(part), "{part}\n{shown}");
+    }
+    let domain = result(&replies, 3)["contents"]["value"].as_str().unwrap().to_string();
+    assert!(domain.contains("Reading over individuals: a statement about the domain"), "{domain}");
+}
+
+#[test]
 fn hover_explains_an_ears_keyword() {
     let f = Fixture::new(&[("a.trion", "While the door is open, the API shall stop.\n")]);
     let path = f.path().join("a.trion");
@@ -242,5 +260,5 @@ fn a_conflict_of_conditions_that_hold_together_is_an_error_on_each_statement() {
     let conflict: Vec<&Value> = all.iter().filter(|d| d["code"] == "contradiction").collect();
     assert!(!conflict.is_empty(), "{all:?}");
     assert!(conflict.iter().all(|d| d["severity"] == 1), "{conflict:?}");
-    assert!(conflict[0]["message"].as_str().unwrap().contains("are met together"), "{conflict:?}");
+    assert!(conflict[0]["message"].as_str().unwrap().contains("in a situation that can occur"), "{conflict:?}");
 }

@@ -6,6 +6,14 @@
 //! sources of the statements and the checks that the settings ask for: the
 //! properties of the reading, and the stability of the outcomes when a bound
 //! is raised. Each is a gate; a package is verified when no gate fails.
+//!
+//! Two gates stand for what a result means and not for how it was found.
+//! `meaning` fails while a part of a normative statement is accepted and
+//! has no meaning rule: a result about the rest is no result about the
+//! statement. `claims` fails unless each required claim is proved, and
+//! proved of something: a claim that holds because nothing is in its range
+//! counts for nothing. What `verified` covers is written out with it: the
+//! claims, the bounds of the analysis, and what was not examined.
 
 use crate::project::Project;
 use crate::sources::{self, SourceReport};
@@ -30,6 +38,67 @@ pub(crate) struct Settings {
     /// The command of the external prover: it reads an SMT-LIB script on its
     /// standard input and prints one answer for each query.
     pub prover: Vec<String>,
+    /// A saved report of an earlier verification: the result of this one
+    /// must be about the same subject.
+    pub against: Option<PathBuf>,
+}
+
+/// What a result is a result about: the texts, the rules that read them,
+/// the programs that decided and checked, and the settings. A result about
+/// one subject says nothing about another: a saved result, a saved proof or
+/// a cache entry is used only where the keys are the same.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Subject {
+    /// The digest of each file of the package and of its dependencies.
+    pub revision: String,
+    /// The version of the meaning rules that read the statements.
+    pub semantics: &'static str,
+    /// The version of the command, of the analysis and of the search.
+    pub tool: &'static str,
+    /// The version of the rules that the independent checker implements.
+    pub checker: &'static str,
+    pub trace_length: usize,
+    pub scope: usize,
+    pub decisions: Option<u64>,
+    pub properties: bool,
+    pub stability: bool,
+    pub prover: Vec<String>,
+    /// The digest of the fields above.
+    pub key: String,
+}
+
+impl Subject {
+    fn of(project: &Project, settings: &Settings) -> Subject {
+        let mut subject = Subject {
+            revision: project.revision(),
+            semantics: trion_language::reading::typed::VERSION,
+            tool: env!("CARGO_PKG_VERSION"),
+            checker: trion_checker::derive::VERSION,
+            trace_length: settings.bounds.trace_length,
+            scope: settings.bounds.scope,
+            decisions: settings.bounds.decisions,
+            properties: settings.properties,
+            stability: settings.stability,
+            prover: settings.prover.clone(),
+            key: String::new(),
+        };
+        subject.key = crate::digest::hex(format!("{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}", subject.revision, subject.semantics, subject.tool, subject.checker, subject.trace_length, subject.scope, subject.decisions, subject.properties, subject.stability, subject.prover.join(" ")));
+        subject
+    }
+
+    /// The fields in which a saved report names another subject, or that
+    /// the report names none.
+    fn differs_from(&self, saved: &serde_json::Value) -> Vec<String> {
+        // Each field is compared, and the key as well: a report whose key
+        // is kept while a field is changed names another subject.
+        let saved = &saved["outcome"]["subject"];
+        let own = serde_json::to_value(self).unwrap_or_default();
+        let mut fields: Vec<String> = ["revision", "semantics", "tool", "checker", "trace_length", "scope", "decisions", "properties", "stability", "prover"].iter().filter(|field| saved[**field] != own[**field]).map(|field| format!("{field} ({} there, {} here)", saved[*field], own[*field])).collect();
+        if fields.is_empty() && saved["key"] != own["key"] {
+            fields.push("the key, which is not the digest of the fields that the report states".to_string());
+        }
+        fields
+    }
 }
 
 /// The external prover of a package that names none.
@@ -46,6 +115,7 @@ impl Settings {
             stability: stated.stability,
             smt: stated.smt.as_ref().map(|dir| project.root.join(dir)),
             prover: if stated.prover.is_empty() { DEFAULT_PROVER.map(str::to_string).to_vec() } else { stated.prover.clone() },
+            against: None,
         }
     }
 }
@@ -56,6 +126,33 @@ impl Settings {
 pub(crate) struct Gate {
     pub name: &'static str,
     pub state: &'static str,
+}
+
+/// What keeps a package from being verified: the gate that failed, the
+/// code of the finding, the statement that it is about, and the finding.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Blocker {
+    pub gate: &'static str,
+    pub code: String,
+    pub statement: Option<String>,
+    pub message: String,
+}
+
+/// The outcome of a verification as a whole.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Outcome {
+    /// `true` only when no gate failed.
+    pub verified: bool,
+    /// What `verified` says and within which bounds, or that it says nothing.
+    pub covers: String,
+    /// What was not examined: a claim that nothing asked for is no claim that holds.
+    pub not_examined: Vec<String>,
+    /// What the package declares and no part of the verification checks: a
+    /// result says nothing of it.
+    pub declared: Vec<String>,
+    pub blockers: Vec<Blocker>,
+    /// What the result is about.
+    pub subject: Subject,
 }
 
 /// How much a consistency result covers: the statements, the entries and
@@ -106,8 +203,11 @@ pub(crate) struct Verification {
     pub prover: Vec<Diagnostic>,
     pub properties: Vec<Diagnostic>,
     pub stability: Vec<Diagnostic>,
+    /// What the checks that stand apart from the analysis found.
+    pub checked: crate::checks::Checked,
     pub weight: Weight,
     pub gates: Vec<Gate>,
+    pub outcome: Outcome,
 }
 
 fn has_errors(diagnostics: &[Diagnostic]) -> bool {
@@ -115,16 +215,70 @@ fn has_errors(diagnostics: &[Diagnostic]) -> bool {
 }
 
 impl Verification {
-    /// The parts of sentences without a formal reading and the statements
-    /// that constrain nothing. Each is an error: nothing passes unread.
+    /// The parts of sentences without a formal reading, the statements
+    /// that constrain nothing and the qualities that nothing defines. Each
+    /// is an error: nothing passes unread.
     pub(crate) fn unread(&self) -> Vec<Diagnostic> {
-        self.analysis.silence.opaque.iter().chain(&self.analysis.silence.ungrounded).cloned().collect()
+        unread_of(&self.analysis)
     }
 
     /// `true` when a gate failed: the package is not verified.
     pub(crate) fn failed(&self) -> bool {
         self.gates.iter().any(|gate| gate.state == "failed")
     }
+}
+
+/// The meaning obligations of an analysis as diagnostics: what a normative
+/// statement says and no rule reads. Every view reports them as errors.
+pub(crate) fn unread_of(analysis: &Analysis) -> Vec<Diagnostic> {
+    let silence = &analysis.silence;
+    silence.opaque.iter().chain(&silence.ungrounded).chain(&silence.inexpressible).cloned().collect()
+}
+
+/// What a verified package is verified of, or what keeps it from being verified.
+/// What a package declares about itself that the verification takes as
+/// stated: the reason why a diagram kind keeps the meaning of its elements,
+/// and the agreement of sentence forms with another grammar.
+fn declared_of(project: &Project) -> Vec<String> {
+    let documents = || project.set.packages.iter().filter(|p| p.is_root).flat_map(|p| &p.documents);
+    let kinds = documents().flat_map(|d| &d.diagram_kinds).map(|kind| format!("diagram kind {}: that the expansion of an element keeps its meaning (`preserves \"{}\"`) is stated by the package; each element is read as its expansion, and the statement is not checked", kind.name, kind.preserves));
+    let claims = documents().flat_map(|d| &d.compatibility).map(|claim| format!("compatibility {}: that the sentence forms {} agree with source {} at revision `{}` is stated by the package; the source and its revision are compared, and the agreement of the forms is not checked", claim.name, claim.forms.join(", "), claim.source, claim.revision));
+    kinds.chain(claims).collect()
+}
+
+fn outcome_of(analysis: &Analysis, gates: &[Gate], findings: &[(&'static str, &[Diagnostic])], subject: Subject, declared: Vec<String>) -> Outcome {
+    use trion_verification::Verdict;
+    let claims = &analysis.claims;
+    let mut blockers: Vec<Blocker> = Vec::new();
+    let failed = |name: &str| gates.iter().any(|gate| gate.name == name && gate.state == "failed");
+    for (gate, diagnostics) in findings {
+        // A warning fails the gates of the properties and of the stability, and no other.
+        let counts = |d: &&Diagnostic| d.severity == Severity::Error || matches!(*gate, "properties" | "stability") || d.code == "consistency-unknown";
+        if failed(gate) {
+            blockers.extend(diagnostics.iter().filter(counts).map(|d| Blocker { gate, code: d.code.clone(), statement: d.refs.first().map(|r| r.id.clone()), message: d.message.clone() }));
+        }
+    }
+    blockers.extend(claims.obligations.iter().map(|o| Blocker { gate: "meaning", code: o.code.clone(), statement: o.statement.as_ref().map(|r| r.id.clone()), message: o.message.clone() }));
+    for claim in claims.unproved() {
+        let subject = claim.subject.as_ref().map_or(String::new(), |subject| format!(" of {subject}"));
+        let why = if claim.vacuous { "holds of nothing".to_string() } else { format!("is {}{}", claim.verdict.as_str(), claim.reason.as_ref().map_or(String::new(), |reason| format!(" ({reason})"))) };
+        blockers.push(Blocker { gate: "claims", code: claim.claim.clone(), statement: None, message: format!("the claim `{}`{subject} {why}: {}", claim.claim, claim.statement) });
+    }
+    let verified = !gates.iter().any(|gate| gate.state == "failed");
+    let not_examined: Vec<String> = claims.claims.iter().filter(|c| c.verdict == Verdict::NotRequested).map(|c| format!("{}: {}", c.claim, c.statement)).chain(gates.iter().filter(|gate| gate.state == "skipped").map(|gate| format!("gate {}", gate.name))).collect();
+    let covers = if verified {
+        let range = claims.claims.first().map_or(String::new(), |c| c.range.phrase());
+        let proved: Vec<String> = claims.claims.iter().filter(|c| c.verdict == Verdict::Proved && c.subject.is_none()).map(|c| c.statement.clone()).collect();
+        let checks = claims.claims.iter().filter(|c| c.claim == "property_entails" && c.subject.is_some() && c.verdict == Verdict::Proved).count();
+        let checked = if checks == 0 { String::new() } else { format!("; {checks} stated properties follow") };
+        // A scenario is one concrete behaviour: its judgement is about that behaviour and no bound.
+        let scenarios = claims.claims.iter().filter(|c| c.claim == "scenario_satisfiable" && matches!(c.verdict, Verdict::Proved | Verdict::Refuted)).count();
+        let judged = if scenarios == 0 { String::new() } else { format!("; {scenarios} scenarios are judged as expected, each alike by the reference evaluator and by the formulas of the reading") };
+        format!("within {range}: {}{checked}; no result is lifted beyond these bounds{judged}", proved.join("; "))
+    } else {
+        "nothing: a gate failed, and no claim of the package is shown as verified".to_string()
+    };
+    Outcome { verified, covers, not_examined, declared, blockers, subject }
 }
 
 fn answer_word(status: Status) -> &'static str {
@@ -211,15 +365,38 @@ fn ask_prover(command: &[String], proof: &Proof) -> Vec<Diagnostic> {
 pub(crate) fn verify(project: &Project, settings: &Settings) -> Result<Verification, String> {
     // The questions of the result are kept: the external prover is asked each.
     let options = Options { bounds: settings.bounds, subject_revision: Some(project.revision()), certificates: true, ..Options::default() };
-    let analysis = analyze(&project.set, &options);
-    let diagnostics: Vec<Diagnostic> = project.diagnostics.iter().chain(&analysis.diagnostics).cloned().collect();
+    let mut analysis = analyze(&project.set, &options);
+    let mut checked = crate::checks::run(project, &mut analysis);
+    let mut diagnostics: Vec<Diagnostic> = project.diagnostics.iter().chain(&analysis.diagnostics).cloned().collect();
+    // A saved result is a result about its own subject: where it names
+    // another text, another version of the rules or of the programs, or
+    // other settings, it says nothing about this verification.
+    let subject = Subject::of(project, settings);
+    if let Some(path) = &settings.against {
+        let saved = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display())).and_then(|text| serde_json::from_str::<serde_json::Value>(&text).map_err(|e| format!("{} is no report: {e}", path.display())));
+        match saved {
+            Err(message) => diagnostics.push(Diagnostic::error("result-stale", format!("the saved result cannot be compared: {message}"), Vec::new())),
+            Ok(saved) => {
+                let fields = subject.differs_from(&saved);
+                if !fields.is_empty() {
+                    diagnostics.push(Diagnostic::error("result-stale", format!("the saved result at {} is about another subject, and nothing of it holds here: it differs in {}", path.display(), fields.join(", ")), Vec::new()));
+                }
+            }
+        }
+    }
     let sources = sources::check(project);
     if let (Some(dir), Some(proof)) = (&settings.smt, &analysis.proof) {
         write_queries(dir, proof)?;
     }
     // A package that is not read as contracts has no question to ask.
     let prover = analysis.proof.as_ref().map_or_else(Vec::new, |proof| ask_prover(&settings.prover, proof));
-    let properties = if settings.properties { check_properties(&project.set, &analysis, &options) } else { Vec::new() };
+    let mut properties = if settings.properties { check_properties(&project.set, &analysis, &options) } else { Vec::new() };
+    // The reading and the meaning agree next to the scenarios as on them.
+    if settings.properties && analysis.model.individuals.is_some() {
+        let (variations, differing) = crate::checks::vary(project, &analysis);
+        properties.extend(differing);
+        checked.variations = Some(variations);
+    }
     let stability = if settings.stability { check_stability(&project.set, &analysis, &options) } else { Vec::new() };
     let weight = Weight::of(&analysis, project);
     let state = |asked: bool, failed: bool| match (asked, failed) {
@@ -227,14 +404,26 @@ pub(crate) fn verify(project: &Project, settings: &Settings) -> Result<Verificat
         (true, true) => "failed",
         (true, false) => "passed",
     };
-    let unread = !analysis.silence.opaque.is_empty() || !analysis.silence.ungrounded.is_empty();
+    let unread = !unread_of(&analysis).is_empty();
+    // The external prover is asked whenever a question was decided: a
+    // verification without its answers rests on the built-in solver alone,
+    // and that is a failure and no skip.
+    let prover_failed = analysis.proof.is_none() || has_errors(&prover);
     let gates = vec![
         // An unknown result is no success, and nothing passes unread.
         Gate { name: "check", state: state(true, has_errors(&diagnostics) || unread || analysis.has_unknown()) },
+        // What a normative statement says and no rule reads.
+        Gate { name: "meaning", state: state(true, !analysis.claims.obligations.is_empty()) },
+        // Each required claim is proved, and proved of something.
+        Gate { name: "claims", state: state(true, !analysis.claims.unproved().is_empty()) },
+        // The reference evaluator and the formulas agree on each scenario,
+        // and each scenario is judged as its author expects.
+        Gate { name: "checker", state: state(checked.asked, has_errors(&checked.diagnostics)) },
         Gate { name: "sources", state: state(true, has_errors(&sources.diagnostics)) },
-        Gate { name: "prover", state: state(analysis.proof.is_some(), has_errors(&prover)) },
+        Gate { name: "prover", state: state(true, prover_failed) },
         Gate { name: "properties", state: state(settings.properties, !properties.is_empty()) },
         Gate { name: "stability", state: state(settings.stability, !stability.is_empty()) },
     ];
-    Ok(Verification { analysis, diagnostics, sources, prover, properties, stability, weight, gates })
+    let outcome = outcome_of(&analysis, &gates, &[("check", &diagnostics), ("checker", &checked.diagnostics), ("sources", &sources.diagnostics), ("prover", &prover), ("properties", &properties), ("stability", &stability)], subject, declared_of(project));
+    Ok(Verification { analysis, diagnostics, sources, prover, properties, stability, checked, weight, gates, outcome })
 }

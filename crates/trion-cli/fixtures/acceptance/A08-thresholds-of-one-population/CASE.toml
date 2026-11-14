@@ -1,0 +1,24 @@
+id = "A08"
+title = "A share within 200 ms is a share within 500 ms of the same population"
+work = "W07"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+Both shares are taken of the one declared population `requests` over the same window. A request that
+is answered within 200 ms is answered within 500 ms, so the requests of [Q1] are among those of [Q2]:
+at least 99.9 percent and at most 90 percent of one non-empty population cannot both hold. With 1000
+requests that is at least 999 and at most 900 of them.
+"""
+
+[expect]
+verified = false
+blockers = ["contradiction"]
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = """
+each threshold had a quantity of its own key, and only equal thresholds were compared. Closed by
+relating the shares of one action in one population by their deadlines (reading/model.rs::measure_axioms).
+The population and the window are still names inside the key of the quantity and no typed objects.
+"""

@@ -1,0 +1,25 @@
+id = "A10"
+title = "The denominator of a share holds what was not answered, and an empty population has no share"
+work = "W07"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+In UNANSWERED two messages are posted and one is stored in time. The posting without a response
+stays in the population: one of two is 50 percent, and [MOST] asks for 75. Counting only the
+answered postings would give one of one.
+
+In EMPTY nothing is posted. The share of nothing has no value: the behaviour fails no statement,
+and [MOST] is listed as without a value and is not counted as met. `expect undefined` says so; the
+claim of the scenario is `proved` for what the behaviour fails, and its evidence names the share.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+"scenario_satisfiable:scenario UNANSWERED" = "refuted"
+"scenario_satisfiable:scenario EMPTY" = "proved"
+
+[baseline]
+commit = "24cab2aa"
+note = "a share was a quantity between 0 and 100 that nothing tied to a behaviour"

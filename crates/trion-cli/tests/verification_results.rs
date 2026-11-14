@@ -155,10 +155,10 @@ fn with_check(text: &str) -> String {
 fn a_check_uses_the_definitions_that_its_operands_need() {
     // The two conditions are one condition only under the definition of the status.
     let (_, defined) = check(&with_check(&format!("[STATUS] The status is open or closed.\n{CASES}")), None);
-    assert!(report_codes(&defined).is_empty(), "{defined}");
+    assert!(analysis_codes(&defined).is_empty(), "{defined}");
     assert_eq!(defined["checks"][0]["result"], "proved");
     let (_, open) = check(&with_check(CASES), None);
-    assert_eq!(report_codes(&open), ["check-refuted"]);
+    assert_eq!(analysis_codes(&open), ["check-refuted"]);
     assert_eq!(open["checks"][0]["result"], "refuted");
 }
 
@@ -190,13 +190,13 @@ fn a_comparison_reads_both_sides_in_one_environment() {
     // With the definition of the status, the base already requires the candidate.
     let defined = format!("[STATUS] The status is open or closed.\n{CASES}");
     let (_, report) = check(&comparison(&defined, "[OPEN]", "[NOT-CLOSED]", "redundant"), None);
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     // The same definition serves the other direction.
     let (_, report) = check(&comparison(&defined, "[NOT-CLOSED]", "[OPEN]", "redundant"), None);
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     // Without it, the candidate adds the case that the base statement does not cover.
     let (_, report) = check(&comparison(CASES, "[OPEN]", "[NOT-CLOSED]", "extension"), None);
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     // The bounds of the analysis hold for the base and the candidate alike.
     let (_, report) = check(&comparison(&defined, "[OPEN]", "[NOT-CLOSED]", "redundant"), Some("0"));
     assert_eq!(observed(&report), "unknown");
@@ -294,13 +294,15 @@ fn a_statement_without_a_formal_interpretation_names_the_obligation_it_blocks() 
     // A definition is accepted and names a term; it is no formula to compare.
     let text = "[CALL] A call means a request that a client sends.\n[LOG] The API shall log the call.\ncheck SAME:\n    relation equivalent\n    left [CALL]\n    right [LOG]\n    using definitions\n";
     let (code, report) = check(text, None);
-    assert_eq!(report_codes(&report), ["UNSUPPORTED_SEMANTICS"]);
+    assert_eq!(analysis_codes(&report), ["UNSUPPORTED_SEMANTICS"]);
     let diagnostic = &report["diagnostics"][0];
     assert!(diagnostic["message"].as_str().unwrap().contains("[CALL]") && diagnostic["message"].as_str().unwrap().contains("check SAME"), "{diagnostic}");
-    assert_eq!(report["checks"].as_array().unwrap().len(), 0, "an unsupported obligation is not reported as decided");
+    // The check stays among the outcomes as one that has no supported reading: it is not decided, and it is not gone.
+    assert_eq!(report["checks"].as_array().unwrap().iter().map(|c| c["result"].as_str().unwrap()).collect::<Vec<_>>(), ["unsupported"], "an unsupported obligation is not reported as decided");
+    assert!(report["claims"].as_array().unwrap().iter().any(|c| c["claim"] == "property_entails" && c["subject"] == "check SAME" && c["verdict"] == "unsupported"), "{report}");
     assert_eq!(code, 1);
     let example = comparison("[CALL] A call means a request that a client sends.\n[LOG] The API shall log the call.\n", "[LOG]", "[CALL]", "extension");
     let (_, report) = check(&example, None);
-    assert_eq!(report_codes(&report), ["UNSUPPORTED_SEMANTICS"]);
+    assert_eq!(analysis_codes(&report), ["UNSUPPORTED_SEMANTICS"]);
     assert!(report["diagnostics"][0]["message"].as_str().unwrap().contains("comparison E"), "{report}");
 }

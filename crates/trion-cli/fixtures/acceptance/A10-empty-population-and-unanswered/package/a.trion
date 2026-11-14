@@ -1,0 +1,18 @@
+namespace x
+individuals user, message
+primitive system
+measure postings
+
+[MOST]
+When a user posts a message, the system shall store the message within 2 seconds for at least 75 percent of postings.
+
+scenario UNANSWERED:
+    given a user U1, a message M1, a message M2
+    at 0 ms: U1 posts M1.
+    at 0 ms: U1 posts M2.
+    at 1 seconds: the system stores M1.
+    expect forbidden
+
+scenario EMPTY:
+    given a user U1, a message M1
+    expect undefined

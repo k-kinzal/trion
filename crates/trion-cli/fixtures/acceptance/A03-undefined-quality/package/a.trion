@@ -1,0 +1,5 @@
+namespace x
+primitive API
+
+[G1]
+The API shall be secure.

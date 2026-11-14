@@ -48,6 +48,8 @@ use crate::syntax::words::{classify, is_literal as literal, Closed, WordClass};
 struct Walk {
     open: Vec<Open>,
     rules: BTreeSet<&'static str>,
+    /// `true` inside the verb phrases of a statement with a modal verb.
+    normative: bool,
 }
 
 impl Walk {
@@ -274,6 +276,14 @@ impl Walk {
                     RolePp::Goal(_) => "role-goal",
                     RolePp::Location { .. } => "role-location",
                     RolePp::Agent(_) => "role-agent",
+                    // In the verb phrase of a statement with a modal verb,
+                    // `except`, `excluding` and `without` exclude a part of what
+                    // the action is about, and `by` after an active verb names a
+                    // deadline, a means or an agent: no rule reads what they say
+                    // there. In a definition the same words tell a kind from its
+                    // genus (`a user without an account`), and the definition reads them.
+                    RolePp::Other { preposition, .. } if self.normative && crate::syntax::words::is_exclusion(&preposition.to_ascii_lowercase()) => "role-exclusion",
+                    RolePp::Other { preposition, .. } if self.normative && preposition.eq_ignore_ascii_case("by") => "role-by",
                     RolePp::Other { .. } => "role-other",
                     RolePp::Deadline(_) | RolePp::Duration(_) | RolePp::Rate { .. } | RolePp::Before(_) | RolePp::After(_) | RolePp::Until(_) => "role-other",
                 });
@@ -323,6 +333,9 @@ impl Walk {
                 "eventually" => self.rules.insert("timing-eventually"),
                 _ => false,
             };
+        }
+        if self.normative && matches!(&v.object, Some(NpGroup::Single(np)) if matches!(np.det, Some(Det::ZeroOrMore))) {
+            self.rules.insert("object-zero-or-more");
         }
         v.object.iter().for_each(|g| self.group(g));
         self.roles(&v.roles);
@@ -403,6 +416,9 @@ impl Walk {
             }
             Core::Description { subject, adverb, predicate, agent, roles, .. } => {
                 self.rules.insert(if adverb.is_some() { "description-adverb" } else { "description" });
+                if counted_subject(subject) {
+                    self.rules.insert("subject-counted-descriptive");
+                }
                 self.group(subject);
                 self.predicate(predicate);
                 agent.iter().for_each(|g| self.group(g));
@@ -418,10 +434,15 @@ impl Walk {
                     (_, true) => "permission-denied",
                 });
                 self.group(subject);
+                self.normative = true;
                 self.vps(vp);
+                self.normative = false;
             }
             Core::Relation { subject, vp } => {
                 self.rules.insert("relation");
+                if counted_subject(subject) {
+                    self.rules.insert("subject-counted-descriptive");
+                }
                 self.group(subject);
                 self.vps(vp);
             }
@@ -450,6 +471,12 @@ impl Walk {
                 TriggerKind::Event => "frame-when",
                 TriggerKind::Contingency => "frame-if",
             });
+            if trigger.keyword.eq_ignore_ascii_case("before") {
+                self.rules.insert("frame-before");
+            }
+            if trigger.clause.items.iter().any(|clause| counted_subject(&clause.subject)) {
+                self.rules.insert("frame-counted-event");
+            }
             self.clauses(&trigger.clause);
         }
         if let Some(c) = &s.exception {
@@ -458,11 +485,20 @@ impl Walk {
         }
         if let Some(g) = &s.necessary {
             self.rules.insert("condition-only-if");
+            if matches!(&s.core, Core::Deontic { negated: true, .. }) {
+                self.rules.insert("condition-only-if-denied");
+            }
             self.clauses(g);
         }
         if let Some(g) = &s.iff {
             self.rules.insert("condition-if-and-only-if");
+            if matches!(&s.core, Core::Deontic { negated: true, .. }) {
+                self.rules.insert("condition-only-if-denied");
+            }
             self.clauses(g);
+        }
+        if let Some(concession) = &s.concession {
+            self.rules.insert(if is_emphasis(concession) { "concession-even-when" } else { "concession-while-gerund" });
         }
         match &s.purpose {
             Some(Purpose::SoThat(c)) => {
@@ -479,16 +515,59 @@ impl Walk {
     }
 }
 
+/// Whether the subject of a statement without a modal verb is one counted
+/// noun phrase: `At most 5 users have a profile.`
+fn counted_subject(subject: &NpGroup) -> bool {
+    matches!(subject, NpGroup::Single(np) if matches!(np.det, Some(Det::AtLeast { .. } | Det::Cardinal { .. } | Det::AtMost { .. } | Det::Exactly { .. } | Det::ZeroOrMore | Det::OneOrMore)))
+}
+
+/// The rules that name a construct and give it no meaning: the parser
+/// accepts the construct, and what it says reaches no formula, or reaches
+/// one only as a part of a name that nothing relates to anything. A
+/// statement that holds one is rejected: a result about the rest of the
+/// statement would be a result about another statement. Each entry gives
+/// what is lost and how to say it in a form that is read.
+///
+/// The ledger of patterns (`spec/patterns/ledger.toml`) lists each of them
+/// with the work that gives it a meaning.
+pub(crate) const UNRESOLVED: &[(&str, &str)] = &[
+    ("role-rate", "`per <unit>` states a rate, and no reading rule relates the count to the unit of time: `3 per second` and `5 per minute` would be read as two counts of one activation; no form of this edition states a rate, so state a count with a deadline for one activation, as in `at most 3 times` and `within 1 second`"),
+    ("role-exclusion", "`except`, `excluding` and `without` exclude a part of what the action is about, and no reading rule reads the exclusion: the action would be required of the excluded part as well; state the excluded part in a statement of its own, as in `The API shall not send the header.`"),
+    ("role-by", "`by <noun>` after an active verb is read neither as a deadline nor as a means: write a deadline with `within 5 seconds` or `before <clause>`, and a means with `using <noun>`"),
+    ("predicate-able-to", "`is able to` states a capability, and no reading rule relates it to the action or to a permission: write a permission with `may`, or define the capability as a term with `A … means …`"),
+    ("content-of-noun", "a noun with `that <clause>` names a thing by what the clause says, and no reading rule relates the thing to the clause: define the phrase as a term with `A … means …`, or state the clause in a statement of its own"),
+    ("frame-before", "`Before <clause>,` at the head of a statement is read as an event of its own that nothing relates to the clause, so the statement would require nothing: write the order after the verb, as in `shall stop before the door opens`"),
+    ("frame-counted-event", "a counted subject of the event of a frame (`After 3 failed retries,`, `When 3 users join,`) is read as the name of one event, so the count is related to no occurrence and to no number: name the event that the count reaches in a statement of its own, or state the count as a state, as in `While the number of failed retries is at least 3,`"),
+    ("condition-only-if-denied", "`shall not … only when` and `shall not … exactly when` confine a prohibition to a condition, and no reading rule says what holds of the action where the condition fails: state the prohibition under its condition, as in `While the door is open, the API shall not stop.`, and what holds elsewhere in a statement of its own"),
+    ("subject-counted-descriptive", "a counted subject of a statement without a modal verb is read as the name of one thing, so the count bounds nothing: count the individuals with `There are at most 5 users.` or `The number of users is at most 5.`"),
+    ("object-zero-or-more", "`zero or more` after a modal verb requires nothing of the count, and the action would be required all the same: write a permission with `may`, or state the bound that is meant"),
+];
+
+/// The rules without a meaning that read a sentence, each with what is lost.
+pub(crate) fn unresolved(sentence: &Sentence) -> Vec<(&'static str, &'static str)> {
+    let found = rules(sentence);
+    UNRESOLVED.iter().filter(|(rule, _)| found.contains(rule)).copied().collect()
+}
+
+/// Whether a concession only says that the claim holds in a case that a
+/// reader might take for an exception: `even when` and `even if`. The claim
+/// is then read without the phrase, and it holds whether the case holds or
+/// not. Any other concession says something of its own.
+pub(crate) fn is_emphasis(concession: &str) -> bool {
+    let mut words = concession.split_whitespace().map(str::to_ascii_lowercase);
+    words.next().as_deref() == Some("even") && matches!(words.next().as_deref(), Some("when" | "if"))
+}
+
 /// The names of the reading rules that read a sentence.
 pub fn rules(sentence: &Sentence) -> Vec<&'static str> {
-    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new() };
+    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false };
     walk.sentence(sentence);
     walk.rules.into_iter().collect()
 }
 
 /// The words of the open places of a sentence.
 pub(super) fn open_words(sentence: &Sentence) -> Vec<Open> {
-    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new() };
+    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false };
     walk.sentence(sentence);
     walk.open.sort();
     walk.open.dedup();

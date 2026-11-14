@@ -41,7 +41,7 @@ fn the_entry_file_can_be_named_in_the_manifest() {
 fn a_file_is_loaded_once_however_often_it_is_included() {
     let entry = "package p edition \"1\"\ninclude \"a.trion\"\ninclude \"./a.trion\"\ninclude \"b.trion\"\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("a.trion", "[A] The API shall stop.\n"), ("b.trion", "include \"a.trion\"\nnamespace p:\n")]);
-    assert!(codes_of(&f).is_empty(), "a twice-loaded file would duplicate [A]");
+    assert!(codes_of_of_the_analysis(&f).is_empty(), "a twice-loaded file would duplicate [A]");
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn an_included_file_has_no_package_declaration() {
 #[test]
 fn a_namespace_begins_with_the_package_name() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "namespace other.api:\n    The API shall stop.\n")]);
-    assert_eq!(codes_of(&f), ["namespace-package"]);
+    assert_eq!(codes_of_of_the_analysis(&f), ["namespace-package"]);
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn rejects_an_unknown_manifest_field() {
 fn a_used_specification_set_detects_a_foreign_operation() {
     let f = Fixture::new(&[("trion.toml", &grpc_dep()), ("a.trion", GRPC_SPECS)]);
     let r = f.trion(&["verify", "--json"]);
-    assert_eq!(report_codes(&r.json()), ["shape-violation"], "{}", r.stdout);
+    assert_eq!(analysis_codes(&r.json()), ["shape-violation"], "{}", r.stdout);
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn without_a_use_the_same_sentences_are_consistent() {
 #[test]
 fn a_use_absent_from_the_manifest_is_an_error() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("spec/a.trion", "use grpc\nThe API shall stop.\n")]);
-    assert_eq!(codes_of(&f), ["unresolved-import"]);
+    assert_eq!(codes_of_of_the_analysis(&f), ["unresolved-import"]);
 }
 
 #[test]
@@ -170,14 +170,14 @@ fn the_vocabulary_mode_comes_from_the_manifest() {
     let manifest = "[package]\nname = \"p\"\n\n[vocabulary]\nmode = \"declared\"\n";
     let f = Fixture::new(&[("trion.toml", manifest), ("a.trion", "term API: entity\nterm stop: action\nThe API shall stop.\nThe log shall rotate.\n")]);
     let r = f.trion(&["verify", "--json"]);
-    assert_eq!(report_codes(&r.json()), ["UNRESOLVED_TERM"], "{}", r.stdout);
+    assert_eq!(analysis_codes(&r.json()), ["UNRESOLVED_TERM"], "{}", r.stdout);
 }
 
 #[test]
 fn an_unknown_vocabulary_mode_is_an_error() {
     let manifest = "[package]\nname = \"p\"\n\n[vocabulary]\nmode = \"guess\"\n";
     let f = Fixture::new(&[("trion.toml", manifest), ("a.trion", "The API shall stop.\n")]);
-    assert_eq!(codes_of(&f), ["manifest-vocabulary-mode"]);
+    assert_eq!(codes_of_of_the_analysis(&f), ["manifest-vocabulary-mode"]);
 }
 
 #[test]
@@ -247,6 +247,22 @@ fn tree_codes(files: &[(&str, &str)]) -> Vec<String> {
     codes_of(&Fixture::new(&all))
 }
 
+/// As `codes_of`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_of_the_analysis(f: &Fixture) -> Vec<String> {
+    analysis_codes(&f.trion(&["verify", "--json"]).json())
+}
+
+/// As `tree_codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn tree_codes_of_the_analysis(files: &[(&str, &str)]) -> Vec<String> {
+    let mut all = vec![("trion.toml", MANIFEST)];
+    all.extend_from_slice(files);
+    codes_of_of_the_analysis(&Fixture::new(&all))
+}
+
 #[test]
 fn specs_can_nest_in_directories() {
     let files = [("trion.toml", MANIFEST), ("top.trion", "primitive API\nThe API shall stop.\n"), ("a/b/c.trion", "primitive bell\nThe bell shall ring.\n")];
@@ -269,7 +285,7 @@ fn the_vocabulary_names_the_namespace_of_each_term() {
 
 #[test]
 fn namespaces_are_separate() {
-    assert!(tree_codes(&[("a.trion", "namespace p.api:\n    The API shall stop.\n"), ("b.trion", "namespace p.web:\n    The API shall not stop.\n")]).is_empty());
+    assert!(tree_codes_of_the_analysis(&[("a.trion", "namespace p.api:\n    The API shall stop.\n"), ("b.trion", "namespace p.web:\n    The API shall not stop.\n")]).is_empty());
 }
 
 #[test]
@@ -285,21 +301,21 @@ fn a_use_reaches_another_namespace() {
 
 #[test]
 fn a_use_exposes_only_declared_terms() {
-    assert!(tree_codes(&[("a.trion", "namespace p.api:\n    The API shall stop.\n"), ("b.trion", "namespace p.web:\n    use p.api\n    The API shall not stop.\n")]).is_empty());
+    assert!(tree_codes_of_the_analysis(&[("a.trion", "namespace p.api:\n    The API shall stop.\n"), ("b.trion", "namespace p.web:\n    use p.api\n    The API shall not stop.\n")]).is_empty());
 }
 
 #[test]
 fn a_child_namespace_does_not_see_its_parent() {
-    assert!(tree_codes(&[("a.trion", "namespace p:\n    term API: entity\n    The API shall stop.\n"), ("b.trion", "namespace p.sub:\n    The API shall not stop.\n")]).is_empty());
+    assert!(tree_codes_of_the_analysis(&[("a.trion", "namespace p:\n    term API: entity\n    The API shall stop.\n"), ("b.trion", "namespace p.sub:\n    The API shall not stop.\n")]).is_empty());
 }
 
 #[test]
 fn an_alias_is_closed_within_its_namespace() {
     let api = "namespace p.api:\n    term API: entity\n    alias the service = API\n    The service shall stop.\n";
     let web = "namespace p.web:\n    The service shall not stop.\n    The API shall not stop.\n";
-    assert!(tree_codes(&[("a.trion", api), ("b.trion", web)]).is_empty(), "neither the alias nor its term is a name in p.web");
+    assert!(tree_codes_of_the_analysis(&[("a.trion", api), ("b.trion", web)]).is_empty(), "neither the alias nor its term is a name in p.web");
     let web = "namespace p.web:\n    use p.api\n    The service shall not stop.\n";
-    assert_eq!(tree_codes(&[("a.trion", api), ("b.trion", web)]), ["contradiction"], "a use brings the alias as a member of p.api");
+    assert_eq!(tree_codes_of_the_analysis(&[("a.trion", api), ("b.trion", web)]), ["contradiction"], "a use brings the alias as a member of p.api");
 }
 
 #[test]
@@ -309,12 +325,12 @@ fn a_qualified_name_reaches_a_namespace() {
 
 #[test]
 fn an_unknown_namespace_is_an_error() {
-    assert_eq!(tree_codes(&[("b.trion", "namespace p.web:\n    The nope::API shall stop.\n")]), ["namespace-unknown"]);
+    assert_eq!(tree_codes_of_the_analysis(&[("b.trion", "namespace p.web:\n    The nope::API shall stop.\n")]), ["namespace-unknown"]);
 }
 
 #[test]
 fn a_term_from_two_uses_is_ambiguous() {
-    let codes = tree_codes(&[
+    let codes = tree_codes_of_the_analysis(&[
         ("x.trion", "namespace p.a:\n    term API: entity\n"),
         ("y.trion", "namespace p.b:\n    term API: entity\n"),
         ("z.trion", "namespace p.c:\n    use p.a\n    use p.b\n    The API shall stop.\n"),
@@ -324,14 +340,14 @@ fn a_term_from_two_uses_is_ambiguous() {
 
 #[test]
 fn a_use_names_a_namespace_or_a_dependency() {
-    assert_eq!(tree_codes(&[("z.trion", "namespace p.c:\n    use nowhere\n    The API shall stop.\n")]), ["unresolved-import"]);
-    assert_eq!(tree_codes(&[("z.trion", "namespace p.c:\n    use p.nowhere\n    The API shall stop.\n")]), ["namespace-unknown"]);
-    assert!(tree_codes(&[("x.trion", "namespace p.a:\n    The bell shall ring.\n"), ("z.trion", "namespace p.c:\n    use p.a\n    The API shall stop.\n")]).is_empty());
+    assert_eq!(tree_codes_of_the_analysis(&[("z.trion", "namespace p.c:\n    use nowhere\n    The API shall stop.\n")]), ["unresolved-import"]);
+    assert_eq!(tree_codes_of_the_analysis(&[("z.trion", "namespace p.c:\n    use p.nowhere\n    The API shall stop.\n")]), ["namespace-unknown"]);
+    assert!(tree_codes_of_the_analysis(&[("x.trion", "namespace p.a:\n    The bell shall ring.\n"), ("z.trion", "namespace p.c:\n    use p.a\n    The API shall stop.\n")]).is_empty());
 }
 
 #[test]
 fn a_namespace_role_binds_like_a_package_role() {
     let role = "namespace p.shapes:\n    role service:\n        activate: The $subject shall use gRPC communication.\n        form METHOD: The $subject $operation shall $action. where $operation does not match /^[A-Z]+ /\n";
     let spec = "namespace p.svc:\n    use p.shapes\n    The API shall use gRPC communication.\n    The API `GET /foo` shall return foo.\n";
-    assert_eq!(tree_codes(&[("g.trion", role), ("s.trion", spec)]), ["shape-violation"]);
+    assert_eq!(tree_codes_of_the_analysis(&[("g.trion", role), ("s.trion", spec)]), ["shape-violation"]);
 }

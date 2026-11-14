@@ -1,0 +1,12 @@
+namespace x
+primitive API
+primitive request
+
+[K]
+The network is up or down.
+
+[A]
+The API shall log the request, even when the network is down.
+
+[B]
+While the network is up, the API shall not log the request.

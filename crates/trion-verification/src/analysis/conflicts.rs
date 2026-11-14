@@ -162,6 +162,10 @@ impl Findings<'_> {
         }
         let mut key: Vec<String> = refs.iter().map(|r| r.id.clone()).collect();
         key.sort();
+        // A set that holds a reported conflict set says nothing new.
+        if facts.is_none() && self.conflicts.iter().any(|c| c.code == "contradiction" && c.elements.iter().all(|e| key.contains(&e.reference.id))) {
+            return;
+        }
         if !self.seen.insert(key) {
             return;
         }
@@ -188,7 +192,12 @@ impl Findings<'_> {
             // specification consistent.
             Diagnostic::error("recommendation-violation", format!("a recommendation cannot be followed together with these specifications{met}; the hard constraints stay consistent{size}"), refs.clone())
         } else {
-            Diagnostic::error("contradiction", format!("these specifications cannot all hold{met}{advice}{size}"), refs.clone())
+            // A conflict among statements that are read over individuals is
+            // a conflict within the domains that were examined: the number of
+            // individuals is a bound of the search, and the message says so.
+            let carried = members.iter().chain(conditions).any(|&m| model.constraints[m].kind == ConstraintKind::Carried || model.applied.iter().any(|a| a.kind == "individuals" && model.constraints[m].refs.first() == Some(&a.subject)));
+            let domain = model.instance_scope.filter(|_| carried).map_or(String::new(), |n| format!("; the statements about individuals are read over domains of {n} individuals of each type, which hold what the statements count, and no larger domain was examined"));
+            Diagnostic::error("contradiction", format!("these specifications cannot all hold{met}{advice}{size}{domain}"), refs.clone())
         };
         // A refutation of the hard constraints with no condition forced makes
         // the specification unsatisfiable. A conflict under conditions leaves
@@ -250,11 +259,23 @@ pub(super) struct Situated {
     environment: Vec<Formula>,
     /// The action behind each event.
     events: BTreeMap<String, String>,
+    /// The terms that the environment controls: a situation fixes them, and
+    /// no response of the system changes them.
+    given: BTreeSet<String>,
 }
 
 impl Situated {
     pub(super) fn of(model: &Model, control: &environment::Control) -> Self {
-        Self { environment: environment::environment_events(model, control), events: environment::event_actions(model) }
+        let mut given = control.declared_environment.clone();
+        // Which individuals there are and how they are related is given: a
+        // response chooses among the individuals of the domain, and makes
+        // none of them one that it may choose.
+        for entry in model.individuals.iter().flat_map(|individuals| &individuals.atoms) {
+            if matches!(entry.fact, trion_language::reading::Fact::Kind { .. } | trion_language::reading::Fact::Related { .. }) {
+                given.extend(entry.atom.symbols().into_iter().map(str::to_string));
+            }
+        }
+        Self { environment: environment::environment_events(model, control), events: environment::event_actions(model), given }
     }
 }
 
@@ -273,7 +294,7 @@ pub(super) fn search(model: &Model, inst: &Instance, situated: &Situated, author
     let mut examined = None;
     if !found.conflicted && !found.unknown {
         let soft = |i: usize| authored.is_recommendation(&model.constraints[i]);
-        let situations = situations::search(model, inst, &situated.environment, &situated.events, &soft, &|i| authored.is_description(&model.constraints[i]));
+        let situations = situations::search(model, inst, &situated.environment, &situated.events, &situated.given, &soft, &|i| authored.is_description(&model.constraints[i]));
         for conflict in &situations.conflicts {
             found.report_in(model, &conflict.statements, &conflict.conditions, true, Some(&conflict.facts));
         }
@@ -390,16 +411,29 @@ fn find_unreachable(model: &Model, inst: &Instance, found: &mut Findings, active
                     Status::Satisfiable => {}
                 }
                 let (core, minimal) = inst.unsat_subset(&hard, &[guard]);
-                // A statement of the wrong form is an error of its own.
-                if core.iter().any(|&c| model.constraints[c].kind == ConstraintKind::Form) {
+                // What keeps the condition from holding: the other
+                // statements whatever this one requires, this statement
+                // alone, or neither. In the last case the responses of the
+                // statements cannot all be given once the condition is met.
+                let others: Vec<usize> = hard.iter().copied().filter(|&c| c != g).collect();
+                let itself: Vec<usize> = possible.iter().copied().chain([g]).collect();
+                let excluded = if inst.status(&others, &[guard]) == Status::Unsatisfiable {
+                    let (by, _) = inst.unsat_subset(&others, &[guard]);
+                    let by: Vec<&SpecRef> = by.iter().filter(|c| !possible.contains(c)).filter_map(|&c| model.constraints[c].refs.first()).collect();
+                    Some(by)
+                } else if inst.status(&itself, &[guard]) == Status::Unsatisfiable {
+                    Some(Vec::new())
+                } else {
+                    None
+                };
+                let Some(by) = excluded.filter(|_| !core.iter().any(|&c| model.constraints[c].kind == ConstraintKind::Form)) else {
                     vacuous("unreachable under the other statements");
                     found.report(model, &core, &[g], minimal);
                     continue;
-                }
+                };
                 // The condition holds in a situation that can occur, and in
                 // no behaviour that keeps the statements: the statements
                 // forbid the situation, and this one requires nothing.
-                let by: Vec<&SpecRef> = core.iter().filter(|&&c| c != g).filter_map(|&c| model.constraints[c].refs.first()).collect();
                 let reason = if by.is_empty() { "excluded by the statement itself".to_string() } else { format!("excluded by {}", by.iter().map(|r| format!("`{}`", r.id)).collect::<Vec<_>>().join(" and ")) };
                 vacuous(&reason);
                 found.refuted.push(("condition-unreachable", vec![guard], core.clone()));

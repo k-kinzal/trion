@@ -71,8 +71,22 @@ fn a_relative_clause_without_a_reading_is_rejected() {
 fn a_content_clause_is_read_by_the_class_of_its_verb() {
     // An establishing verb makes its clause hold when its action completes.
     let unrolled = |text: &str| Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).inspect(&["model", "--unrolled", "a.trion"]).stdout;
-    let made = unrolled("[A]\nThe checker shall verify that the room is locked.\n");
-    assert!(made.contains("(Act(checker|verify that room is locked@0) → Val(room@0, locked))"), "{made}");
+    let made = unrolled("[A]\nThe checker shall ensure that the room is locked.\n");
+    assert!(made.contains("(Act(checker|ensure that room is locked@0) → Val(room@0, locked))"), "{made}");
+    // Old behaviour: `verify`, `confirm` and `prove` were establishing
+    // verbs, so `shall verify that the room is locked` made the room
+    // locked: `(Act(checker|verify that room is locked@0) → Val(room@0,
+    // locked))`, and a property `the room is locked` followed from the
+    // duty to examine it. A verb that examines a proposition does not make
+    // it hold: it is about the proposition, as `report` and `check` are.
+    for verb in ["verify", "confirm", "prove"] {
+        let examined = unrolled(&format!("[A]\nThe checker shall {verb} that the room is locked.\n"));
+        assert!(examined.contains(&format!("Act(checker|{verb} that room is locked@0)")) && !examined.contains(&format!("(Act(checker|{verb} that room is locked@0) → Val(room@0, locked))")), "{examined}");
+        let free = check(&format!("[A]\nThe checker shall {verb} that the room is open.\n[B]\nThe room shall not be open.\n"));
+        assert!(!free["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "contradiction"), "{}", free["diagnostics"]);
+    }
+    let made = check("[A]\nThe checker shall ensure that the room is open.\n[B]\nThe room shall not be open.\n");
+    assert!(made["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "contradiction"), "{}", made["diagnostics"]);
     // A reporting verb says nothing of whether the clause holds.
     let told = unrolled("[A]\nThe checker shall report that the room is locked.\n");
     assert!(told.contains("Act(checker|report that room is locked@0)") && !told.contains("(Act(checker|report that room is locked@0) → Val(room@0, locked))"), "{told}");

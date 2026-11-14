@@ -152,7 +152,7 @@ fn a_specification_without_a_source_is_a_warning() {
 #[test]
 fn an_unknown_source_or_quote_is_unresolved() {
     let f = fixture(&format!("{FULL}[C] The API shall run.\n  cite X#ONE\n[D] The API shall wait.\n  cite R#NOPE\n"));
-    let codes = report_codes(&f.trion(&["verify", "--json"]).json());
+    let codes = analysis_codes(&f.trion(&["verify", "--json"]).json());
     assert_eq!(codes, ["UNRESOLVED_CITATION", "UNRESOLVED_CITATION"]);
 }
 

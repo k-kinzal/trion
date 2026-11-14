@@ -1,0 +1,19 @@
+id = "A13"
+title = "A behaviour in which no condition holds is no answer to a situation in which one does"
+work = "W02"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+A behaviour in which no user sends a message keeps [A] and [B]: the contracts have a model. Nothing
+says that no user sends a message, and where one does the API must store the message and must not:
+that situation has no response. The two claims have different verdicts and neither stands for the other.
+"""
+
+[expect]
+verified = false
+blockers = ["contradiction"]
+
+[expect.claims]
+background_sat = "proved"
+contract_sat = "proved"
+situation_total = "refuted"

@@ -13,17 +13,21 @@
 //! sentence ([`rules()`]) and what the set says without constraining anything
 //! ([`silence`]).
 
+mod ground;
 mod grounding;
 mod instances;
 mod key;
 mod lexicon;
 mod meaning;
 mod model;
+mod normal;
 mod priority;
 mod rules;
 mod temporal;
+pub mod typed;
 mod vocabulary;
 
+pub use ground::{AtomOf, Fact, Individuals, InstanceOf, OutsideOf, ShareOf};
 pub use grounding::Silence;
 pub use lexicon::Lexicon;
 pub use model::{Applied, Constraint, ConstraintKind, Extent, Model};
@@ -38,5 +42,5 @@ pub use meaning::check as check_refinements;
 pub use model::{compile, group_formula, match_core, np_key, role_prefix, subject_key, SUBJECT_VARIABLE};
 pub use priority::{authored_condition, check as check_priorities};
 pub use rules::entry_lines;
-pub use temporal::{at_each_moment, at_every_moment, at_first_moment, diagnostics as temporal_diagnostics, unroll, unroll_axiom, unroll_background, Activation, Trace};
+pub use temporal::{continues, is_count, moment_atom, moment_time, at_each_moment, at_every_moment, at_first_moment, diagnostics as temporal_diagnostics, situation_guarantee, unroll, unroll_complete, unroll_complete_in, unroll_axiom, unroll_background, Activation, Trace};
 pub use vocabulary::build_table;

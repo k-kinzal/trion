@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-cli"]
+members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-checker", "crates/trion-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,7 @@ edition = "2021"
 trion-solver = { path = "crates/trion-solver" }
 trion-language = { path = "crates/trion-language" }
 trion-verification = { path = "crates/trion-verification" }
+trion-checker = { path = "crates/trion-checker" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
@@ -30,3 +31,7 @@ opt-level = 3
 [profile.dev.package.trion-verification]
 opt-level = 3
 
+# The independent checker judges every scenario, its variations and the
+# behaviour behind a claim: without optimisation it is the longest part of a run.
+[profile.dev.package.trion-checker]
+opt-level = 3

@@ -1,0 +1,24 @@
+id = "A22"
+title = "A state that can hold is not a state that can be reached"
+work = "W12"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+`done` is a state that a task may have: the behaviour DONE, in which a task is done, fails no
+statement. Nothing states an initial state or a transition, and [STAY] forbids the only action that
+could end the idle state. That DONE is allowed says that the state is compatible with the
+statements (`scenario_satisfiable`); it does not say that a task that starts idle ever becomes
+done. `scenario_reachable` is not examined, and the claim of the scenario says in `not_claimed` that
+reachability is no part of it.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+"scenario_satisfiable:scenario DONE" = "proved"
+scenario_reachable = "not_requested"
+
+[baseline]
+commit = "24cab2aa"
+note = "no claim was stated apart; a consistent package was shown as verified without saying of what"

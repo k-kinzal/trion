@@ -1,0 +1,26 @@
+id = "A11"
+title = "Three exclusive kinds with two individuals each need six individuals"
+work = "W08"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+Two lobbies, two vaults and two archives that are pairwise different kinds of room are six rooms. A
+world with six rooms keeps every statement, so the statements have a model. That domains of three,
+four or five rooms have none says how far the search looked and nothing about the statements: no bound
+of the search may be reported as `these specifications cannot all hold`.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+contract_sat = "proved"
+
+[baseline]
+commit = "24cab2aa"
+verified = false
+note = """
+status `unsatisfiable`, `exhaustive: true` and a `contradiction` at 3, 4 and 5 individuals; a model at 6
+(`--scope 6`). Closed by reading the statements over a domain that holds the sum of what the kinds of
+one carrier count (reading/instances.rs).
+"""

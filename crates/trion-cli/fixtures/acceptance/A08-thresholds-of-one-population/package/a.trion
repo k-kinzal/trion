@@ -1,0 +1,10 @@
+namespace x
+individuals request
+primitive API
+measure requests
+
+[Q1]
+When a request arrives, the API shall answer the request within 200 ms for at least 99.9 percent of requests.
+
+[Q2]
+When a request arrives, the API shall answer the request within 500 ms for at most 90 percent of requests.

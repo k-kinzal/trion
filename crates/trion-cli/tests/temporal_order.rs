@@ -23,6 +23,13 @@ fn codes(text: &str) -> Vec<String> {
     report_codes(&check(text))
 }
 
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&check(text))
+}
+
 fn model(text: &str) -> String {
     package(text).inspect(&["model"]).stdout
 }
@@ -34,18 +41,18 @@ fn rules(text: &str) -> String {
 #[test]
 fn a_deadline_names_the_first_or_the_next_occurrence_as_its_origin() {
     let first = format!("{RETRY}[O]\nWhen the timer expires, the API shall respond within 5 seconds of the first retry.\n");
-    assert!(codes(&first).is_empty(), "{:?}", codes(&first));
+    assert!(codes_of_the_analysis(&first).is_empty(), "{:?}", codes_of_the_analysis(&first));
     let text = model(&first);
     // The order word is no part of the action and no term of its own.
     assert!(text.contains("Act(API|respond)") && text.contains("measured from first retry"), "{text}");
     let next = format!("{RETRY}[O]\nWhen the timer expires, the API shall respond within 5 seconds of the next retry.\n");
-    assert!(codes(&next).is_empty(), "{:?}", codes(&next));
+    assert!(codes_of_the_analysis(&next).is_empty(), "{:?}", codes_of_the_analysis(&next));
     assert!(model(&next).contains("measured from next retry"));
     // The two origins give two formulas.
     let unrolled = |text: &str| package(text).inspect(&["model", "--unrolled"]).stdout;
     assert_ne!(unrolled(&first).replace("first", "next"), unrolled(&next));
     // An occurrence that no event of the package is has no origin.
-    assert_eq!(codes("[O]\nWhen the timer expires, the API shall respond within 5 seconds of the next retry.\n"), ["UNRESOLVED_TEMPORAL_SCOPE"]);
+    assert_eq!(codes_of_the_analysis("[O]\nWhen the timer expires, the API shall respond within 5 seconds of the next retry.\n"), ["UNRESOLVED_TEMPORAL_SCOPE"]);
 }
 
 #[test]
@@ -88,7 +95,7 @@ fn a_completion_and_an_occurrence_are_ordered_on_the_trace() {
 fn a_word_of_time_without_a_reading_is_rejected_with_the_reason() {
     let message = |text: &str| {
         let report = check(text);
-        assert_eq!(report_codes(&report), ["UNRESOLVED_TEMPORAL_SCOPE"], "{report}");
+        assert_eq!(analysis_codes(&report), ["UNRESOLVED_TEMPORAL_SCOPE"], "{report}");
         report["diagnostics"][0]["message"].as_str().unwrap().to_string()
     };
     assert!(message("[A]\nWhen the timer expires, the API shall log the request before the first retry.\n").contains("no event of the package is an occurrence of `retry`"));
@@ -108,8 +115,12 @@ fn a_word_of_time_without_a_reading_is_rejected_with_the_reason() {
 #[test]
 fn always_is_a_completion_at_each_moment() {
     let never_after = "[B]\nWhen the door opens, the API shall not log the request.\n";
-    // An action that is done at some moment may be done before the door opens.
-    assert!(codes(&format!("[A]\nThe API shall log the request.\n\n{never_after}")).is_empty());
+    // An action that is done at some moment may be done before the door
+    // opens, so a behaviour keeps both statements. In the situation in
+    // which the door opens, both apply, and they cannot both be kept.
+    let once = check(&format!("[A]\nThe API shall log the request.\n\n{never_after}"));
+    assert_eq!(report_codes(&once), ["contradiction"], "{once}");
+    assert_eq!(once["consistency"]["status"], "satisfiable");
     assert_eq!(codes(&format!("[A]\nThe API shall always log the request.\n\n{never_after}")), ["contradiction"]);
     let text = model("[A]\nThe API shall always log the request.\n");
     assert!(text.contains("Act(API|log request)") && text.contains("always: completes at every moment after the activation"), "{text}");
@@ -132,15 +143,45 @@ fn a_count_in_a_row_is_read_as_a_run_of_completions() {
 }
 
 #[test]
-fn what_the_rest_of_the_trace_does_not_order_is_not_refuted() {
-    // Each of two actions completes before the other: on the moments that is
-    // impossible, and in the rest the trace does not order them.
+fn two_completions_cannot_each_come_before_the_other_in_the_rest_of_the_trace_either() {
+    // Each of two actions completes before the other after one expiry of
+    // the timer: no order of the two completions keeps both statements. The
+    // rest of the trace stands for the later moments, and the first
+    // completion of each action there has a time: the order is an order of
+    // these times. This test asserted that the cycle is not refuted, because
+    // the rest ordered nothing; a model that places both completions in the
+    // rest is a model of no trace.
     let cycle = "[A]\nWhen the timer expires, the API shall log the request before the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report before the API logs the request.\n";
-    assert!(codes(cycle).is_empty(), "{:?}", codes(cycle));
+    let report = check(cycle);
+    assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
+    // A behaviour in which the timer never expires keeps both, so the contracts have a model.
+    assert_eq!(report["consistency"]["status"], "satisfiable", "{report}");
+    assert_eq!(report["consistency"]["verdict"], "inconsistent", "{report}");
+    // `after` asks for an occurrence of the same activation before each
+    // completion. Until work item W06 an occurrence at the moment of the
+    // activation counted as one, so a report and a log at the moment of the
+    // expiry stood before a later log and a later report, and this test
+    // asserted that the cycle is kept. What happens at the moment of the
+    // trigger beside the trigger answers nothing that the trigger opens
+    // (spec/semantics/core.md, section 4): an occurrence belongs to an
+    // activation when it opens it or lies after it, and then the two
+    // completions cannot each come after the other (acceptance case A04b).
+    let after = "[A]\nWhen the timer expires, the API shall log the request after the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report after the API logs the request.\n";
+    assert_eq!(codes_of_the_analysis(after), ["contradiction"], "{:?}", codes_of_the_analysis(after));
+    // The event that opens the activation is an occurrence of it: a
+    // response after the trigger itself is an ordinary response.
+    assert!(codes_of_the_analysis("[A]\nWhen the API sends the report, the API shall log the request after the API sends the report.\n").is_empty());
+    // One `after` alone is kept.
+    assert!(codes_of_the_analysis("[A]\nWhen the timer expires, the API shall log the request after the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report.\n").is_empty());
+    // One order alone is kept, in the rest as well.
+    assert!(codes_of_the_analysis("[A]\nWhen the timer expires, the API shall log the request before the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report.\n").is_empty());
+    // Opposite orders after different triggers are no cycle.
+    let apart = "primitive bell\n\n[A]\nWhen the timer expires, the API shall log the request before the API sends the report.\n\n[B]\nWhen the bell rings, the API shall send the report before the API logs the request.\n";
+    assert!(codes_of_the_analysis(apart).is_empty(), "{:?}", codes_of_the_analysis(apart));
     // An order without an activation says nothing of the first moment: that
     // the environment may act there first is a question of realizability.
     let report = check("[C1]\nThe API shall lock the room before the user sends a message.\n\n[C0]\nWhen the user sends a message, the API shall store the message.\n");
-    assert_eq!(report_codes(&report), ["unrealizable"], "{report}");
+    assert_eq!(analysis_codes(&report), ["unrealizable"], "{report}");
 }
 
 #[test]
@@ -188,4 +229,48 @@ fn a_prohibition_with_immediately_or_a_run_forbids_the_named_moments_only() {
     assert!(codes(&twice).is_empty(), "{:?}", codes(&twice));
     let every = format!("{no_run}[Q]\nThe API shall always send the report.\n");
     assert_eq!(codes(&every), ["contradiction"]);
+}
+
+#[test]
+fn after_once_upon_and_on_open_the_frame_of_when() {
+    // Written before the run from the rule: `After`, `Once`, `Upon` and
+    // `On` open the frame of `When`, so the statement applies at each
+    // occurrence of the event. A prohibition of the same action under the
+    // same event is then a contradiction, and a prohibition of another
+    // action is none. Until now only a parse test and a form-name test
+    // covered these openers.
+    const HEAD: &str = "primitive API\nprimitive job\nprimitive startup\nprimitive receipt\nprimitive token\n\n";
+    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json"]).json();
+    for (opener, when) in [
+        ("After the job ends,", "When the job ends,"),
+        ("Once the job ends,", "When the job ends,"),
+        ("On startup,", "When startup occurs,"),
+        ("Upon receipt of a token,", "When receipt of a token occurs,"),
+    ] {
+        let against = verify(&format!("[A]\n{opener} the API shall stop.\n\n[B]\n{when} the API shall not stop.\n"));
+        assert_eq!(report_codes(&against), ["contradiction"], "{opener}{against}");
+        let beside = verify(&format!("[A]\n{opener} the API shall stop.\n\n[B]\n{when} the API shall not start.\n"));
+        assert_verified(&beside);
+    }
+}
+
+#[test]
+fn an_opener_of_time_takes_one_event_as_when_does() {
+    // Old behaviour: the one-event rule covered `When` and `If` only, and
+    // `After the job ends and the timer expires,` was accepted and read as
+    // two events of one moment. The conjunction of two occurrences has no
+    // single reading under any opener, so the rule now covers each of them.
+    const HEAD: &str = "primitive API\nprimitive job\nprimitive timer\n\n";
+    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json"]);
+    for opener in ["After", "Once", "When", "If"] {
+        let run = verify(&format!("[A]\n{opener} the job ends and the timer expires, the API shall stop.\n"));
+        assert_eq!(run.code, 1, "{opener}");
+        let report = run.json();
+        assert!(report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "parse-sentence" && d["message"].as_str().unwrap().contains("takes one event")), "{opener}{report}");
+    }
+    // One event with a state, and alternatives, stay accepted.
+    for text in ["[A]\nAfter the job ends and the timer is active, the API shall stop.\n", "[A]\nAfter the job ends or the timer expires, the API shall stop.\n"] {
+        let report = verify(text).json();
+        assert!(!report_codes(&report).contains(&"parse-sentence".to_string()), "{text}{report}");
+    }
 }

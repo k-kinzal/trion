@@ -13,6 +13,13 @@ fn codes(text: &str) -> Vec<String> {
     report_codes(&check(text))
 }
 
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&check(text))
+}
+
 /// As above, reading what the libraries read instead of running the command.
 fn view(args: &[&str], text: &str) -> String {
     let f = Fixture::new(&[("a.trion", text)]);
@@ -91,26 +98,26 @@ fn a_statement_means_the_same_whatever_stands_before_it() {
 fn a_variable_is_bound_in_its_sentence_or_in_an_enclosing_block() {
     let split = "When the checker completes an analysis A, the checker shall create an analysis report R for A.\nThe checker shall retain R.\n";
     let report = check(split);
-    assert_eq!(report_codes(&report), ["UNBOUND_VARIABLE"], "{report}");
+    assert_eq!(analysis_codes(&report), ["UNBOUND_VARIABLE"], "{report}");
     let diagnostic = &report["diagnostics"][0];
     assert!(diagnostic["message"].as_str().unwrap().contains("`R`"), "{diagnostic}");
     assert_eq!(diagnostic["refs"][0]["text"], "The checker shall retain R.");
     // The same reference inside the block that binds it is closed.
-    assert!(codes(REJECT).is_empty());
+    assert!(codes_of_the_analysis(REJECT).is_empty());
     // A paragraph break does not bind anything either.
-    assert_eq!(codes("The checker shall retain R.\n"), ["UNBOUND_VARIABLE"]);
+    assert_eq!(codes_of_the_analysis("The checker shall retain R.\n"), ["UNBOUND_VARIABLE"]);
     // A capital letter after a copula is a value, not a variable.
-    assert!(codes("The grade is A or B.\n").is_empty());
+    assert!(codes_of_the_analysis("The grade is A or B.\n").is_empty());
     // A pronoun without a condition before it has nothing to refer to.
-    assert_eq!(codes("It shall stop.\n"), ["UNRESOLVED_REFERENCE"]);
+    assert_eq!(codes_of_the_analysis("It shall stop.\n"), ["UNRESOLVED_REFERENCE"]);
 }
 
 #[test]
 fn a_pronoun_takes_the_one_subject_of_the_conditions() {
     assert!(view(&["model"], "[A] When the server fails, it shall restart.\n").contains("Act(server|restart)"));
-    assert_eq!(codes("While the pump is active, when the valve opens, it shall close.\n"), ["AMBIGUOUS_REFERENCE"]);
+    assert_eq!(codes_of_the_analysis("While the pump is active, when the valve opens, it shall close.\n"), ["AMBIGUOUS_REFERENCE"]);
     // Conditions about one subject leave nothing to choose.
-    assert!(codes("While the pump is active, when the pump overheats, it shall stop.\n").is_empty());
+    assert!(codes_of_the_analysis("While the pump is active, when the pump overheats, it shall stop.\n").is_empty());
 }
 
 #[test]
@@ -123,13 +130,13 @@ fn a_block_shares_its_condition_and_its_subject() {
     assert!(expansion.contains("When the parser rejects the source statement, the parser shall identify the source extent of the source statement."), "{expansion}");
     assert!(expansion.contains("the parser shall explain the violated grammar rule for the source statement."), "{expansion}");
     // `For each` names what it quantifies.
-    assert_eq!(codes("For each U:\n    The parser shall stop.\n"), ["parse-block"]);
+    assert_eq!(codes_of_the_analysis("For each U:\n    The parser shall stop.\n"), ["parse-block"]);
 }
 
 #[test]
 fn a_composition_keeps_one_object_across_its_items() {
     let text = "[D]\nWhen the checker completes an analysis A,\nthe checker shall perform the following actions in order:\n    create an analysis report R for A;\n    retain R;\n";
-    assert!(codes(text).is_empty());
+    assert!(codes_of_the_analysis(text).is_empty());
     let expansion = view(&["expand"], text);
     assert!(expansion.contains("create an analysis report for the analysis;"), "{expansion}");
     assert!(expansion.contains("retain the analysis report;"), "{expansion}");
@@ -140,27 +147,27 @@ fn a_composition_keeps_one_object_across_its_items() {
     assert!(created.starts_with("#R@"), "{model}");
     assert!(model.contains(&format!("checker|retain {created} analysis report)")), "{model}");
     // What holds of every analysis report holds of that one.
-    assert_eq!(codes(&format!("{text}[E] The checker shall not retain an analysis report.\n")), ["contradiction"]);
+    assert_eq!(codes_of_the_analysis(&format!("{text}[E] The checker shall not retain an analysis report.\n")), ["contradiction"]);
     // Two statements that each introduce a report speak of two objects, which may be one or two.
     let apart = "[D1] When the bell rings, the checker shall create a report R and shall retain R.\n[D2] When the bell rings, the checker shall create a report R and shall not retain R.\n";
-    assert!(codes(apart).is_empty(), "{:?}", codes(apart));
+    assert!(codes_of_the_analysis(apart).is_empty(), "{:?}", codes_of_the_analysis(apart));
     // An object of a condition is every such object, as before.
     let general = "[G1] When the checker completes an analysis A, the checker shall log A.\n[G2] When the checker completes an analysis B, the checker shall not log B.\n";
-    assert_eq!(codes(general), ["contradiction"]);
+    assert_eq!(codes_of_the_analysis(general), ["contradiction"]);
     // The marks of bound objects are no part of what an author reads.
     assert!(!view(&["glossary"], text).contains('#'));
     // The checker itself creates one report of an analysis, with the revision of what it read.
     let f = Fixture::new(&[("a.trion", "[A] The API shall stop.\n[B] The API shall not stop.\n")]);
     let kept = f.trion(&["verify", "--json", "a.trion"]).json();
     assert!(kept["consistency"]["subject_revision"].is_string(), "{kept}");
-    assert_eq!(report_codes(&kept), ["contradiction"]);
+    assert_eq!(analysis_codes(&kept), ["contradiction"]);
 }
 
 #[test]
 fn a_rejection_names_the_extent_the_rule_and_the_original_text() {
     let text = "The API shall stop. The API for\n   gRPC.\nThe bell shall ring.\n";
     let report = check(text);
-    assert_eq!(report_codes(&report), ["MISSING_PREDICATE"], "{report}");
+    assert_eq!(analysis_codes(&report), ["MISSING_PREDICATE"], "{report}");
     let diagnostic = &report["diagnostics"][0];
     let at = &diagnostic["refs"][0];
     // The fixture puts the namespace header on the first line.
@@ -193,10 +200,10 @@ fn indentation_decides_what_a_block_holds() {
     // The same lines with other indentation are another structure.
     let flat = nested.replace("        [B]", "    [B]");
     let model = Fixture::new(&[("a.trion", &flat)]).trion(&["verify", "--json", "a.trion"]).json();
-    assert_eq!(report_codes(&model), ["parse-block"], "an empty block: {model}");
+    assert_eq!(analysis_codes(&model), ["parse-block"], "an empty block: {model}");
     // `end` is not part of the language.
-    assert_eq!(codes("When the bell rings:\n    [A] The API shall stop.\nend\n"), ["parse-block"]);
-    assert_eq!(codes("[A] The API shall perform all of the following actions:\n    stop;\n    end\n"), ["parse-block"]);
+    assert_eq!(codes_of_the_analysis("When the bell rings:\n    [A] The API shall stop.\nend\n"), ["parse-block"]);
+    assert_eq!(codes_of_the_analysis("[A] The API shall perform all of the following actions:\n    stop;\n    end\n"), ["parse-block"]);
 }
 
 #[test]
@@ -252,20 +259,20 @@ fn forms_that_the_document_chapters_use_are_read() {
     assert!(two.contains("¬Forbid(Verification link|be declared on test)") && two.contains("¬Forbid(Verification link|be declared on proof artifact)"), "{two}");
     assert!(two.contains("Act(Verification link|support reverse navigation)"), "{two}");
     assert!(!two.contains("Act(Verification links|be declared"), "{two}");
-    assert!(codes("The path of the file is not part of the qualified name.\n").is_empty());
+    assert!(codes_of_the_analysis("The path of the file is not part of the qualified name.\n").is_empty());
     let necessary = view(&["expand"], "[A] Each variable shall be available only where the grammar permits a use of that variable.\n");
     assert!(necessary.contains("only when the grammar permits a use of"), "{necessary}");
-    assert_eq!(codes("[A] Each variable shall be available where the grammar permits the use.\n"), ["parse-sentence"]);
+    assert_eq!(codes_of_the_analysis("[A] Each variable shall be available where the grammar permits the use.\n"), ["parse-sentence"]);
 }
 
 #[test]
 fn a_context_holds_statements_and_a_flow_answers_a_trigger() {
-    assert_eq!(codes("When the bell rings:\n    term valve: entity\n    [A] The API shall stop.\n"), ["parse-placement"]);
+    assert_eq!(codes_of_the_analysis("When the bell rings:\n    term valve: entity\n    [A] The API shall stop.\n"), ["parse-placement"]);
     let flow = |head: &str| format!("[F] {head} follow this flow:\n    step check: validate the request;\n    start check\n    finish check\n");
-    assert_eq!(codes(&flow("The API shall")), ["parse-flow"]);
-    assert!(codes(&flow("When a request arrives, the API shall")).is_empty());
+    assert_eq!(codes_of_the_analysis(&flow("The API shall")), ["parse-flow"]);
+    assert!(codes_of_the_analysis(&flow("When a request arrives, the API shall")).is_empty());
     let inherited = format!("When a request arrives:\n    {}", flow("The API shall").replace('\n', "\n    "));
-    assert!(codes(inherited.trim_end()).is_empty(), "{:?}", codes(inherited.trim_end()));
+    assert!(codes_of_the_analysis(inherited.trim_end()).is_empty(), "{:?}", codes_of_the_analysis(inherited.trim_end()));
 }
 
 #[test]

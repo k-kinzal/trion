@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod blocks;
+mod claims;
 mod conflicts;
 mod environment;
 mod flows;
@@ -24,6 +25,7 @@ mod situations;
 mod stability;
 mod structure;
 
+pub use claims::{AnalysisRange, Claim, Claims, Obligation, Verdict};
 pub use environment::{Control, Findings as EnvironmentFindings, Unrealizable};
 pub use flows::GuardObligation;
 pub use isolation::{temporal_forms, Isolation};
@@ -50,7 +52,9 @@ pub struct RelationReport {
 pub struct CheckOutcome {
     pub name: String,
     pub relation: String,
-    /// `proved`, `refuted` or `unknown`.
+    /// `proved`, `refuted` or `unknown`; `invalid` for a block that states
+    /// no question, and `unsupported` for one whose statements have no
+    /// formal interpretation.
     pub result: String,
     pub file: String,
     pub line: usize,
@@ -237,6 +241,9 @@ pub struct Analysis {
     pub vocabulary: BTreeMap<String, VocabEntry>,
     pub relations: RelationReport,
     pub model: Model,
+    /// What was decided, one claim at a time, and the parts of normative
+    /// statements that have no meaning rule.
+    pub claims: Claims,
     /// The outcome of every `check` block.
     pub checks: Vec<CheckOutcome>,
     /// The outcome of every `example` block.
@@ -265,7 +272,7 @@ impl Analysis {
     /// Whether a result of this analysis is neither proved nor refuted: the
     /// consistency, a check or an example. Such a result is no success.
     pub fn has_unknown(&self) -> bool {
-        self.consistency.is_unknown() || self.checks.iter().any(|c| c.result == "unknown") || self.examples.iter().any(|e| e.observed == "unknown")
+        self.consistency.is_unknown() || self.checks.iter().any(|c| !matches!(c.result.as_str(), "proved" | "refuted")) || self.examples.iter().any(|e| e.observed == "unknown")
     }
 }
 
@@ -284,7 +291,7 @@ fn assumptions(model: &Model) -> Vec<String> {
         "the condition of each conditional statement is forced when its conflicts are sought".to_string(),
     ];
     if !model.closed_domains.is_empty() {
-        out.push(format!("{} closed domains hold no value outside their enumerations", model.closed_domains.len()));
+        out.push(format!("{} closed domains hold no value outside their enumerations, and one of their values at each moment", model.closed_domains.len()));
     }
     out.push(format!("{} background axioms", model.background.len()));
     out
@@ -444,7 +451,8 @@ fn analyze_from(set: &SpecSet, options: &Options, prior: Option<(&Analysis, Boun
         };
         let relations = structure::relate(set, &lex);
         let silence = trion_language::reading::silence(set, &model, &vocabulary, &lex);
-        return Analysis { environment: crate::analysis::environment::Findings::default(), preference: None, silence, guards: Vec::new(), diagnostics, consistency, conflicts: Vec::new(), coverage: CoverageExplanation::default(), vocabulary, relations, model, checks: Vec::new(), examples: Vec::new(), lexicon: lex, proof: None };
+        let claims = claims::claims(&claims::Decided { model: &model, requested: bounds, background: Status::Unknown, consistency: &consistency, checks: &[], unrealizable: &[], searched: false }, claims::obligations(&silence));
+        return Analysis { claims, environment: crate::analysis::environment::Findings::default(), preference: None, silence, guards: Vec::new(), diagnostics, consistency, conflicts: Vec::new(), coverage: CoverageExplanation::default(), vocabulary, relations, model, checks: Vec::new(), examples: Vec::new(), lexicon: lex, proof: None };
     }
     // The contracts are read over a bounded trace: a statement set is
     // inconsistent when no trace of that length satisfies all of it.
@@ -523,8 +531,14 @@ fn analyze_from(set: &SpecSet, options: &Options, prior: Option<(&Analysis, Boun
         trion_language::reading::Preference { kept: r.kept.iter().filter_map(|&e| reference(e)).collect(), dropped: dropped.iter().filter_map(|&e| reference(e)).collect(), kept_weight: weight(&r.kept), dropped_weight: weight(&dropped), optimal: r.greatest.is_some() }
     });
     lap("checks, examples and reports done");
+    // Whether the statements without normative force have a model: no claim
+    // about the situations says anything without one.
+    let described: Vec<usize> = (0..model.constraints.len()).filter(|&i| model.constraints[i].kind.is_axiom() || authored.is_description(&model.constraints[i])).collect();
+    let background_status = inst.status(&described, &[]);
     let unrealizable = crate::analysis::environment::unrealizable(&model, &control);
     diagnostics.extend(unrealizable.iter().map(|u| Diagnostic::warning("unrealizable", u.message.clone(), vec![u.statement.clone()])));
+    let unkept: Vec<SpecRef> = unrealizable.iter().map(|u| u.statement.clone()).collect();
+    let claims = claims::claims(&claims::Decided { model: &model, requested: bounds, background: background_status, consistency: &consistency, checks: &checks, unrealizable: &unkept, searched: true }, claims::obligations(&silence));
     let environment = crate::analysis::environment::Findings { control, unrealizable };
     let proof = options.certificates.then(|| {
         let hard: Vec<(usize, usize)> = members.iter().filter(|m| !m.recommendation).map(|m| (m.entry, m.formula)).collect();
@@ -584,5 +598,5 @@ fn analyze_from(set: &SpecSet, options: &Options, prior: Option<(&Analysis, Boun
         }
     });
     lap("proof built");
-    Analysis { environment, preference, silence, guards, diagnostics, consistency, conflicts, coverage, vocabulary, relations, model, checks, examples, lexicon: lex, proof }
+    Analysis { claims, environment, preference, silence, guards, diagnostics, consistency, conflicts, coverage, vocabulary, relations, model, checks, examples, lexicon: lex, proof }
 }

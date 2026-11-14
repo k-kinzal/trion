@@ -52,6 +52,15 @@ namespace trion:
 """
             expect consistent
 
+        example EVENTS-EXCLUDED:
+            kind consistency
+            input """
+[A] When the door opens, the API shall stop.
+[B] When the bell rings, the API shall not stop.
+[C] When the bell rings, no door opens.
+"""
+            expect consistent
+
     section "Completeness":
         A closed attribute means an attribute that an enumeration closes.
         An open attribute means an attribute that no enumeration closes.

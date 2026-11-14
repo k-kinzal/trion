@@ -16,6 +16,7 @@ path = "src/main.rs"
 trion-language.workspace = true
 trion-solver.workspace = true
 trion-verification.workspace = true
+trion-checker.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true

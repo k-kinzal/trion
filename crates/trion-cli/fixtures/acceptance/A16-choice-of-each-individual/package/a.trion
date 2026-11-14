@@ -1,0 +1,22 @@
+namespace x
+individuals user, message
+primitive system
+
+[A]
+When a user sends a message, the system shall either store the message or reject the message.
+
+scenario EACH-ITS-OWN:
+    given a user U1, a message M1, a message M2
+    at 0 ms: U1 sends M1.
+    at 0 ms: U1 sends M2.
+    at 1 seconds: the system stores M1.
+    at 1 seconds: the system rejects M2.
+    expect allowed
+
+scenario ONE-LEFT-OUT:
+    given a user U1, a message M1, a message M2
+    at 0 ms: U1 sends M1.
+    at 0 ms: U1 sends M2.
+    at 1 seconds: the system stores M1.
+    at 1 seconds: the system rejects M1.
+    expect forbidden

@@ -877,6 +877,33 @@ pub(crate) fn render(project: &Project, verification: &Verification, only: Optio
     if let Some(situations) = &consistency.situations {
         status.push_str(&format!("<li>situations: {}</li>\n", esc(situations)));
     }
+    // What `verified` covers, as the command prints it: each claim apart,
+    // the bounds of the analysis, and what was not examined.
+    for claim in &analysis.claims.claims {
+        let subject = claim.subject.as_ref().map_or(String::new(), |subject| format!(" ({})", esc(subject)));
+        status.push_str(&format!("<li>claim {}{subject}: {}{}</li>
+", esc(&claim.claim), esc(claim.verdict.as_str()), if claim.verdict == trion_verification::Verdict::Proved { format!(" within {}: {}; not claimed: {}", esc(&claim.range.phrase()), esc(&claim.statement), esc(&claim.not_claimed)) } else { String::new() }));
+    }
+    status.push_str(&format!("<li>covers: {}</li>
+", esc(&verification.outcome.covers)));
+    for declared in &verification.outcome.declared {
+        status.push_str(&format!("<li>declared, not checked: {}</li>\n", esc(declared)));
+    }
+    // The reading over individuals: the domain, how far the records and the
+    // contracts were derived again, and each scenario with both judgements.
+    if let Some(individuals) = &analysis.model.individuals {
+        let derivations = &verification.checked.derivations;
+        status.push_str(&format!("<li>individuals: semantic version {}; domains of {} individuals of each declared type; the record of {} of {} typed statements and the contract of {} of {} instances were derived again and agree; the tree of {} of {} statements about individuals was read again from the text and agrees</li>\n", esc(individuals.version), individuals.scope, derivations.statements, derivations.of_statements, derivations.contracts, derivations.of_instances, derivations.texts, derivations.of_texts));
+        for scenario in &verification.checked.scenarios {
+            let undefined = if scenario.undefined.is_empty() { String::new() } else { format!("; without a value and not counted as met: the share of {}", scenario.undefined.iter().map(|(statement, _)| format!("[{}]", esc(statement))).collect::<Vec<_>>().join(", ")) };
+            status.push_str(&format!("<li>scenario {}: {} for the reference evaluator, {} for the formulas of the reading (expected: {}){undefined}</li>\n", esc(&scenario.name), esc(&scenario.reference), esc(&scenario.generated), esc(&scenario.expect)));
+        }
+        status.push_str("<li><details><summary>readings over individuals</summary><dl>\n");
+        for meaning in &individuals.meanings {
+            status.push_str(&format!("<dt>[{}] {}</dt><dd>{}</dd>\n", esc(&meaning.statement), esc(&meaning.source), meaning.lines().iter().map(|line| esc(line)).collect::<Vec<_>>().join("<br>")));
+        }
+        status.push_str("</dl></details></li>\n");
+    }
     if !analysis.model.priorities.is_empty() {
         let pairs: Vec<String> = analysis.model.priorities.iter().map(|p| format!("{} {} {}", esc(&p.to.id), if p.kind == "default" { "is more specific than the default" } else { "overrides" }, esc(&p.yields.id))).collect();
         status.push_str(&format!("<li>priorities: {}</li>\n", pairs.join("; ")));

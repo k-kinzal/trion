@@ -20,6 +20,11 @@ pub struct Unrealizable {
 pub struct Control {
     pub environment: BTreeSet<String>,
     pub system: BTreeSet<String>,
+    /// The terms that a declaration gives to the environment. A situation
+    /// fixes each of them; an actor that is only inferred to belong to the
+    /// environment has no such standing.
+    #[serde(skip)]
+    pub declared_environment: BTreeSet<String>,
 }
 
 fn actor_of(key: &str) -> Option<&str> {
@@ -61,6 +66,7 @@ pub(super) fn control(set: &trion_language::document::SpecSet, model: &Model, le
         for decl in &doc.controls {
             let actor = scoped.resolve(&scoped.canon(&decl.name));
             if decl.by == "environment" {
+                out.declared_environment.insert(actor.clone());
                 out.environment.insert(actor);
             } else {
                 out.system.insert(actor);

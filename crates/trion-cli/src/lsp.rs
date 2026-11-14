@@ -17,8 +17,8 @@ const FRAME_WORDS: [&str; 13] = ["where", "while", "when", "if", "then", "unless
 const MODAL_WORDS: [&str; 7] = ["shall", "must", "should", "may", "not", "never", "means"];
 const STRUCTURE_WORDS: [&str; 11] = ["is", "are", "and", "or", "either", "both", "at", "least", "most", "exactly", "no"];
 /// Words that open a structural line.
-const DIRECTIVES: [&str; 51] = [
-    "environment", "system", "package", "include", "namespace", "use", "section", "note", "ref", "source", "quote", "term", "predicate", "primitive", "alias", "bind", "extend", "classify", "role", "check", "example", "step", "start", "finish", "choose", "otherwise", "concept", "diagram", "compatibility", "title", "locator", "revision", "select", "kind", "path", "sha256", "retrieved", "minimum", "relation", "expect", "form", "element", "types", "expansion", "preserves", "input", "left", "right", "base", "candidate", "measure",
+const DIRECTIVES: [&str; 55] = [
+    "environment", "system", "package", "include", "namespace", "use", "section", "note", "ref", "source", "quote", "term", "predicate", "primitive", "alias", "bind", "extend", "classify", "role", "check", "example", "step", "start", "finish", "choose", "otherwise", "concept", "diagram", "compatibility", "title", "locator", "revision", "select", "kind", "path", "sha256", "retrieved", "minimum", "relation", "expect", "form", "element", "types", "expansion", "preserves", "input", "left", "right", "base", "candidate", "measure", "individuals", "scenario", "given", "at",
 ];
 const ROLE_ITEMS: [&str; 3] = ["activate:", "form", "required"];
 /// Words that annotate the statement above them or the block they open.
@@ -379,6 +379,20 @@ fn describe_spec(spec: &Spec, state: &State) -> String {
             Meta::Unsourced { reason } => text.push_str(&format!("\n\nNo source: {reason}")),
         }
     }
+    // The reading over individuals, as the verification states it.
+    if let Some(individuals) = &state.analysis.model.individuals {
+        let id = spec.display_id();
+        if let Some(meaning) = individuals.meanings.iter().find(|m| m.statement == id) {
+            text.push_str(&format!("\n\nReading over individuals (semantic version {}, domains of {} individuals):", meaning.version, individuals.scope));
+            for line in meaning.lines() {
+                text.push_str(&format!("\n- {line}"));
+            }
+        } else if individuals.domain.iter().any(|d| d.statement == id) {
+            text.push_str("\n\nReading over individuals: a statement about the domain");
+        } else if let Some(outside) = individuals.outside.iter().find(|o| o.statement.id == id) {
+            text.push_str(&format!("\n\nNo reading over individuals: {}", outside.why));
+        }
+    }
     text
 }
 
@@ -451,7 +465,7 @@ impl Server {
                 // A statement that constrains nothing and a part of a sentence without a
                 // formal reading are errors: nothing that passes may be unread. The mark
                 // stands on the part that the diagnostic names, where it names one.
-                let unread: Vec<Diagnostic> = analysis.silence.opaque.iter().chain(&analysis.silence.ungrounded).cloned().collect();
+                let unread: Vec<Diagnostic> = crate::verify::unread_of(&analysis);
                 for diagnostic in &unread {
                     let Some(at) = diagnostic.refs.first() else { continue };
                     let Some(file) = project.files.get(&at.file).cloned() else { continue };

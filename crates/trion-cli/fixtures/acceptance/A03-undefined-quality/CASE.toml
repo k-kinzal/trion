@@ -1,0 +1,24 @@
+id = "A03"
+title = "A quality that nothing defines and nothing measures stops the verification"
+work = "W02"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+Nothing says when an API is secure, so [G1] excludes no behaviour that a reader would call insecure.
+Reading `secure` as a free proposition and reporting a model verifies a statement whose requirement
+was never examined. The statement is accepted, so the result must name it as unresolved.
+"""
+
+[expect]
+verified = false
+blockers = ["inexpressible-property"]
+gates_failed = ["meaning", "claims"]
+
+[expect.claims]
+contract_sat = "unsupported"
+situation_total = "unsupported"
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = "`inexpressible-property` was a warning in its own list; no gate read the list: exit 0"

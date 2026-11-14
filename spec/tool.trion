@@ -11,19 +11,30 @@ namespace trion:
         A gate means a step of the trion verify command.
         The state of a gate is passed, failed, or skipped.
         A verified package means a package that has no failed gate.
+        A meaning obligation means a part of a statement that no reading rule reads.
+        A claim means a result that the trion verify command states about a package.
+        The verdict of a claim is proved, refuted, unknown, unsupported, invalid, or erroneous.
+        A scenario means a declaration that states one behaviour.
+        A reading record means a record that states the meaning that the trion processor reads in a statement.
         Each package has one or more readings.
 
         [TOOL-VERIFY]
         When an author runs the trion verify command on a package P,
         the trion verify command shall follow this flow:
             step check: check the statements of P;
+            step meaning: check the meaning obligations of P;
+            step claims: check the claims of P;
+            step checker: check the reading records and the scenarios of P;
             step sources: check the sources of P;
             step prover: decide the queries of P with the external prover;
             step properties: check the readings of P;
             step stability: decide P at raised bounds;
 
             start check
-            check -> sources
+            check -> meaning
+            meaning -> claims
+            claims -> checker
+            checker -> sources
             sources -> prover
             prover -> properties
             properties -> stability

@@ -1,0 +1,11 @@
+namespace p
+individuals user, message
+primitive system
+
+[A]
+When a user sends a message, the system shall store the message within 2 seconds.
+
+scenario UNREAD:
+    given a user U1, a message M1
+    given U1 is very fond of M1.
+    expect allowed

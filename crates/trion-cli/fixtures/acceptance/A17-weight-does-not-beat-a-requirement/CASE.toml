@@ -1,0 +1,18 @@
+id = "A17"
+title = "A heavy recommendation does not remove a requirement"
+work = "W02"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+[H] is a requirement and [S] is advice. However much [S] weighs, the behaviours that keep the package
+are those that keep [H]; [S] is reported as advice that cannot be followed, apart from the claims
+about the requirements.
+"""
+
+[expect]
+verified = false
+blockers = ["recommendation-violation"]
+
+[expect.claims]
+contract_sat = "proved"
+situation_total = "proved"

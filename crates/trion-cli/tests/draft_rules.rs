@@ -123,10 +123,10 @@ fn a_flow(body: &str) -> String {
 
 #[test]
 fn a_step_has_a_name_a_colon_an_action_and_a_semicolon() {
-    assert!(a_codes(&a_flow("    [F/read] step inspect: read R;\n    step tell: publish R;\n    start inspect\n    inspect -> tell\n    finish tell\n")).is_empty());
-    assert!(a_codes(&a_flow("    step inspect read R;\n    step tell: publish R;\n    start inspect\n    inspect -> tell\n    finish tell\n")).contains(&"parse-flow".to_string()));
+    assert!(a_codes_of_the_analysis(&a_flow("    [F/read] step inspect: read R;\n    step tell: publish R;\n    start inspect\n    inspect -> tell\n    finish tell\n")).is_empty());
+    assert!(a_codes_of_the_analysis(&a_flow("    step inspect read R;\n    step tell: publish R;\n    start inspect\n    inspect -> tell\n    finish tell\n")).contains(&"parse-flow".to_string()));
     assert_eq!(a_messages(&a_flow("    step Inspect: read R;\n    step tell: publish R;\n    start Inspect\n    Inspect -> tell\n    finish tell\n"), "parse-flow"), ["a step name is a lowercase component name"]);
-    assert!(!a_codes(&a_flow("    step inspect: read R;\n    step tell: publish R\n    start inspect\n    inspect -> tell\n    finish tell\n")).is_empty());
+    assert!(!a_codes_of_the_analysis(&a_flow("    step inspect: read R;\n    step tell: publish R\n    start inspect\n    inspect -> tell\n    finish tell\n")).is_empty());
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn a_step_reference_names_a_step_of_the_same_flow() {
     // A second flow cannot refer to the steps of the first.
     let first = a_flow("    step inspect: read R;\n    step tell: publish R;\n    start inspect\n    inspect -> tell\n    finish tell\n");
     let second = "[G] When the checker receives a request Q, the checker shall follow this flow:\n    step log: log Q;\n    start log\n    log -> inspect\n    finish log\n";
-    assert!(a_codes(&first).is_empty());
+    assert!(a_codes_of_the_analysis(&first).is_empty());
     assert_eq!(a_messages(&format!("{first}{second}"), "FLOW_BAD_REFERENCE"), ["the step `inspect` is not declared in this flow"]);
 }
 
@@ -153,7 +153,7 @@ fn steps_may_be_declared_after_their_references_and_in_any_order() {
 #[test]
 fn start_finish_and_edges_name_declared_steps() {
     let steps = "    step inspect: read R;\n    step tell: publish R;\n";
-    assert!(a_codes(&a_flow(&format!("{steps}    start inspect\n    inspect -> tell\n    finish tell\n"))).is_empty());
+    assert!(a_codes_of_the_analysis(&a_flow(&format!("{steps}    start inspect\n    inspect -> tell\n    finish tell\n"))).is_empty());
     assert_eq!(a_messages(&a_flow(&format!("{steps}    start nowhere\n    inspect -> tell\n    finish tell\n")), "FLOW_BAD_REFERENCE"), ["the step `nowhere` is not declared in this flow"]);
     assert_eq!(a_messages(&a_flow(&format!("{steps}    start inspect\n    inspect -> tell\n    finish nowhere\n")), "FLOW_BAD_REFERENCE"), ["the step `nowhere` is not declared in this flow"]);
     assert!(a_messages(&a_flow(&format!("{steps}    start inspect\n    inspect => tell\n    finish tell\n")), "parse-flow").contains(&"a flow holds steps, one start, edges, choices and finishes".to_string()));
@@ -165,7 +165,7 @@ const A_FINISHES: &str = "    finish good\n    finish bad\n";
 #[test]
 fn a_choice_holds_guarded_targets_and_an_otherwise() {
     let choice = |body: &str| a_flow(&format!("{A_STEPS}    choose after inspect:\n{body}{A_FINISHES}"));
-    assert!(a_codes(&choice("        when the count is at least 2 -> good\n        otherwise -> bad\n")).is_empty());
+    assert!(a_codes_of_the_analysis(&choice("        when the count is at least 2 -> good\n        otherwise -> bad\n")).is_empty());
     assert_eq!(a_messages(&a_flow(&format!("{A_STEPS}    choose after inspect\n        otherwise -> bad\n{A_FINISHES}")), "parse-flow"), ["write `choose after <step>:`"]);
     assert_eq!(a_messages(&choice("        when the count is at least 2 good\n        otherwise -> bad\n"), "parse-flow"), ["write `when <condition> -> <step>`"]);
     assert_eq!(a_messages(&choice("        when the count is at least 2 -> good\n        otherwise bad\n"), "parse-flow"), ["a choice holds `when ... -> ...` and `otherwise -> ...`"]);
@@ -242,7 +242,7 @@ fn a_flow_does_not_prohibit_other_behavior() {
     let flow = format!("{}[I] The count shall be at least 2.\n", a_choice_flow(A_OTHERWISE));
     // The step of the unselected branch may still happen outside the flow, and so may unrelated actions.
     let text = format!("{flow}[O] The checker shall publish the failure.\n[P] The checker shall notify the operator.\n");
-    assert!(a_codes(&text).is_empty(), "{:?}", a_codes(&text));
+    assert!(a_codes_of_the_analysis(&text).is_empty(), "{:?}", a_codes_of_the_analysis(&text));
 }
 
 #[test]
@@ -257,14 +257,14 @@ fn guard_order_does_not_set_a_priority() {
     assert_eq!(compare("        when the count is less than 2 -> good\n        when the count is at least 2 -> bad\n"), "refuted");
     // Overlapping guards are an error whichever comes first, rather than resolved by position.
     for guards in ["        when the count is at least 1 -> good\n        when the count is at least 2 -> bad\n        otherwise -> bad\n", "        when the count is at least 2 -> bad\n        when the count is at least 1 -> good\n        otherwise -> bad\n"] {
-        assert_eq!(a_codes(&a_choice_flow(guards)), ["OVERLAPPING_FLOW_GUARDS"]);
+        assert_eq!(a_codes_of_the_analysis(&a_choice_flow(guards)), ["OVERLAPPING_FLOW_GUARDS"]);
     }
 }
 
 #[test]
 fn a_gating_state_is_not_assumed_at_a_later_choice() {
     let text = "[F] While the count is at least 2, when the checker receives a result R, the checker shall follow this flow:\n    step inspect: read R;\n    step good: publish the success for R;\n    start inspect\n    choose after inspect:\n        when the count is at least 2 -> good\n    finish good\n";
-    assert_eq!(a_codes(text), ["INCOMPLETE_FLOW_CHOICE"]);
+    assert_eq!(a_codes_of_the_analysis(text), ["INCOMPLETE_FLOW_CHOICE"]);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn each_step_continues_once_and_every_step_is_reachable() {
     let steps = "    step a: read R;\n    step b: publish R;\n    step c: log R;\n    step d: close R;\n    start a\n";
     // Alternative paths may merge.
     let merge = format!("{steps}    choose after a:\n        when the count is at least 2 -> b\n        otherwise -> c\n    b -> d\n    c -> d\n    finish d\n");
-    assert!(a_codes(&a_flow(&merge)).is_empty(), "{:?}", a_codes(&a_flow(&merge)));
+    assert!(a_codes_of_the_analysis(&a_flow(&merge)).is_empty(), "{:?}", a_codes_of_the_analysis(&a_flow(&merge)));
     // Two unconditional successors would be parallel.
     let split = format!("{steps}    a -> b\n    a -> c\n    b -> d\n    c -> d\n    finish d\n");
     assert_eq!(a_messages(&a_flow(&split), "FLOW_BAD_REFERENCE"), ["the step `a` needs exactly one successor or one choice"]);
@@ -532,7 +532,18 @@ fn an_unsupported_or_unresolved_construct_prevents_success() {
     // A check over a statement that does not resolve is not counted as proved.
     let report = b_check(&format!("{fine}check GONE:\n    relation equivalent\n    left [A]\n    right [NOPE]\n    using definitions\n"));
     assert!(report_codes(&report).contains(&"UNRESOLVED_REFERENCE".to_string()), "{report}");
-    assert!(report["checks"].as_array().unwrap().is_empty(), "{report}");
+    // The check was asked for, so it stays among the outcomes, and as a
+    // check that states no question: a check that vanishes from the report
+    // reads as a check that nobody wrote.
+    assert_eq!(report["checks"].as_array().unwrap().iter().map(|c| c["result"].as_str().unwrap()).collect::<Vec<_>>(), ["invalid"], "{report}");
+    assert!(unverified(&report).contains(&"property_entails".to_string()), "{report}");
+    // A relation that this edition does not decide, and a check without its
+    // `using` field, are no equivalence that was proved.
+    for block in ["check OTHER:\n    relation implies\n    left [A]\n    right [A]\n    using definitions\n", "check BARE:\n    relation equivalent\n    left [A]\n    right [A]\n"] {
+        let report = b_check(&format!("{fine}{block}"));
+        assert!(report_codes(&report).contains(&"parse-check".to_string()), "{report}");
+        assert_eq!(report["checks"][0]["result"], "invalid", "{report}");
+    }
 }
 
 // Consistency results.
@@ -640,36 +651,36 @@ fn a_source_file_is_read_as_utf8() {
 #[test]
 fn a_nested_item_ends_where_its_indentation_ends() {
     let nested = |close: &str| format!("[B] The API shall perform all of the following actions:\n    perform exactly one of the following actions:\n        stop;\n        pause;\n{close}    log the stop;\n[C] The bell shall ring.\n");
-    assert!(c_codes(&nested("")).is_empty());
+    assert!(c_codes_of_the_analysis(&nested("")).is_empty());
     // The nested list holds two items and the outer list holds the nested list and one more.
     let expansion = c_view(&["expand"], &nested(""));
     assert!(expansion.contains("        stop;\n        pause;\n    log the stop;"), "{expansion}");
     // `end` is not written: neither as a line nor as an item.
-    assert_eq!(c_codes("[B] The API shall stop.\nend\n"), ["parse-block"]);
+    assert_eq!(c_codes_of_the_analysis("[B] The API shall stop.\nend\n"), ["parse-block"]);
 }
 
 #[test]
 fn a_directive_ends_at_a_line_break_outside_a_string() {
     // A multiline string may carry the directive across lines.
-    assert!(c_codes("note \"\"\"first\nsecond\"\"\"\n[A] The API shall stop.\nref [A]\n").is_empty());
+    assert!(c_codes_of_the_analysis("note \"\"\"first\nsecond\"\"\"\n[A] The API shall stop.\nref [A]\n").is_empty());
     // A single-line string does not, and the line break ends the directive.
-    assert!(c_codes("note \"first\nsecond\"\n[A] The API shall stop.\n").contains(&"parse-note".to_string()));
+    assert!(c_codes_of_the_analysis("note \"first\nsecond\"\n[A] The API shall stop.\n").contains(&"parse-note".to_string()));
     // Nothing else follows a directive on its line.
-    assert_eq!(c_codes("[A] The API shall stop.\nnote \"x\" [B] The bell shall ring.\n"), ["parse-note"]);
-    assert_eq!(c_codes("[A] The API shall stop.\nref [A] [A]\n"), ["parse-reference"]);
-    assert_eq!(c_codes("[A] The API shall stop.\nref\n[A]\n"), ["parse-sentence"]);
+    assert_eq!(c_codes_of_the_analysis("[A] The API shall stop.\nnote \"x\" [B] The bell shall ring.\n"), ["parse-note"]);
+    assert_eq!(c_codes_of_the_analysis("[A] The API shall stop.\nref [A] [A]\n"), ["parse-reference"]);
+    assert_eq!(c_codes_of_the_analysis("[A] The API shall stop.\nref\n[A]\n"), ["parse-sentence"]);
 }
 
 #[test]
 fn a_component_name_is_lowercase_letters_digits_and_hyphens() {
     let item = |name: &str| format!("[A] The API shall perform all of the following actions:\n    [A/{name}] stop;\n");
-    assert!(c_codes(&item("first-step2")).is_empty());
+    assert!(c_codes_of_the_analysis(&item("first-step2")).is_empty());
     for bad in ["First", "1st", "first_step"] {
-        assert_eq!(c_codes(&item(bad)), ["parse-spec-id"], "{bad}");
+        assert_eq!(c_codes_of_the_analysis(&item(bad)), ["parse-spec-id"], "{bad}");
     }
     let flow = |name: &str| format!("[F] When the door opens, the API shall follow this flow:\n    step {name}: stop;\n    start {name}\n    finish {name}\n");
-    assert!(c_codes(&flow("check-2")).is_empty());
-    assert_eq!(c_codes(&flow("Check")), ["parse-flow"]);
+    assert!(c_codes_of_the_analysis(&flow("check-2")).is_empty());
+    assert_eq!(c_codes_of_the_analysis(&flow("Check")), ["parse-flow"]);
 }
 
 // Literal structural forms.
@@ -682,46 +693,46 @@ fn a_note_is_note_and_a_quoted_string() {
 
 #[test]
 fn a_reference_is_ref_and_a_bracketed_identifier() {
-    assert!(c_codes("[A] The API shall stop.\nref [A]\n").is_empty());
-    assert_eq!(c_codes("[A] The API shall stop.\nref A\n"), ["parse-reference"]);
-    assert_eq!(c_codes("[A] The API shall stop.\nref [a]\n"), ["parse-reference"]);
+    assert!(c_codes_of_the_analysis("[A] The API shall stop.\nref [A]\n").is_empty());
+    assert_eq!(c_codes_of_the_analysis("[A] The API shall stop.\nref A\n"), ["parse-reference"]);
+    assert_eq!(c_codes_of_the_analysis("[A] The API shall stop.\nref [a]\n"), ["parse-reference"]);
 }
 
 #[test]
 fn a_source_block_holds_named_source_fields() {
     let source = "source DOC:\n    title \"The document\"\n    locator \"https://example.com/doc\"\n    revision \"3\"\n    select \"section 2\"\n    quote Q \"The API stops.\"\n[A] The API shall stop.\n    cite DOC#Q\n";
-    assert!(c_codes(source).is_empty());
-    assert_eq!(c_codes("source DOC:\n    title \"t\"\n    locator \"l\"\n    author \"me\"\n"), ["parse-source"]);
-    assert_eq!(c_codes("source doc:\n    title \"t\"\n    locator \"l\"\n"), ["parse-name"]);
+    assert!(c_codes_of_the_analysis(source).is_empty());
+    assert_eq!(c_codes_of_the_analysis("source DOC:\n    title \"t\"\n    locator \"l\"\n    author \"me\"\n"), ["parse-source"]);
+    assert_eq!(c_codes_of_the_analysis("source doc:\n    title \"t\"\n    locator \"l\"\n"), ["parse-name"]);
 }
 
 #[test]
 fn a_shared_context_opens_with_a_supported_clause() {
     let text = "For each request R:\n    [A] the API shall log R.\nWhere the API is remote:\n    [B] the API shall wait.\nWhile the pump runs:\n    [C] the API shall pause.\nWhen the bell rings:\n    [D] the API shall ring.\nIf the bell fails, then:\n    [E] the API shall stop.\n";
-    assert!(c_codes(text).is_empty());
+    assert!(c_codes_of_the_analysis(text).is_empty());
     let expansion = c_view(&["expand"], text);
     assert!(expansion.contains("If the bell fails, then the API shall stop."), "{expansion}");
-    assert_eq!(c_codes("Because the bell rings:\n    [F] the API shall stop.\n"), ["parse-block"]);
+    assert_eq!(c_codes_of_the_analysis("Because the bell rings:\n    [F] the API shall stop.\n"), ["parse-block"]);
 }
 
 #[test]
 fn an_action_list_head_ends_in_one_of_four_phrases() {
     for phrase in ["perform all of the following actions", "perform one or more of the following actions", "perform exactly one of the following actions", "perform the following actions in order"] {
-        assert!(c_codes(&format!("[A] The API shall {phrase}:\n    stop;\n    pause;\n")).is_empty(), "{phrase}");
+        assert!(c_codes_of_the_analysis(&format!("[A] The API shall {phrase}:\n    stop;\n    pause;\n")).is_empty(), "{phrase}");
     }
-    assert_eq!(c_codes("[A] The API shall perform some of the following actions:\n    stop;\n"), ["parse-block"]);
+    assert_eq!(c_codes_of_the_analysis("[A] The API shall perform some of the following actions:\n    stop;\n"), ["parse-block"]);
 }
 
 #[test]
 fn a_flow_holds_steps_one_start_edges_and_finishes_on_their_own_lines() {
     let flow = |body: &str| format!("[F] When a request arrives, the API shall follow this flow:\n    step check: validate the request;\n    step save: store the request;\n{body}");
-    assert!(c_codes(&flow("    start check\n    check -> save\n    finish save\n")).is_empty());
-    assert_eq!(c_codes(&flow("    start check\n    start save\n    check -> save\n    finish save\n")), ["FLOW_START"]);
-    assert_eq!(c_codes(&flow("    start check\n    check -> save\n")), ["FLOW_BAD_REFERENCE"]);
-    assert_eq!(c_codes(&flow("    start check\n    check -> save\n    finish save\n    save the request\n")), ["parse-flow"]);
+    assert!(c_codes_of_the_analysis(&flow("    start check\n    check -> save\n    finish save\n")).is_empty());
+    assert_eq!(c_codes_of_the_analysis(&flow("    start check\n    start save\n    check -> save\n    finish save\n")), ["FLOW_START"]);
+    assert_eq!(c_codes_of_the_analysis(&flow("    start check\n    check -> save\n")), ["FLOW_BAD_REFERENCE"]);
+    assert_eq!(c_codes_of_the_analysis(&flow("    start check\n    check -> save\n    finish save\n    save the request\n")), ["parse-flow"]);
     // A line break ends a start, finish or edge: two of them on one line name no step.
-    assert_eq!(c_codes(&flow("    start check finish save\n    check -> save\n")), ["FLOW_BAD_REFERENCE"]);
-    assert_eq!(c_codes(&flow("    start check\n    check -> save finish save\n")), ["FLOW_BAD_REFERENCE"]);
+    assert_eq!(c_codes_of_the_analysis(&flow("    start check finish save\n    check -> save\n")), ["FLOW_BAD_REFERENCE"]);
+    assert_eq!(c_codes_of_the_analysis(&flow("    start check\n    check -> save finish save\n")), ["FLOW_BAD_REFERENCE"]);
 }
 
 #[test]
@@ -758,10 +769,10 @@ fn a_namespace_holds_declarations_statements_and_blocks() {
     let body = "namespace p.app:\n    use p.lib\n    source DOC:\n        title \"t\"\n        locator \"l\"\n        quote Q \"The API stops.\"\n    cite DOC#Q\n    note \"n\"\n    [A] The API shall stop.\n    ref [A]\n    section \"s\":\n        [B] The API shall log the stop.\n    When the bell rings:\n        [C] the API shall ring.\n    [K] concept:\n        each pump -> has -> exactly one valve;\n    check SAME:\n        relation equivalent\n        left [A]\n        right [A]\n        using definitions\n    example E:\n        kind syntax\n        form statement\n        input \"The API shall stop.\"\n        expect accepted\n";
     let lib = "namespace p.lib:\n    term API: entity\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", body), ("lib.trion", lib)]);
-    let codes = report_codes(&f.trion(&["verify", "--json"]).json());
+    let codes = analysis_codes(&f.trion(&["verify", "--json"]).json());
     assert!(codes.is_empty(), "{codes:?}");
     for file_level in ["package q edition \"1\"", "include \"other.trion\""] {
-        assert_eq!(c_codes(&format!("namespace main:\n    {file_level}\n    [A] The API shall stop.\n")), ["parse-placement"], "{file_level}");
+        assert_eq!(c_codes_of_the_analysis(&format!("namespace main:\n    {file_level}\n    [A] The API shall stop.\n")), ["parse-placement"], "{file_level}");
     }
 }
 
@@ -776,7 +787,7 @@ fn source_and_use_declarations_sit_directly_in_a_namespace() {
     let lib = "namespace p.lib:\n    term API: entity\n";
     let project = |body: &str| {
         let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("namespace p.app\n{body}")), ("lib.trion", lib)]);
-        report_codes(&f.trion(&["verify", "--json"]).json())
+        analysis_codes(&f.trion(&["verify", "--json"]).json())
     };
     let source = "source DOC:\n    title \"t\"\n    locator \"l\"\n";
     assert!(project(&format!("use p.lib\n{source}[A] The API shall stop.\n")).is_empty());
@@ -800,7 +811,7 @@ fn checks_and_examples_stay_outside_shared_contexts() {
 #[test]
 fn domain_words_are_usable_without_a_definition() {
     let text = "The flux capacitor shall recalibrate the dilithium matrix.\nThe quorbler is frabjous.\n";
-    assert!(c_codes(text).is_empty());
+    assert!(c_codes_of_the_analysis(text).is_empty());
     let f = Fixture::new(&[("a.trion", text)]);
     let json: Value = f.inspect(&["glossary", "--json", "a.trion"]).json();
     let status = |term: &str| json.as_array().unwrap().iter().find(|e| e["term"] == term).map(|e| e["status"].as_str().unwrap().to_string());
@@ -846,7 +857,7 @@ fn an_ambiguous_term_names_its_candidates() {
         ("z.trion", "namespace p.c:\n    use p.a\n    use p.b\n    [S] The API shall stop.\n"),
     ]);
     let json = f.trion(&["verify", "--json"]).json();
-    assert_eq!(report_codes(&json), ["AMBIGUOUS_TERM"]);
+    assert_eq!(analysis_codes(&json), ["AMBIGUOUS_TERM"]);
     let message = json["diagnostics"][0]["message"].as_str().unwrap();
     assert!(message.contains("declared by a and b"), "{message}");
 }
@@ -1022,9 +1033,9 @@ fn an_ordered_list_adds_only_occurrence_and_order() {
 #[test]
 fn an_ordered_list_permits_other_behavior() {
     let text = "[A] The API shall perform the following actions in order:\n    stop;\n    pause;\n";
-    assert!(d_codes(&format!("{text}[B] The API shall log the request.\n")).is_empty());
-    assert!(d_codes(&format!("{text}[B] The API shall perform the following actions in order:\n    pause;\n    log the pause;\n")).is_empty());
-    assert_eq!(d_codes(&format!("{text}[B] The API shall not log the request.\n[C] The API shall log the request.\n")), ["contradiction"]);
+    assert!(d_codes_of_the_analysis(&format!("{text}[B] The API shall log the request.\n")).is_empty());
+    assert!(d_codes_of_the_analysis(&format!("{text}[B] The API shall perform the following actions in order:\n    pause;\n    log the pause;\n")).is_empty());
+    assert_eq!(d_codes_of_the_analysis(&format!("{text}[B] The API shall not log the request.\n[C] The API shall log the request.\n")), ["contradiction"]);
 }
 
 // Bindings in a composition.
@@ -1036,7 +1047,7 @@ fn d_binding(kind: &str) -> String {
 #[test]
 fn a_binding_reaches_later_items_of_an_ordered_list() {
     let text = d_binding("the following actions in order");
-    assert!(d_codes(&text).is_empty(), "{:?}", d_codes(&text));
+    assert!(d_codes_of_the_analysis(&text).is_empty(), "{:?}", d_codes_of_the_analysis(&text));
     let expansion = d_view(&["expand"], &text);
     assert!(expansion.contains("    create a record for the call;\n    perform all of the following actions:\n        store the record;\n        notify the operator about the call;"), "{expansion}");
 }
@@ -1045,7 +1056,7 @@ fn a_binding_reaches_later_items_of_an_ordered_list() {
 fn a_binding_stays_inside_its_alternative() {
     for kind in ["all of the following actions", "one or more of the following actions", "exactly one of the following actions"] {
         let report = d_check(&d_binding(kind));
-        assert_eq!(report_codes(&report), ["UNRESOLVED_REFERENCE"], "{kind}: {report}");
+        assert_eq!(analysis_codes(&report), ["UNRESOLVED_REFERENCE"], "{kind}: {report}");
         let message = report["diagnostics"][0]["message"].as_str().unwrap();
         assert!(message.contains("`R` was bound in another alternative"), "{message}");
     }
@@ -1078,8 +1089,8 @@ fn an_expanded_composition_keeps_its_identity_and_items() {
     assert_eq!(json[0]["id"], "A");
     assert_eq!(json[0]["expansion"], "When the API receives a call, the API shall perform all of the following actions:\n    log the call;\n    perform exactly one of the following actions:\n        stop;\n        pause;");
     // Each identified item stays an addressable member of A.
-    assert!(d_codes(&format!("{text}ref [A/stop]\nref [A/choice]\n")).is_empty());
-    assert_eq!(d_codes(&format!("{text}ref [A/gone]\n")), ["UNRESOLVED_REFERENCE"]);
+    assert!(d_codes_of_the_analysis(&format!("{text}ref [A/stop]\nref [A/choice]\n")).is_empty());
+    assert_eq!(d_codes_of_the_analysis(&format!("{text}ref [A/gone]\n")), ["UNRESOLVED_REFERENCE"]);
 }
 
 // Sections.
@@ -1087,7 +1098,7 @@ fn an_expanded_composition_keeps_its_identity_and_items() {
 #[test]
 fn several_sections_display_one_declaration() {
     let text = "section \"Stopping\":\n    [A] The API shall stop.\nsection \"Operations\":\n    ref [A]\nsection \"Safety\":\n    ref [A]\n";
-    assert!(d_codes(text).is_empty(), "{:?}", d_codes(text));
+    assert!(d_codes_of_the_analysis(text).is_empty(), "{:?}", d_codes_of_the_analysis(text));
     let model = d_view(&["model"], text);
     assert_eq!(model.lines().filter(|l| *l == "A").count(), 1, "{model}");
 }
@@ -1160,7 +1171,7 @@ fn a_binding_ends_with_its_statement() {
     let expansion = d_view(&["expand"], text);
     assert!(expansion.contains("[A]\nWhen the API receives a call, the API shall log the call."), "{expansion}");
     // The next ordinary statement cannot see C.
-    assert_eq!(c_codes(&format!("{text}[B] The API shall store C.\n")), ["UNBOUND_VARIABLE"]);
+    assert_eq!(c_codes_of_the_analysis(&format!("{text}[B] The API shall store C.\n")), ["UNBOUND_VARIABLE"]);
     // A shared binding needs an enclosing context.
     let shared = "When the API receives a call C:\n    [A] the API shall log C.\n    [B] the API shall store C.\n";
     assert!(d_view(&["expand"], shared).contains("[B]\nWhen the API receives a call, the API shall store the call."));
@@ -1183,7 +1194,7 @@ fn an_included_file_inherits_nothing_from_the_file_before_it() {
     ]);
     // C is bound in the other file only, and the condition does not carry over.
     let report = f.trion(&["verify", "--json"]).json();
-    assert_eq!(report_codes(&report), ["UNBOUND_VARIABLE"], "{report}");
+    assert_eq!(analysis_codes(&report), ["UNBOUND_VARIABLE"], "{report}");
     let model = f.inspect(&["model"]).stdout;
     assert!(model.contains("D\n  assume:    ⊤\n"), "{model}");
 }
@@ -1196,7 +1207,7 @@ fn a_declaration_in_a_later_file_is_visible_to_an_earlier_one() {
         ("b.trion", "namespace p:\n    A room means a shared channel.\n    [B] The API shall stop.\n    [C] The API shall stop.\n"),
     ]);
     let report = f.trion(&["verify", "--json"]).json();
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     assert_eq!(report["checks"][0]["result"], "proved");
     let glossary: Value = serde_json::from_str(&f.inspect(&["glossary", "--json"]).stdout).unwrap();
     let room = glossary.as_array().unwrap().iter().find(|e| e["term"] == "room").unwrap();
@@ -1245,14 +1256,14 @@ fn two_definitions_of_one_name_collide() {
     let first = "namespace p:\n    A room means a shared channel.\n    [A] The API shall open a room.\n";
     let colliding = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p:\n    A room means a private channel.\n")]);
     let report = colliding.trion(&["verify", "--json"]).json();
-    assert_eq!(report_codes(&report), ["NAME_COLLISION"]);
+    assert_eq!(analysis_codes(&report), ["NAME_COLLISION"]);
     // Neither file wins: both definitions are named.
     let files: Vec<&str> = report["diagnostics"][0]["refs"].as_array().unwrap().iter().map(|r| r["file"].as_str().unwrap()).collect();
     assert_eq!(files, ["a.trion", "b.trion"]);
     let repeated = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p:\n    A room means a shared channel.\n")]);
-    assert!(report_codes(&repeated.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&repeated.trion(&["verify", "--json"]).json()).is_empty());
     let elsewhere = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p.other:\n    A room means a private channel.\n")]);
-    assert!(report_codes(&elsewhere.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&elsewhere.trion(&["verify", "--json"]).json()).is_empty());
 }
 
 // Identity.
@@ -1263,6 +1274,43 @@ fn e_check(files: &[(&str, &str)]) -> Vec<String> {
     let mut all = vec![("trion.toml", MANIFEST)];
     all.extend_from_slice(files);
     report_codes(&Fixture::new(&all).trion(&["verify", "--json"]).json())
+}
+
+/// As `a_codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn a_codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&a_check(text))
+}
+
+/// As `b_example`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn b_example_of_the_analysis(report: &Value) -> (String, Vec<String>) {
+    (report["examples"][0]["observed"].as_str().unwrap_or_default().to_string(), analysis_codes(report))
+}
+
+/// As `c_codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn c_codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json())
+}
+
+/// As `d_codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn d_codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&d_check(text))
+}
+
+/// As `e_check`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn e_check_of_the_analysis(files: &[(&str, &str)]) -> Vec<String> {
+    let mut all = vec![("trion.toml", MANIFEST)];
+    all.extend_from_slice(files);
+    analysis_codes(&Fixture::new(&all).trion(&["verify", "--json"]).json())
 }
 
 /// The guarantees of the model, keyed by the identifier of their statement.
@@ -1298,27 +1346,27 @@ fn source_and_quote_names_are_unique_where_they_are_declared() {
 #[test]
 fn a_quote_is_cited_through_its_own_source() {
     let sources = "source R:\n    title \"R\"\n    locator \"https://example.com/r\"\n    quote ONE \"Stop.\"\nsource S:\n    title \"S\"\n    locator \"https://example.com/s\"\n";
-    assert!(e_check(&[("a.trion", &format!("{sources}[A] The API shall stop.\n    cite R#ONE\n"))]).is_empty());
-    assert_eq!(e_check(&[("a.trion", &format!("{sources}[A] The API shall stop.\n    cite S#ONE\n"))]), ["UNRESOLVED_CITATION"]);
+    assert!(e_check_of_the_analysis(&[("a.trion", &format!("{sources}[A] The API shall stop.\n    cite R#ONE\n"))]).is_empty());
+    assert_eq!(e_check_of_the_analysis(&[("a.trion", &format!("{sources}[A] The API shall stop.\n    cite S#ONE\n"))]), ["UNRESOLVED_CITATION"]);
 }
 
 #[test]
 fn a_summary_is_a_note_and_a_quote_is_literal() {
     let literal = e_sourced("[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n");
-    assert!(report_codes(&literal.trion(&["verify", "--json"]).json()["sources"].clone()).is_empty());
+    assert!(analysis_codes(&literal.trion(&["verify", "--json"]).json()["sources"].clone()).is_empty());
     let summary = [("ONE", "The API never stops."), ("TWO", "The API shall log each call.")];
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("r.txt", E_TEXT), ("s.trion", &e_source(&summary)), ("a.trion", "[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n")]);
-    assert!(report_codes(&f.trion(&["verify", "--json"]).json()["sources"].clone()).contains(&"source-quote-not-found".to_string()), "a summary is not a quotation");
+    assert!(analysis_codes(&f.trion(&["verify", "--json"]).json()["sources"].clone()).contains(&"source-quote-not-found".to_string()), "a summary is not a quotation");
     let noted = e_sourced("note \"In short, the API never stops.\"\n[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n");
-    assert!(report_codes(&noted.trion(&["verify", "--json"]).json()["sources"].clone()).is_empty());
-    assert!(report_codes(&noted.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&noted.trion(&["verify", "--json"]).json()["sources"].clone()).is_empty());
+    assert!(analysis_codes(&noted.trion(&["verify", "--json"]).json()).is_empty());
 }
 
 #[test]
 fn a_citation_informs_a_statement_without_entailing_or_importing_anything() {
     // The quote says the opposite of the statement that cites it.
     let cited = e_sourced("[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n");
-    assert!(report_codes(&cited.trion(&["verify", "--json"]).json()).is_empty(), "the quoted text is no premise");
+    assert!(analysis_codes(&cited.trion(&["verify", "--json"]).json()).is_empty(), "the quoted text is no premise");
     let coverage = cited.trion(&["verify", "--json"]).json()["sources"].clone();
     assert_eq!(coverage["sources"][0]["percent"], 100.0, "the citation is recorded: {coverage}");
     // Without the citation the statement means the same.
@@ -1327,7 +1375,7 @@ fn a_citation_informs_a_statement_without_entailing_or_importing_anything() {
     assert_eq!(e_formulas(&bare).len(), 2, "the quotes add no constraint");
     // Adopting the quoted rule takes a statement of its own, with its citation.
     let adopted = e_sourced("[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n[C] The API shall not stop.\n    cite R#ONE\n");
-    assert_eq!(report_codes(&adopted.trion(&["verify", "--json"]).json()), ["contradiction"]);
+    assert_eq!(analysis_codes(&adopted.trion(&["verify", "--json"]).json()), ["contradiction"]);
 }
 
 #[test]
@@ -1346,7 +1394,7 @@ fn a_citation_does_not_follow_a_reference_or_enter_an_example() {
 #[test]
 fn a_note_explains_without_constraining() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "note \"The API shall not stop.\"\n[A] The API shall stop.\n")]);
-    assert!(report_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
     assert_eq!(e_formulas(&f).len(), 1);
 }
 
@@ -1373,7 +1421,7 @@ namespace q:
 "#;
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", spec)]);
     let report = f.trion(&["verify", "--json"]).json();
-    assert!(report_codes(&report).is_empty(), "no duplicate identifier or source, no missing include: {report}");
+    assert!(analysis_codes(&report).is_empty(), "no duplicate identifier or source, no missing include: {report}");
     assert_eq!(report["examples"][0]["observed"], "accepted");
     let broken = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &spec.replace("shall open", "shall shall open"))]);
     let observed = broken.trion(&["verify", "--json"]).json()["examples"][0]["observed"].clone();
@@ -1385,9 +1433,9 @@ namespace q:
 
 #[test]
 fn a_namespace_name_is_lowercase_components() {
-    assert!(c_codes("namespace main.sub-part2:\n    [A] The API shall stop.\n").is_empty());
+    assert!(c_codes_of_the_analysis("namespace main.sub-part2:\n    [A] The API shall stop.\n").is_empty());
     for bad in ["Main.sub", "main.Sub", "main.sub_x", "main..sub", "main.2sub"] {
-        assert!(!c_codes(&format!("namespace {bad}:\n    [A] The API shall stop.\n")).is_empty(), "{bad}");
+        assert!(!c_codes_of_the_analysis(&format!("namespace {bad}:\n    [A] The API shall stop.\n")).is_empty(), "{bad}");
     }
 }
 
@@ -1415,5 +1463,5 @@ fn include_order_is_the_reading_order() {
     let (zed, alpha) = (out.find("[ZED]").unwrap(), out.find("[ALPHA]").unwrap());
     assert!(zed < alpha, "{out}");
     // The order does not select different constraints.
-    assert!(report_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
 }

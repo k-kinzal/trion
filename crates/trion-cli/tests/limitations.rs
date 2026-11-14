@@ -17,11 +17,11 @@ fn check(body: &str) -> Value {
 #[test]
 fn a_state_change_is_no_contradiction() {
     let report = check("[T1]\nWhen the door is open, the door shall become closed.\n");
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     assert_eq!(report["consistency"]["status"], "satisfiable");
     // The exclusivity of values still holds within one state.
     let two = check("[T1]\nWhen the door is open, the door shall become closed.\n\n[T2]\nWhen the door is open, the door shall become locked.\n");
-    assert!(report_codes(&two).contains(&"contradiction".to_string()), "{two}");
+    assert!(analysis_codes(&two).contains(&"contradiction".to_string()), "{two}");
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn a_deadline_and_a_delay_of_one_action_are_one_quantity() {
 fn time_is_read_from_the_sentence_and_not_kept_in_the_action_name() {
     let f = package("[L1]\nWhen a request arrives, the API shall eventually respond.\n\n[L2]\nThe API shall retain the message until the user deletes the message.\n");
     let report = f.trion(&["verify", "--json"]).json();
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     let model = f.inspect(&["model"]).stdout;
     assert!(model.contains("Act(x::API|respond)"), "{model}");
     assert!(model.contains("Act(x::API|retain message)"), "{model}");
@@ -60,10 +60,10 @@ fn time_is_read_from_the_sentence_and_not_kept_in_the_action_name() {
     assert_eq!(report["consistency"]["bounds"]["trace_length"], 3);
     // `eventually respond` and `respond` are one action: a ban on it conflicts.
     let banned = check("[L1]\nWhen a request arrives, the API shall eventually respond.\n\n[N]\nThe API shall not respond.\n");
-    assert_eq!(report_codes(&banned), ["contradiction"], "{banned}");
+    assert_eq!(analysis_codes(&banned), ["contradiction"], "{banned}");
     // `retain … until …` and `retain` are one action too.
     let dropped = check("[L2]\nThe API shall retain the message until the user deletes the message.\n\n[N]\nThe API shall not retain the message.\n");
-    assert_eq!(report_codes(&dropped), ["contradiction"], "{dropped}");
+    assert_eq!(analysis_codes(&dropped), ["contradiction"], "{dropped}");
 }
 
 #[test]
@@ -139,16 +139,16 @@ fn a_statement_that_constrains_nothing_is_reported() {
     assert_eq!(report["ungrounded"][0]["code"], "ungrounded");
     // An ungrounded statement has a decided result: it is not `unknown`.
     assert_eq!(report["consistency"]["status"], "satisfiable");
-    assert!(report_codes(&report).is_empty());
+    assert!(analysis_codes(&report).is_empty());
     // The table of the entry: only the literal negation shares an atom with A1.
     let a1 = "[A1]\nThe language shall support sentence composition.\n";
     assert_eq!(ids(&check(a1)), ["A1"]);
     let negation = check(&format!("{a1}\n[A2]\nThe language shall not support sentence composition.\n"));
-    assert_eq!(report_codes(&negation), ["contradiction"]);
+    assert_eq!(analysis_codes(&negation), ["contradiction"]);
     assert!(ids(&negation).is_empty(), "{negation}");
     for other in ["The language shall not support composed sentences.", "The language shall reject sentence composition.", "Each statement shall contain exactly one action."] {
         let report = check(&format!("{a1}\n[A2]\n{other}\n"));
-        assert!(report_codes(&report).is_empty(), "{other}");
+        assert!(analysis_codes(&report).is_empty(), "{other}");
         assert_eq!(ids(&report), ["A1", "A2"], "{other}: {report}");
     }
     // A kind is not a meaning: a `term` declaration grounds nothing.
@@ -197,7 +197,7 @@ fn two_quantities_are_compared_with_each_other() {
 fn sums_multiples_and_differences_of_quantities_are_read() {
     let contradicts = |body: &str| {
         let report = check(body);
-        assert_eq!(report_codes(&report), ["contradiction"], "{body}: {report}");
+        assert_eq!(analysis_codes(&report), ["contradiction"], "{body}: {report}");
     };
     contradicts("[A]\nThe timeout is at most twice the limit.\n\n[B]\nThe limit is at most 5 seconds.\n\n[C]\nThe timeout is at least 11 seconds.\n");
     contradicts("[A]\nThe margin is at least half the limit.\n\n[B]\nThe limit is at least 10 seconds.\n\n[C]\nThe margin is at most 4 seconds.\n");
@@ -214,16 +214,16 @@ fn sums_multiples_and_differences_of_quantities_are_read() {
         "[A]\nThe timeout exceeds the limit by 5 seconds.\n\n[B]\nThe limit is at least 10 seconds.\n\n[C]\nThe timeout is at most 15 seconds.\n",
     ] {
         let report = check(body);
-        assert!(report_codes(&report).is_empty(), "{body}: {report}");
+        assert!(analysis_codes(&report).is_empty(), "{body}: {report}");
         assert_eq!(report["consistency"]["status"], "satisfiable", "{body}");
     }
     // A relation in a condition decides which statements meet.
     // The prohibition holds while the relation holds, and nothing says that
     // the relation ever fails: the two statements cannot both be kept there.
     let met = check("[A]\nWhile the load is at most the capacity, the API shall not reject requests.\n\n[B]\nThe API shall reject requests.\n");
-    assert_eq!(report_codes(&met), ["contradiction"], "{met}");
+    assert_eq!(analysis_codes(&met), ["contradiction"], "{met}");
     let apart = check("[A]\nWhile the load is greater than the capacity, the API shall reject requests.\n\n[B]\nWhile the load is at most the capacity, the API shall not reject requests.\n");
-    assert!(report_codes(&apart).is_empty(), "{apart}");
+    assert!(analysis_codes(&apart).is_empty(), "{apart}");
 }
 
 #[test]
@@ -292,8 +292,11 @@ fn a_definition_carries_a_conflict_to_the_defined_term() {
 fn a_defined_state_means_what_its_definition_says() {
     // The second reproducer of entry 10.
     m_conflict("[F4]\nAn archived room means a room that accepts no messages.\n\n[F5]\nWhile the room is archived, the room shall accept messages.\n", &["F4", "F5"]);
-    // In another state the room is free to accept messages.
-    m_consistent("[F4]\nAn archived room means a room that accepts no messages.\n\n[F6]\nWhile the room is active, the room shall accept messages.\n");
+    // In another state the room is free to accept messages, once a
+    // statement says that the two states exclude each other.
+    let active = "[F4]\nAn archived room means a room that accepts no messages.\n\n[F6]\nWhile the room is active, the room shall accept messages.\n";
+    m_conflict(active, &["F4", "F6"]);
+    m_consistent(&format!("{active}\n[F7]\nWhile the room is active, the room is never archived.\n"));
     // The conflict names the definition as the meaning of a term, not as an obligation.
     let report = check("[F4]\nAn archived room means a room that accepts no messages.\n\n[F5]\nWhile the room is archived, the room shall accept messages.\n");
     let steps = report["conflicts"][0]["derivation"].as_array().unwrap();
@@ -377,6 +380,13 @@ fn p_codes(body: &str) -> Vec<String> {
     report_codes(&check(body))
 }
 
+/// As `p_codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn p_codes_of_the_analysis(body: &str) -> Vec<String> {
+    analysis_codes(&check(body))
+}
+
 #[test]
 fn a_statement_overrides_another_without_editing_it() {
     // X2 names the rule it wins against; X1 is left as it was written.
@@ -425,17 +435,17 @@ fn a_default_yields_to_each_more_specific_statement_that_contradicts_it() {
 #[test]
 fn a_priority_names_a_statement_ends_somewhere_and_ranks_a_conflict() {
     let cycle = "[D1]\nThe door shall be open.\n    overrides [D2]\n\n[D2]\nWhile the alarm is active, the door shall be closed.\n    overrides [D1]\n";
-    let codes = p_codes(cycle);
+    let codes = p_codes_of_the_analysis(cycle);
     assert!(codes.contains(&"CYCLIC_PRIORITY".to_string()), "{codes:?}");
     // A cycle ranks nothing, so the conflict is still there.
     assert!(codes.contains(&"contradiction".to_string()), "{codes:?}");
-    assert_eq!(p_codes("[D1]\nThe door shall be open.\n    overrides [D1]\n"), ["CYCLIC_PRIORITY"]);
-    assert_eq!(p_codes(&format!("{DOOR}    overrides [NOWHERE]\n")), ["UNRESOLVED_REFERENCE", "contradiction"]);
+    assert_eq!(p_codes_of_the_analysis("[D1]\nThe door shall be open.\n    overrides [D1]\n"), ["CYCLIC_PRIORITY"]);
+    assert_eq!(p_codes_of_the_analysis(&format!("{DOOR}    overrides [NOWHERE]\n")), ["UNRESOLVED_REFERENCE", "contradiction"]);
     let idle = "[D1]\nThe door shall be open.\n\n[D4]\nWhile the alarm is active, the bell shall ring.\n    overrides [D1]\n";
-    assert_eq!(p_codes(idle), ["priority-without-conflict"]);
-    assert_eq!(p_codes("[D1]\nThe door shall be open.\n\noverrides [D1]\n"), ["parse-priority"]);
-    assert_eq!(p_codes("[D1]\nThe door shall be open.\n    overrides D1\n"), ["parse-priority"]);
-    assert_eq!(p_codes("[D1]\nThe door shall be open.\n    weight 2\n"), ["parse-priority"]);
+    assert_eq!(p_codes_of_the_analysis(idle), ["priority-without-conflict"]);
+    assert_eq!(p_codes_of_the_analysis("[D1]\nThe door shall be open.\n\noverrides [D1]\n"), ["parse-priority"]);
+    assert_eq!(p_codes_of_the_analysis("[D1]\nThe door shall be open.\n    overrides D1\n"), ["parse-priority"]);
+    assert_eq!(p_codes_of_the_analysis("[D1]\nThe door shall be open.\n    weight 2\n"), ["parse-priority"]);
 }
 
 #[test]
@@ -466,10 +476,16 @@ fn a_property_beyond_one_model_is_named_by_its_kind() {
     assert!(kind("G1").contains("`secure` states a quality without a measure") && kind("G1").contains("define the term"), "{found:?}");
     assert!(kind("G2").contains("`quickly` states a quality without a measure"), "{found:?}");
     assert_eq!(found.len(), 3, "{found:?}");
-    // The reports are not errors, and the text output always shows them.
-    assert!(report_codes(&report).is_empty(), "{report}");
-    let text = package("[G1]\nThe API shall be secure.\n").trion(&["verify"]).stdout;
-    assert!(text.contains("warning[inexpressible-property]"), "{text}");
+    // The analysis itself reports nothing, and the package is not verified:
+    // each statement is accepted, and what it requires has no meaning. The
+    // reports were warnings that no gate read, and a package of nothing but
+    // such statements was verified.
+    assert!(analysis_codes(&report).is_empty(), "{report}");
+    assert_eq!(report["outcome"]["verified"], false, "{report}");
+    assert_eq!(unverified(&report).iter().filter(|code| *code == "inexpressible-property").count(), 3, "{report}");
+    let run = package("[G1]\nThe API shall be secure.\n").trion(&["verify"]);
+    assert_eq!(run.code, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("error[inexpressible-property]") && run.stdout.contains("gate meaning: failed"), "{}", run.stdout);
     // An optimum and a share of the cases are named too.
     let more = check("[O1]\nThe API shall respond as fast as possible.\n\n[P1]\nThe API shall usually respond.\n");
     let kinds: Vec<&str> = more["inexpressible"].as_array().unwrap().iter().map(|d| d["message"].as_str().unwrap()).collect();
@@ -484,7 +500,7 @@ fn the_heaviest_recommendations_that_fit_are_the_ones_to_keep() {
     let body = "[H]\nThe API shall not log the token.\n\n[S1]\nThe API should log the token.\n    weight 5\n\n[S2]\nThe API should compress the log.\n\n[S3]\nThe API should not compress the log.\n    weight 3\n\n[S4]\nThe API should sign the log.\n";
     let report = check(body);
     // A recommendation that cannot be followed is still reported, and the hard constraints hold.
-    assert!(report_codes(&report).iter().all(|c| c == "recommendation-violation") && !report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).iter().all(|c| c == "recommendation-violation") && !analysis_codes(&report).is_empty(), "{report}");
     assert_eq!(report["consistency"]["status"], "satisfiable");
     let ids = |key: &str| report["preference"][key].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
     // S1 cannot be kept beside H whatever it weighs; S3 outweighs S2; nothing touches S4.
@@ -522,17 +538,18 @@ fn two_conditions_that_can_hold_together_make_one_situation() {
     let report = check(J);
     // A behaviour keeps both statements where the conditions never meet, and
     // nothing says that they never meet: the specification is inconsistent.
-    assert_eq!(report_codes(&report), ["contradiction"], "{report}");
+    assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
     assert_eq!(report["consistency"]["status"], "satisfiable");
     assert_eq!(report["consistency"]["verdict"], "inconsistent");
     assert_eq!(e_conflicts(&report), [["J1", "J2"]]);
     assert!(report["conflicts"][0]["condition"].as_str().unwrap().contains(" ∧ "), "{report}");
     let run = package(J).trion(&["verify"]);
     assert_eq!(run.code, 1);
-    assert!(run.stdout.contains("when the conditions of `J1`, `J2` are met together") && run.stdout.contains("consistency: inconsistent (status satisfiable"), "{}", run.stdout);
+    // The report names the situation: what holds in it, as far as the conflict needs it.
+    assert!(run.stdout.contains("in a situation that can occur") && run.stdout.contains("Val(x::room, archived), Event(x::user send message)") && run.stdout.contains("consistency: inconsistent (status satisfiable"), "{}", run.stdout);
     // Statements about different things are in no conflict, and the report says how far it looked.
     let apart = check("[K1]\nWhen the bell rings, the API shall stop.\n\n[K2]\nWhile the room is archived, the API shall not store the message.\n");
-    assert!(report_codes(&apart).is_empty(), "{apart}");
+    assert!(analysis_codes(&apart).is_empty(), "{apart}");
     assert_eq!(apart["consistency"]["verdict"], "consistent");
     assert!(apart["consistency"]["situations"].as_str().unwrap().contains("the statements can all be kept in each situation"), "{apart}");
 }
@@ -574,9 +591,11 @@ fn a_statement_that_ends_or_forbids_a_situation_is_in_no_conflict_there() {
     // The door does not stay open, so the lamp need not be lit and unlit at once.
     let ends = "[K]\nThe door is open or closed.\n\n[A]\nWhile the door is open, the lamp shall be lit.\n\n[B]\nWhile the door is closed, the lamp shall not be lit.\n\n[C]\nWhen the door is open, the door shall become closed.\n\n[D]\nWhen the door is closed, the door shall become open.\n";
     assert!(e_conflicts(&check(ends)).is_empty());
-    // A prohibition and what follows its breach do not contradict each other.
+    // A prohibition and what follows its breach do not contradict each
+    // other. The second statement applies in no behaviour that keeps the
+    // first, so it requires nothing, and that is an error of its own.
     let report = check(E);
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert_eq!(report_codes(&report), ["condition-unreachable"], "{report}");
     assert_eq!(report["consistency"]["verdict"], "consistent");
     let vacuous = &report["coverage"]["vacuous"];
     assert!(vacuous.to_string().contains("excluded by `E1`"), "{vacuous}");
@@ -628,10 +647,10 @@ fn a_declaration_decides_who_controls_an_actor() {
 #[test]
 fn a_response_before_what_the_environment_decides_cannot_be_kept() {
     let report = check("[C1]\nThe API shall lock the room before the user sends a message.\n\n[C0]\nWhen the user sends a message, the API shall store the message.\n");
-    assert_eq!(report_codes(&report), ["unrealizable"]);
+    assert_eq!(analysis_codes(&report), ["unrealizable"]);
     assert_eq!(report["environment"]["unrealizable"][0]["statement"]["id"], "C1");
     assert!(report["diagnostics"][0]["message"].as_str().unwrap().contains("the environment can act before it"));
     // Before an action of the system itself, the system can keep the order.
     let own = check("[C2]\nThe API shall lock the room before the API stores the message.\n\n[C3]\nThe API shall store the message.\n");
-    assert!(report_codes(&own).is_empty(), "{own}");
+    assert!(analysis_codes(&own).is_empty(), "{own}");
 }

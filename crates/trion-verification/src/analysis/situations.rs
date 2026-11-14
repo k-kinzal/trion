@@ -21,22 +21,23 @@
 //! action, the time of a completion): a situation is told in the terms of
 //! the statements, so it fixes none of them.
 //!
-//! Two claims are decided, each as one formula with a universal and an
-//! existential quantifier ([`trion_solver::for_all_exists`]), and never by
-//! listing the situations:
+//! The claim is one formula with a universal and an existential quantifier
+//! ([`trion_solver::for_all_exists`]), and it is decided without listing
+//! the situations: for every valuation of all terms that the descriptions
+//! allow, read as what the conditions see, some valuation of the response
+//! terms keeps the descriptions and the guarantee of each contract whose
+//! condition holds in the first valuation. A condition can read a response
+//! term, as `When the door is open` does where another statement requires
+//! the door to become closed: the condition reads the term as the situation
+//! shows it, and the guarantee speaks of the term as the response makes it.
+//! So a response cannot escape a guarantee by making its condition false,
+//! and a statement that changes what its condition reads contradicts nothing.
 //!
-//! - *Each situation has a behaviour.* For every valuation of the given
-//!   terms that the descriptions allow, some valuation of the response
-//!   terms keeps the descriptions and every contract.
-//! - *The guarantees that apply fit together.* A condition can read a
-//!   response term, as `When the API stores the message` does. For every
-//!   valuation of all terms that the descriptions allow, read as what the
-//!   conditions see, some valuation of the response terms keeps the
-//!   descriptions and the guarantee of each contract whose condition holds
-//!   in the first valuation. A response cannot escape a guarantee by making
-//!   its condition false.
-//!
-//! Where no condition reads a response term the two claims are one.
+//! A term that a declaration gives to the environment (`environment load`)
+//! is given even where a guarantee speaks about it. A response may then
+//! have to follow the situation: `the capacity shall be greater than the
+//! load` has no constant response, and the response `capacity := load +
+//! 0.001` answers every load ([`trion_solver::for_all_exists`]).
 
 use crate::proof::Question;
 use std::collections::{BTreeMap, BTreeSet};
@@ -66,6 +67,8 @@ pub(super) struct Situations {
     pub(super) examined: String,
     /// The queries whose refutation shows that every situation has a response.
     answered: Vec<Vec<usize>>,
+    /// The responses that are terms over what a situation fixes: `capacity := load + 0.001`.
+    pub(super) symbolic: Vec<String>,
 }
 
 impl Situations {
@@ -129,13 +132,19 @@ fn seen(formula: &Formula, response: &dyn Fn(&str) -> bool) -> Formula {
 /// `events` names the action behind each event. `soft` tells whether a
 /// contract is only advice, and `described` whether its statement has no
 /// normative force. The formulas of the contracts are added to the instance.
-pub(super) fn search(model: &Model, inst: &Instance, environment: &[Formula], events: &BTreeMap<String, String>, soft: &dyn Fn(usize) -> bool, described: &dyn Fn(usize) -> bool) -> Situations {
+pub(super) fn search(model: &Model, inst: &Instance, environment: &[Formula], events: &BTreeMap<String, String>, given: &BTreeSet<String>, soft: &dyn Fn(usize) -> bool, described: &dyn Fn(usize) -> bool) -> Situations {
     let count = model.constraints.len();
     let normative = |i: usize| matches!(model.constraints[i].kind, ConstraintKind::Spec | ConstraintKind::Permission) && !soft(i) && !described(i);
-    // The response terms: what a guarantee with normative force speaks about.
+    // The response terms: what a guarantee with normative force speaks
+    // about, with what the reading makes of that guarantee. `The room shall
+    // be archived` requires an action, and its meaning says that the room
+    // is archived then: the state of the room is part of the response.
+    let stated: BTreeSet<&str> = (0..count).filter(|&i| normative(i)).filter_map(|i| model.constraints[i].refs.first()).map(|r| r.id.as_str()).collect();
     let mut terms: BTreeSet<String> = BTreeSet::new();
-    for c in (0..count).filter(|&i| normative(i)).map(|i| &model.constraints[i]) {
-        c.guarantee.atoms(true, &mut |atom, _| terms.extend(atom.symbols().into_iter().map(str::to_string)));
+    for (i, c) in model.constraints.iter().enumerate() {
+        if normative(i) || (c.kind.is_vocabulary() && c.refs.first().is_some_and(|r| stated.contains(r.id.as_str()))) {
+            c.guarantee.atoms(true, &mut |atom, _| terms.extend(atom.symbols().into_iter().map(str::to_string)));
+        }
     }
     // An event is the occurrence of its action: it is a response where the action is one.
     terms.extend(events.iter().filter(|(_, action)| terms.contains(action.as_str())).map(|(event, _)| event.clone()).collect::<Vec<_>>());
@@ -143,12 +152,15 @@ pub(super) fn search(model: &Model, inst: &Instance, environment: &[Formula], ev
     // statement names is made by the reading, as the count of an action is:
     // it comes with the behaviour, and no situation fixes it.
     let mut named: BTreeSet<String> = BTreeSet::new();
-    for c in &model.constraints {
+    for c in model.constraints.iter().filter(|c| !c.kind.is_axiom()) {
         for formula in [&c.assume, &c.guarantee] {
             formula.atoms(true, &mut |atom, _| named.extend(atom.symbols().into_iter().map(str::to_string)));
         }
     }
-    let response = |symbol: &str| !symbol.starts_with(SEEN) && (terms.contains(symbol) || !named.contains(symbol));
+    // A term that the environment controls is given, whatever speaks about
+    // it: `The capacity shall be greater than the load.` requires a capacity
+    // for each load, and no response chooses the load.
+    let response = |symbol: &str| !symbol.starts_with(SEEN) && !given.contains(symbol) && (terms.contains(symbol) || !named.contains(symbol));
     // What says which situations can occur, and what a behaviour must keep besides.
     let mut contract_of: BTreeMap<usize, usize> = BTreeMap::new();
     let mut descriptions: Vec<usize> = model.background.iter().chain(environment).map(|axiom| inst.add(axiom)).collect();
@@ -169,31 +181,29 @@ pub(super) fn search(model: &Model, inst: &Instance, environment: &[Formula], ev
             }
         })
         .collect();
-    // Each contract as a behaviour keeps it, and with its condition read apart from the response.
-    let mut kept: Vec<usize> = descriptions.clone();
-    let mut applied: Vec<usize> = descriptions.clone();
-    let mut reads_response = false;
+    // Each contract with its condition read apart from the response: the
+    // condition is what the situation shows, and the guarantee is what the
+    // response makes. `When the door is open, the door shall become closed`
+    // reads an open door and requires a closed one.
+    let mut applied: Vec<usize> = Vec::new();
     for i in (0..count).filter(|&i| normative(i)) {
         let c = &model.constraints[i];
-        let id = inst.add(&c.formula());
+        let guarantee = trion_language::reading::situation_guarantee(model, c);
+        let id = inst.add(&match &c.assume {
+            Formula::True => guarantee,
+            condition => Formula::implies(seen(condition, &response), guarantee),
+        });
         contract_of.insert(id, i);
-        kept.push(id);
-        let as_seen = seen(&c.assume, &response);
-        if as_seen == c.assume {
-            applied.push(id);
-        } else {
-            reads_response = true;
-            let apart = inst.add(&Formula::implies(as_seen, c.guarantee.clone()));
-            contract_of.insert(apart, i);
-            applied.push(apart);
-        }
+        applied.push(id);
     }
-    let mut found = Situations { conflicts: Vec::new(), decided: true, examined: String::new(), answered: Vec::new() };
+    let mut found = Situations { conflicts: Vec::new(), decided: true, examined: String::new(), answered: Vec::new(), symbolic: Vec::new() };
     let mut open: Option<String> = None;
-    let claims: Vec<&Vec<usize>> = if reads_response { vec![&kept, &applied] } else { vec![&kept] };
-    for conclusions in claims {
-        match for_all_exists(inst, &premises, conclusions, &response) {
-            ForAll::Holds { refuted } => found.answered.extend(refuted),
+    {
+        match for_all_exists(inst, &premises, &descriptions, &applied, &response) {
+            ForAll::Holds { refuted, symbolic } => {
+                found.answered.extend(refuted);
+                found.symbolic = symbolic;
+            }
             ForAll::Open { reason } => open = Some(reason),
             ForAll::Fails { situations } => {
                 for unanswered in situations {
@@ -219,6 +229,7 @@ pub(super) fn search(model: &Model, inst: &Instance, environment: &[Formula], ev
     found.examined = match (&open, found.conflicts.len()) {
         (_, conflicts) if conflicts > 0 => format!("the statements cannot all be kept in {conflicts} situation(s)"),
         (Some(reason), _) => format!("not every situation was examined: {reason}"),
+        (None, _) if !found.symbolic.is_empty() => format!("every situation was examined through {} questions, without listing the situations; the statements can all be kept in each situation, with a response that follows the situation: {}", found.answered.len(), found.symbolic.join("; ")),
         (None, _) => format!("every situation was examined through {} questions, without listing the situations; the statements can all be kept in each situation", found.answered.len()),
     };
     found

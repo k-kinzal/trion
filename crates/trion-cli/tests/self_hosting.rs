@@ -19,16 +19,33 @@ fn read(path: &str) -> String {
     fs::read_to_string(repo_root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
+// Until work item W10 the workspace held four packages and this test
+// counted four. The fifth, `trion-checker`, holds the checks that share
+// neither the reading rules nor the search with the packages that produce a
+// result (plan section 5): the test now states which package may depend on
+// which, so that the checker cannot come to depend on the verification that
+// it checks.
 #[test]
-fn the_workspace_holds_its_four_packages() {
+fn the_workspace_holds_its_five_packages_and_the_checker_stands_apart() {
     let workspace = read("Cargo.toml");
-    for package in ["trion-solver", "trion-language", "trion-verification", "trion-cli"] {
+    for package in ["trion-solver", "trion-language", "trion-verification", "trion-checker", "trion-cli"] {
         assert!(workspace.contains(&format!("crates/{package}")), "{package}");
         assert!(read(&format!("crates/{package}/Cargo.toml")).contains(&format!("name = \"{package}\"")), "{package}");
     }
     // The workspace consists of these and of no other package.
     let members = fs::read_dir(repo_root().join("crates")).unwrap().flatten().filter(|entry| entry.path().join("Cargo.toml").is_file()).count();
-    assert_eq!(members, 4);
+    assert_eq!(members, 5);
+    // The checker reads the language and decides with the solver; it does
+    // not depend on the verification, and the verification does not depend on it.
+    let checker = read("crates/trion-checker/Cargo.toml");
+    assert!(!checker.contains("trion-verification") && !checker.contains("trion-cli"), "{checker}");
+    assert!(!read("crates/trion-verification/Cargo.toml").contains("trion-checker"));
+    assert!(!read("crates/trion-language/Cargo.toml").contains("trion-checker"));
+    // The reference evaluator builds no formula and asks no solver.
+    let evaluator = read("crates/trion-checker/src/eval.rs");
+    for word in ["trion_solver", "Formula", "Atom::", "unroll", "compile("] {
+        assert!(!evaluator.lines().filter(|l| !l.trim_start().starts_with("//")).any(|l| l.contains(word)), "the reference evaluator names `{word}`");
+    }
 }
 
 #[test]
@@ -42,7 +59,7 @@ fn the_cli_package_builds_the_trion_command() {
 
 #[test]
 fn the_workspace_is_rust() {
-    for root in ["crates/trion-solver/src/lib.rs", "crates/trion-language/src/lib.rs", "crates/trion-verification/src/lib.rs", "crates/trion-cli/src/main.rs"] {
+    for root in ["crates/trion-solver/src/lib.rs", "crates/trion-language/src/lib.rs", "crates/trion-verification/src/lib.rs", "crates/trion-checker/src/lib.rs", "crates/trion-cli/src/main.rs"] {
         assert!(repo_root().join(root).is_file(), "{root}");
     }
 }
@@ -58,7 +75,7 @@ fn the_syntax_layer_derives_from_spec_oracle() {
 fn the_repository_passes_its_own_check_and_requirements() {
     let result = verified();
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
-    for gate in ["check", "sources", "prover", "properties", "stability"] {
+    for gate in ["check", "meaning", "claims", "sources", "prover", "properties", "stability"] {
         assert!(result.stdout.contains(&format!("gate {gate}: passed")), "{}", result.stdout);
     }
     assert!(result.stdout.trim_end().ends_with("\nverified"), "{}", result.stdout);
@@ -146,7 +163,7 @@ fn every_statement_of_the_specification_has_a_formal_reading() {
 fn the_verify_command_states_the_completion_as_gates() {
     let result = verified();
     // Each condition of the completion is a gate with a state of its own.
-    for gate in ["check", "sources", "prover", "properties", "stability"] {
+    for gate in ["check", "meaning", "claims", "sources", "prover", "properties", "stability"] {
         assert!(result.stdout.lines().any(|line| line.starts_with(&format!("gate {gate}: "))), "no state of the gate `{gate}`:\n{}", result.stdout);
     }
     // The last line says whether the package is verified, and the exit code says the same.

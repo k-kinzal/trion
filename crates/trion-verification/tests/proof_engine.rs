@@ -369,7 +369,6 @@ fn a_finding_without_a_question_of_its_own_is_a_certified_comparison() {
 
 #[test]
 fn the_situations_are_certified() {
-    let hard = |proof: &Proof, question: &Question| proof.entries.iter().filter(|e| e.kind.as_str() == "hard").all(|e| question.query.contains(&e.formula));
     // Both conditions can hold together, and then the two statements cannot be kept.
     for text in ["[J1]\nWhen a user sends a message, the API shall store the message.\n\n[J2]\nWhile the room is archived, the API shall not store the message.\n", "[A]\nWhen the size is at least 100, the API shall stop.\n\n[B]\nWhen the size is at most 100, the API shall not stop.\n"] {
         let conflict = certified(text);
@@ -378,34 +377,33 @@ fn the_situations_are_certified() {
         assert_eq!(conflict.consistency.verdict, "inconsistent");
         assert_eq!(conflict.conflicts[0].elements.len(), 2);
         let proof = conflict.proof.as_ref().unwrap();
-        // The conditions hold together, each statement can be kept there alone, and the two cannot.
-        let names: Vec<&str> = proof.answered.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["situation 1: the conditions hold together", "situation 1: statement 1 can be kept alone", "situation 1: statement 2 can be kept alone", "situation 1: the statements cannot all be kept"]);
-        for (_, question) in &proof.answered[..3] {
-            accepted(&proof.pool, question, Status::Satisfiable);
-        }
-        let (_, refuted) = &proof.answered[3];
+        // The situation can occur, and the statements cannot all be kept in it.
+        let [(occurs_name, occurs), (refuted_name, refuted)] = proof.answered.as_slice() else { panic!("{:?}", proof.answered.iter().map(|(name, _)| name).collect::<Vec<_>>()) };
+        assert_eq!(occurs_name, "situation 1: the situation can occur");
+        assert_eq!(refuted_name, "situation 1: the statements cannot all be kept");
+        accepted(&proof.pool, occurs, Status::Satisfiable);
         accepted(&proof.pool, refuted, Status::Unsatisfiable);
-        // What is refuted is the two statements under the conditions.
-        assert!(hard(proof, refuted));
+        // The second question holds what the situation fixes and the two statements, and the first holds the same facts.
+        assert!(refuted.query.iter().filter(|id| occurs.query.contains(id)).count() >= 1);
         assert!(proof.uncertified.is_empty(), "{:?}", proof.uncertified);
     }
-    // No conflict: the statements are kept in each largest situation, and no situation lies outside each of them.
+    // No conflict: no situation is left that the responses found do not answer.
     let kept = certified("[K1]\nWhen a user sends a message, the API shall store the message.\n\n[K2]\nWhile the room is archived, the API shall log the message.\n");
     assert!(errors(&kept).is_empty());
     assert_eq!(kept.consistency.verdict, "consistent");
     let proof = kept.proof.as_ref().unwrap();
-    let (cover_name, cover) = proof.answered.last().expect("the questions of the situations");
-    assert_eq!(cover_name, "situations: every situation lies within a largest one");
-    accepted(&proof.pool, cover, Status::Unsatisfiable);
-    let largest = &proof.answered[..proof.answered.len() - 1];
-    assert!(!largest.is_empty());
-    for (name, question) in largest {
-        assert!(name.starts_with("situations: the statements are kept in the situation "), "{name}");
-        accepted(&proof.pool, question, Status::Satisfiable);
-        assert!(hard(proof, question));
+    assert!(!proof.answered.is_empty());
+    for (name, question) in &proof.answered {
+        assert!(name.starts_with("situations: no situation is left without a response"), "{name}");
+        accepted(&proof.pool, question, Status::Unsatisfiable);
     }
     assert!(proof.uncertified.is_empty(), "{:?}", proof.uncertified);
+    // Statements that share no response are answered apart: twelve states
+    // with two values each have 4096 situations, and none is listed.
+    let apart: String = ["door", "lamp", "valve", "pump", "gate", "fan", "bell", "horn", "lock", "vent", "hatch", "relay"].iter().enumerate().map(|(i, part)| format!("[K{i}]\nThe {part} is open or closed.\n[A{i}]\nWhile the {part} is open, the API shall raise the {part} flag.\n[B{i}]\nWhile the {part} is closed, the API shall clear the {part} flag.\n")).collect();
+    let product = certified(&apart);
+    assert_eq!(product.consistency.verdict, "consistent", "{:?}", product.consistency.situations);
+    assert!(product.proof.as_ref().unwrap().answered.len() <= 24);
     // A statement without normative force that excludes the situation settles the conflict.
     let excluded = certified("[J1]\nWhen a user sends a message, the API shall store the message.\n\n[J2]\nWhile the room is archived, the API shall not store the message.\n\n[J3]\nWhile the room is archived, no user sends a message.\n");
     assert!(errors(&excluded).is_empty(), "{:?}", errors(&excluded));

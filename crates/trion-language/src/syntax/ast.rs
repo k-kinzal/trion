@@ -51,8 +51,10 @@ pub struct Sentence {
     /// `... exactly when <clause>`: the claim and the clause stand together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iff: Option<ClauseGroup>,
-    /// `..., even when <clause>` or `..., while <gerund>`: said for the reader,
-    /// and no condition on the claim.
+    /// `..., even when <clause>` or `..., while <gerund>`. `even when` is no
+    /// condition on the claim: the claim holds whether the clause holds or
+    /// not. `while <gerund>` says what else holds, and no reading rule makes
+    /// a requirement of it: the reading rejects the statement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub concession: Option<String>,
 }

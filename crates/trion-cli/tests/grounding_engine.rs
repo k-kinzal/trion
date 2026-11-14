@@ -14,6 +14,13 @@ fn codes(text: &str) -> Vec<String> {
     report_codes(&check(text))
 }
 
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&check(text))
+}
+
 fn model(text: &str) -> String {
     Fixture::new(&[("a.trion", text)]).inspect(&["model", "a.trion"]).stdout
 }
@@ -55,13 +62,13 @@ fn inclusions_in_a_term_that_every_rule_names_are_decided() {
     let text = format!("{inclusions}{}[X] When the event3 occurs, each rule shall not keep the mark3.\n", rules(120));
     let report = check(&text);
     // The prohibition of a rule meets the obligation of every statement.
-    assert_eq!(report_codes(&report), ["contradiction"], "{report}");
+    assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
     // The conflict needs the event to occur, so it is an error of its own:
     // the hard constraints hold wherever the event never occurs.
     assert_eq!(report["consistency"]["status"], "satisfiable");
     assert!(report["conflicts"][0]["condition"].as_str().is_some_and(|c| c.contains("event3")), "{report}");
     let consistent = check(&format!("{inclusions}{}", rules(120)));
-    assert!(report_codes(&consistent).is_empty(), "{consistent}");
+    assert!(analysis_codes(&consistent).is_empty(), "{consistent}");
     assert_eq!(consistent["consistency"]["status"], "satisfiable");
 }
 
@@ -108,7 +115,7 @@ fn a_modified_phrase_is_a_kind_of_its_head() {
 fn a_modifier_that_denies_its_head_makes_no_kind() {
     let text = format!("{VOCABULARY}[A] Each statement shall not hold a comment.\n[B] Each former statement shall hold a comment.\n");
     let report = check(&text);
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     assert!(silent(&report, "ungrounded").iter().any(|m| m.contains("former statement")), "{report}");
 }
 

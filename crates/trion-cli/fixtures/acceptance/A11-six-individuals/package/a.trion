@@ -1,0 +1,27 @@
+namespace x
+[T1]
+Each lobby is a room.
+
+[T2]
+Each vault is a room.
+
+[T3]
+Each archive is a room.
+
+[X1]
+No lobby is a vault.
+
+[X2]
+No lobby is an archive.
+
+[X3]
+No vault is an archive.
+
+[N1]
+There are at least two lobbies.
+
+[N2]
+There are at least two vaults.
+
+[N3]
+There are at least two archives.

@@ -1,0 +1,28 @@
+id = "A04"
+title = "Two completions of one activation cannot each come before the other"
+work = "W06"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+Both statements have the trigger `the timer expires`, so one expiry activates both. [A] requires the
+completion of `log the request` that answers this expiry to be strictly before the completion of
+`send the report` that answers it; [B] requires the reverse. `before` is a strict order, so the
+situation in which the timer expires has no response. A trace abstraction in which the two completions
+lie in an unordered tail is no model of the statements: it must be made concrete or dropped.
+"""
+
+[expect]
+verified = false
+blockers = ["contradiction"]
+
+[expect.claims]
+situation_total = "refuted"
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = """
+tests/temporal_order.rs::what_the_rest_of_the_trace_does_not_order_is_not_refuted asserted the success.
+Closed by ordering the first completion and the first occurrence of the rest by their times
+(reading/temporal.rs::ordered_in_rest); the test now asserts the conflict.
+"""

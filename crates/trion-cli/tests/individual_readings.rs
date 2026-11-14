@@ -80,6 +80,7 @@ fn a_defined_state_holds_exactly_when_its_differences_hold() {
     let model = package(definition).inspect(&["model"]).stdout;
     assert!(model.contains("disposed to"), "{model}");
     assert!(model.contains("→ Val(x::room, archived)"), "{model}");
-    // An idle room is not archived for being idle.
-    assert!(!contradicts(&format!("{definition}\n[F6]\nWhile the room is active, the room shall accept messages.\n\n[F7]\nThe room shall not be archived.\n")));
+    // An idle room is not archived for being idle, once a statement says
+    // that the two states exclude each other.
+    assert!(!contradicts(&format!("{definition}\n[F6]\nWhile the room is active, the room shall accept messages.\n\n[F7]\nWhile the room is active, the room is never archived.\n")));
 }

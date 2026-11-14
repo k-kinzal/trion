@@ -6,17 +6,21 @@
 //!
 //! - for `satisfiable`, a witness: a truth value for each atom of the query
 //!   and an integer for each quantity;
-//! - for `unsatisfiable`, a refutation: a list of clauses over the atoms of
-//!   the query that ends with the empty clause. Each clause follows by unit
-//!   propagation from the clauses of the query and the clauses before it, or
-//!   it is a linear lemma with a derivation;
+//! - for `unsatisfiable`, a refutation: a list of clauses that ends with
+//!   the empty clause. Each clause follows by unit propagation from the
+//!   clauses of the query and the clauses before it, or it is a linear lemma
+//!   with a derivation;
 //! - for `unknown`, nothing.
 //!
-//! A refutation names atoms only. The search branches on atoms and never on
-//! a variable of its own encoding, so a checker may encode the formulas in
-//! its own way. The clauses are produced against a plain Tseitin encoding in
-//! which no two subformulas share a variable; unit propagation over any
-//! encoding that propagates as much accepts them.
+//! A clause of a refutation names atoms and subformulas of the query. A
+//! subformula is named by a definition: its connective and its parts, each
+//! an atom or a subformula that an earlier definition names. A checker
+//! encodes the formulas in its own way, with one variable for each
+//! subformula as it is written (`a ∧ b` in two formulas is one
+//! subformula), finds the variable of each definition among them, and
+//! refuses a definition that names no subformula of the query. The search
+//! branches on atoms and learns clauses over the same encoding; unit
+//! propagation over any such encoding accepts them.
 
 use super::arith::{decide_certified, AtMost, Derivation, Outcome, Source, Unequal};
 use crate::formula::{Atom, Cmp, Formula};
@@ -133,14 +137,46 @@ pub enum Justification {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
+    /// The literals of the clause that are about atoms.
     pub clause: Vec<Literal>,
+    /// The literals of the clause that are about subformulas: the number
+    /// of the definition, and `false` for the denial of the subformula.
+    pub formulas: Vec<(usize, bool)>,
     pub by: Justification,
 }
 
-/// Clauses over the atoms of a query, the last of which is empty.
+/// How the parts of a subformula stand together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Connective {
+    /// The formula that holds.
+    True,
+    /// Each part holds.
+    All,
+    /// Some part holds. `a → b` is `¬a` or `b`.
+    Any,
+}
+
+/// A part of a subformula: an atom, or a subformula that an earlier
+/// definition names; each as it stands or denied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Operand {
+    Atom(Literal),
+    Formula { definition: usize, positive: bool },
+}
+
+/// The name of one subformula of the query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Definition {
+    pub connective: Connective,
+    pub operands: Vec<Operand>,
+}
+
+/// Clauses over the atoms and the named subformulas of a query, the last of
+/// which is empty.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Refutation {
     pub steps: Vec<Step>,
+    pub definitions: Vec<Definition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,6 +355,15 @@ pub struct Prover {
     pub(crate) work: Cell<u64>,
     /// The most decisions that the search for one part has made.
     peak: Cell<u64>,
+    /// For each variable of an atom: how often the formulas state the atom
+    /// less how often they deny it. An atom that is denied more often is
+    /// tried false first.
+    leaning: Vec<i32>,
+    /// The variable of each subformula, by its connective and the literals
+    /// of its parts: a subformula that is written twice has one variable.
+    nodes: HashMap<(Connective, Vec<Lit>), Lit>,
+    /// The connective and the parts of each variable of a subformula.
+    shapes: Vec<Option<(Connective, Vec<Lit>)>>,
 }
 
 impl Default for Prover {
@@ -330,11 +375,13 @@ impl Default for Prover {
 impl Prover {
     /// A prover whose search for one part ends after the given decisions.
     pub fn new(decisions: Option<u64>) -> Self {
-        Self { formulas: Vec::new(), variables: HashMap::new(), atoms: vec![None], quantities: HashMap::new(), quantity_ids: HashMap::new(), quantities_of: vec![Vec::new()], parts: RefCell::new(HashMap::new()), decisions: decisions.unwrap_or(QUERY_DECISIONS), work: Cell::new(0), peak: Cell::new(0) }
+        Self { formulas: Vec::new(), variables: HashMap::new(), atoms: vec![None], quantities: HashMap::new(), quantity_ids: HashMap::new(), quantities_of: vec![Vec::new()], parts: RefCell::new(HashMap::new()), decisions: decisions.unwrap_or(QUERY_DECISIONS), work: Cell::new(0), peak: Cell::new(0), leaning: vec![0], nodes: HashMap::new(), shapes: vec![None] }
     }
 
     fn fresh(&mut self) -> Lit {
         self.atoms.push(None);
+        self.leaning.push(0);
+        self.shapes.push(None);
         self.quantities_of.push(Vec::new());
         (self.atoms.len() - 1) as Lit
     }
@@ -358,28 +405,42 @@ impl Prover {
         v
     }
 
-    /// Tseitin: a literal that is equivalent to the formula. No two
-    /// subformulas share a variable; an atom has one variable everywhere.
-    fn encode(&mut self, f: &Formula, out: &mut Vec<Vec<Lit>>, atoms: &mut Vec<Lit>) -> Lit {
+    /// The variable of the subformula with this connective and these parts.
+    fn node(&mut self, connective: Connective, parts: &[Lit]) -> Lit {
+        if let Some(&v) = self.nodes.get(&(connective, parts.to_vec())) {
+            return v;
+        }
+        let v = self.fresh();
+        self.nodes.insert((connective, parts.to_vec()), v);
+        self.shapes[v as usize] = Some((connective, parts.to_vec()));
+        v
+    }
+
+    /// Tseitin: a literal that is equivalent to the formula. A subformula
+    /// has one variable wherever it is written, and an atom has one
+    /// variable everywhere; the clauses that define a subformula are given
+    /// with each formula that holds it.
+    fn encode(&mut self, f: &Formula, stated: bool, out: &mut Vec<Vec<Lit>>, atoms: &mut Vec<Lit>) -> Lit {
         match f {
             Formula::True => {
-                let v = self.fresh();
+                let v = self.node(Connective::True, &[]);
                 out.push(vec![v]);
                 v
             }
             Formula::Atom(a) => {
                 let v = self.atom(a);
+                self.leaning[v as usize] += if stated { 1 } else { -1 };
                 atoms.push(v);
                 v
             }
-            Formula::Not(x) => -self.encode(x, out, atoms),
+            Formula::Not(x) => -self.encode(x, !stated, out, atoms),
             Formula::Implies(a, b) => {
-                let lits = vec![-self.encode(a, out, atoms), self.encode(b, out, atoms)];
+                let lits = vec![-self.encode(a, !stated, out, atoms), self.encode(b, stated, out, atoms)];
                 self.any(lits, out)
             }
             Formula::And(xs) => {
-                let lits: Vec<Lit> = xs.iter().map(|x| self.encode(x, out, atoms)).collect();
-                let v = self.fresh();
+                let lits: Vec<Lit> = xs.iter().map(|x| self.encode(x, stated, out, atoms)).collect();
+                let v = self.node(Connective::All, &lits);
                 let mut long = vec![v];
                 for &l in &lits {
                     out.push(vec![-v, l]);
@@ -389,14 +450,14 @@ impl Prover {
                 v
             }
             Formula::Or(xs) => {
-                let lits: Vec<Lit> = xs.iter().map(|x| self.encode(x, out, atoms)).collect();
+                let lits: Vec<Lit> = xs.iter().map(|x| self.encode(x, stated, out, atoms)).collect();
                 self.any(lits, out)
             }
         }
     }
 
     fn any(&mut self, lits: Vec<Lit>, out: &mut Vec<Vec<Lit>>) -> Lit {
-        let v = self.fresh();
+        let v = self.node(Connective::Any, &lits);
         let mut long = vec![-v];
         for &l in &lits {
             out.push(vec![v, -l]);
@@ -406,11 +467,30 @@ impl Prover {
         v
     }
 
+    /// The number of the definition that names the subformula of a
+    /// variable, with the definitions of its parts before it.
+    fn define(&self, variable: Lit, defined: &mut HashMap<Lit, usize>, definitions: &mut Vec<Definition>) -> usize {
+        if let Some(&number) = defined.get(&variable) {
+            return number;
+        }
+        let (connective, parts) = self.shapes[variable as usize].clone().expect("a variable that is no atom is a subformula");
+        let operands = parts
+            .iter()
+            .map(|&part| match &self.atoms[part.unsigned_abs() as usize] {
+                Some(atom) => Operand::Atom(Literal { atom: atom.clone(), positive: part > 0 }),
+                None => Operand::Formula { definition: self.define(part.abs(), defined, definitions), positive: part > 0 },
+            })
+            .collect();
+        definitions.push(Definition { connective, operands });
+        defined.insert(variable, definitions.len() - 1);
+        definitions.len() - 1
+    }
+
     /// Adds a formula and returns the index that names it in a query.
     pub fn add(&mut self, formula: &Formula) -> usize {
         let mut clauses = Vec::new();
         let mut atoms = Vec::new();
-        let root = self.encode(formula, &mut clauses, &mut atoms);
+        let root = self.encode(formula, true, &mut clauses, &mut atoms);
         clauses.push(vec![root]);
         atoms.sort_unstable();
         atoms.dedup();
@@ -418,9 +498,18 @@ impl Prover {
         self.formulas.len() - 1
     }
 
+    /// The clause visits that all queries of this prover may make
+    /// together. A caller that allows a query more decisions than the
+    /// default allows the queries together more work in the same
+    /// proportion: the default keeps an analysis short enough for an
+    /// editor, and a larger domain needs more of both.
+    fn work_limit(&self) -> u64 {
+        WORK_LIMIT.saturating_mul((self.decisions / QUERY_DECISIONS).max(1))
+    }
+
     /// `true` when a query was refused because the work limit was reached.
     pub(crate) fn exhausted(&self) -> bool {
-        self.work.get() > WORK_LIMIT
+        self.work.get() > self.work_limit()
     }
 
     /// The most decisions that the search for one part has made.
@@ -517,6 +606,13 @@ impl Prover {
     }
 
     /// The search for one part: DPLL that branches on atoms only.
+    /// The search for one part: clause learning that branches on atoms
+    /// only. A learned clause is the cut of the implications behind a
+    /// conflict at the first consequence of the last decision that every
+    /// way to the conflict passes. The negation of such a clause forces, by
+    /// unit propagation, everything behind the cut and with it the
+    /// conflict, so each learned clause is a step of the refutation; where
+    /// it holds a variable of the encoding, the step names the subformula.
     fn search(&self, key: &[u32]) -> Part {
         if self.exhausted() {
             return Part::Unknown;
@@ -552,42 +648,65 @@ impl Prover {
         let count = global.len();
         let branch: Vec<Lit> = (1..count as Lit).filter(|&v| self.atoms[global[v as usize] as usize].is_some()).collect();
         let numeric_atoms: Vec<Lit> = branch.iter().copied().filter(|&v| self.quantities.contains_key(&global[v as usize])).collect();
-        let slot = |l: Lit| (l.unsigned_abs() as usize) * 2 + usize::from(l < 0);
-        let mut occurs: Vec<Vec<u32>> = vec![Vec::new(); count * 2];
-        for (n, clause) in clauses.iter().enumerate() {
-            for &l in clause {
-                occurs[slot(l)].push(n as u32);
-            }
+        let mut is_atom = vec![false; count];
+        for &v in &branch {
+            is_atom[v as usize] = true;
         }
-        let mut search = Search { clauses, occurs, assign: vec![0; count], reason: vec![NONE; count], level: vec![0; count], trail: Vec::new(), marks: Vec::new(), head: 0, work: 0 };
         let atom_of = |v: Lit| self.atoms[global[v as usize] as usize].clone().expect("a branching variable is an atom");
         let literal = |l: Lit| Literal { atom: atom_of(l.abs()), positive: l > 0 };
+        let mut search = Search::new(count, is_atom, &branch);
+        for &v in &branch {
+            if self.leaning[global[v as usize] as usize] < 0 {
+                search.phase[v as usize] = -1;
+            }
+        }
         let mut steps: Vec<Step> = Vec::new();
+        let mut definitions: Vec<Definition> = Vec::new();
+        let mut defined: HashMap<Lit, usize> = HashMap::new();
         let mut size = 0usize;
         let mut made = 0u64;
-        let mut next = 0usize;
-        // The clauses that are unit or empty before any decision.
-        let mut conflict: Option<usize> = (0..search.clauses.len()).find(|&n| !search.visit(n));
+        let mut conflicts = 0u64;
+        let mut restart = Restarts::default();
+        let mut conflict: Option<usize> = None;
+        let profile = std::env::var("TRION_PROFILE_SEARCH").is_ok();
+        let started = std::time::Instant::now();
+        let (mut lemmas, mut models) = (0u64, 0u64);
+        let given = clauses.len();
+        macro_rules! report {
+            ($kind:expr) => {
+                if profile && (started.elapsed().as_millis() > 300 || conflicts > 2000) {
+                    eprintln!("profile: {} part of {} formulas, {} clauses, {} atoms: {made} decisions, {conflicts} conflicts, {lemmas} lemmas, {models} assignments, {} learned literals, {:?}", $kind, key.len(), given, branch.len(), size_of_steps(&steps), started.elapsed());
+                }
+            };
+        }
+        for clause in clauses {
+            if let Some(n) = search.add(clause) {
+                conflict = Some(n);
+                break;
+            }
+        }
         loop {
             if conflict.is_none() {
                 conflict = search.propagate();
             }
             let spent = self.work.get().saturating_add(std::mem::take(&mut search.work));
             self.work.set(spent);
-            if spent > WORK_LIMIT {
+            if spent > self.work_limit() {
+                report!("unknown (work)");
                 return Part::Unknown;
             }
             if conflict.is_none() {
-                while next < branch.len() && search.assign[branch[next] as usize] != 0 {
-                    next += 1;
+                if restart.due(conflicts) {
+                    search.back_to(0);
                 }
-                if next < branch.len() {
+                if let Some(v) = search.next() {
                     made += 1;
                     self.peak.set(self.peak.get().max(made));
                     if made > self.decisions {
+                        report!("unknown (decisions)");
                         return Part::Unknown;
                     }
-                    search.decide(branch[next]);
+                    search.decide(v);
                     continue;
                 }
                 // Every atom has a value, and with it every variable of the encoding: the numbers decide.
@@ -595,45 +714,56 @@ impl Prover {
                     return Part::Unknown;
                 }
                 let assigned: Vec<(Atom, bool)> = numeric_atoms.iter().map(|&v| (atom_of(v), search.assign[v as usize] == 1)).collect();
+                models += 1;
                 match self.theory(&assigned) {
                     Theory::Point(quantities) => {
                         let atoms = branch.iter().map(|&v| (atom_of(v), search.assign[v as usize] == 1)).collect();
+                        report!("sat");
                         return Part::Satisfiable(Arc::new(WitnessPart { atoms, quantities }));
                     }
                     Theory::Undecided => return Part::Unknown,
                     Theory::Lemma(lemma, derivation) => {
-                        let clause: Vec<Lit> = lemma.iter().map(|l| if l.positive { local[&self.variables[&l.atom]] } else { -local[&self.variables[&l.atom]] }).collect();
+                        lemmas += 1;
+                        let mut clause: Vec<Lit> = lemma.iter().map(|l| if l.positive { local[&self.variables[&l.atom]] } else { -local[&self.variables[&l.atom]] }).collect();
+                        clause.sort_by_key(|l| std::cmp::Reverse(search.level[l.unsigned_abs() as usize]));
                         size += lemma.len() + 1;
-                        steps.push(Step { clause: lemma, by: Justification::Linear(derivation) });
+                        steps.push(Step { clause: lemma, formulas: Vec::new(), by: Justification::Linear(derivation) });
+                        // Every literal of the lemma is false: the search goes back to the last of them.
+                        let last = clause.iter().map(|l| search.level[l.unsigned_abs() as usize]).max().unwrap_or(0);
+                        search.back_to(last);
                         conflict = Some(search.learn(clause));
                     }
                 }
             }
             let Some(at) = conflict.take() else { continue };
-            // The decisions that the conflict follows from cannot all hold.
-            let involved = search.decisions_behind(at);
-            let learned: Vec<Lit> = involved.iter().map(|&d| -d).collect();
-
+            conflicts += 1;
+            if search.marks.is_empty() {
+                // No decision is involved: the clauses refute themselves.
+                steps.push(Step { clause: Vec::new(), formulas: Vec::new(), by: Justification::Propagation });
+                report!("unsat");
+                return Part::Unsatisfiable(Arc::new(Refutation { steps, definitions }));
+            }
+            let (learned, back) = search.analyze(at);
             size += learned.len() + 1;
-            steps.push(Step { clause: learned.iter().map(|&l| literal(l)).collect(), by: Justification::Propagation });
+            // The clause names each atom by itself and each subformula by its definition.
+            let mut step = Step { clause: Vec::new(), formulas: Vec::new(), by: Justification::Propagation };
+            for &l in &learned {
+                let variable = global[l.unsigned_abs() as usize];
+                if self.atoms[variable as usize].is_some() {
+                    step.clause.push(literal(l));
+                } else {
+                    step.formulas.push((self.define(variable, &mut defined, &mut definitions), l > 0));
+                }
+            }
+            steps.push(step);
             if size > REFUTATION_LITERALS {
+                report!("unknown (refutation size)");
                 return Part::Unknown;
             }
-            let mut levels: Vec<u32> = involved.iter().map(|d| search.level[d.unsigned_abs() as usize]).collect();
-            levels.sort_unstable();
-            let Some(&highest) = levels.last() else {
-                if std::env::var("TRION_PROFILE_SEARCH").is_ok() && made > 200 {
-                    eprintln!("profile: refuted a part of {} formulas, {} atoms: {made} decisions, {} steps, {size} literals", key.len(), branch.len(), steps.len());
-                }
-                // No decision is involved: the clauses refute themselves.
-                return Part::Unsatisfiable(Arc::new(Refutation { steps }));
-            };
-            let back = if levels.len() > 1 { levels[levels.len() - 2] } else { 0 };
-            let Some(&asserted) = learned.iter().find(|l| search.level[l.unsigned_abs() as usize] == highest) else { return Part::Unknown };
+            let asserted = learned[0];
             search.back_to(back);
             let clause = search.learn(learned);
             search.imply(asserted, clause);
-            next = 0;
         }
     }
 
@@ -648,10 +778,27 @@ impl Prover {
             }
             x
         }
-        let mut first: HashMap<Quantity, usize> = HashMap::new();
-        for (index, (atom, _)) in assigned.iter().enumerate() {
-            for (key, _) in numeric(atom).map(|(terms, _, _)| terms).unwrap_or_default() {
-                match first.get(&key) {
+        let terms: Vec<Vec<Quantity>> = assigned.iter().map(|(atom, _)| numeric(atom).map(|(terms, _, _)| terms.into_iter().map(|(key, _)| key).collect()).unwrap_or_default()).collect();
+        // A quantity that a literal sets to one number joins nothing: every
+        // set that names it holds the literals that set it, so the sets
+        // agree on its number without being decided together.
+        let mut set_by: HashMap<&Quantity, Vec<usize>> = HashMap::new();
+        for (index, (atom, value)) in assigned.iter().enumerate() {
+            if *value && terms[index].len() == 1 && matches!(numeric(atom), Some((_, Cmp::Eq, _))) {
+                set_by.entry(&terms[index][0]).or_default().push(index);
+            }
+        }
+        let sets_one = |index: usize| terms[index].len() == 1 && set_by.get(&terms[index][0]).is_some_and(|by| by.contains(&index));
+        let mut first: HashMap<&Quantity, usize> = HashMap::new();
+        for index in 0..assigned.len() {
+            if sets_one(index) {
+                continue;
+            }
+            for key in &terms[index] {
+                if set_by.contains_key(key) {
+                    continue;
+                }
+                match first.get(key) {
                     Some(&other) => {
                         let (a, b) = (find(&mut parent, index), find(&mut parent, other));
                         parent[a] = b;
@@ -664,11 +811,24 @@ impl Prover {
         }
         let mut sets: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for index in 0..assigned.len() {
-            sets.entry(find(&mut parent, index)).or_default().push(index);
+            if !sets_one(index) {
+                sets.entry(find(&mut parent, index)).or_default().push(index);
+            }
         }
+        let mut sets: Vec<Vec<usize>> = sets.into_values().collect();
+        for members in &mut sets {
+            let mut with: Vec<usize> = members.iter().flat_map(|&index| terms[index].iter()).filter_map(|key| set_by.get(key)).flatten().copied().collect();
+            members.append(&mut with);
+            members.sort_unstable();
+            members.dedup();
+        }
+        // The literals that set one quantity, among themselves.
+        let mut alone: Vec<Vec<usize>> = set_by.values().cloned().collect();
+        alone.sort_unstable();
+        sets.extend(alone);
         let mut quantities: Vec<(Quantity, i64)> = Vec::new();
         let mut undecided = false;
-        for members in sets.into_values() {
+        for members in sets {
             let lits: Vec<(&Atom, bool)> = members.iter().map(|&i| (&assigned[i].0, assigned[i].1)).collect();
             let system = linear_system(&lits);
             match decide_certified(&system.at_most, &system.unequal) {
@@ -696,6 +856,8 @@ impl Prover {
         if undecided {
             Theory::Undecided
         } else {
+            quantities.sort();
+            quantities.dedup();
             Theory::Point(quantities)
         }
     }
@@ -707,15 +869,58 @@ enum Theory {
     Undecided,
 }
 
+fn size_of_steps(steps: &[Step]) -> usize {
+    steps.iter().map(|step| step.clause.len()).sum()
+}
+
 /// No clause: the mark of a decision.
 const NONE: u32 = u32::MAX;
 
-/// The state of one search: an assignment with its trail, and for each
-/// variable the clause that forced its value and the decisions before it.
+/// When the search starts again from no decision: after 64 conflicts times
+/// the next number of the sequence 1, 1, 2, 1, 1, 2, 4, ….
+#[derive(Default)]
+struct Restarts {
+    done: u64,
+    at: u64,
+}
+
+impl Restarts {
+    fn due(&mut self, conflicts: u64) -> bool {
+        if self.at == 0 {
+            self.at = 64 * Self::luby(self.done);
+        }
+        if conflicts < self.at {
+            return false;
+        }
+        self.done += 1;
+        self.at = conflicts + 64 * Self::luby(self.done);
+        true
+    }
+
+    fn luby(mut n: u64) -> u64 {
+        let mut size = 1u64;
+        let mut power = 0u32;
+        while size < n + 1 {
+            power += 1;
+            size = 2 * size + 1;
+        }
+        while size - 1 != n {
+            size = (size - 1) / 2;
+            power -= 1;
+            n %= size;
+        }
+        1u64 << power
+    }
+}
+
+/// The state of one search: an assignment with its trail, for each
+/// variable the clause that forced its value, and the order in which the
+/// atoms are decided.
 struct Search {
     clauses: Vec<Vec<Lit>>,
-    /// For each literal, the clauses that hold it.
-    occurs: Vec<Vec<u32>>,
+    /// For each literal, the clauses that watch it: a clause of two or more
+    /// literals watches its first two.
+    watches: Vec<Vec<u32>>,
     assign: Vec<i8>,
     reason: Vec<u32>,
     level: Vec<u32>,
@@ -724,15 +929,116 @@ struct Search {
     marks: Vec<usize>,
     head: usize,
     work: u64,
+    is_atom: Vec<bool>,
+    /// The value that an atom had last; an atom is decided true at first.
+    phase: Vec<i8>,
+    /// How often an atom stood behind a recent conflict.
+    activity: Vec<f64>,
+    step: f64,
+    /// The atoms without a value, the most active first; among equals the
+    /// one that comes first in the formulas.
+    heap: Vec<u32>,
+    place: Vec<u32>,
+    seen: Vec<bool>,
+}
+
+fn slot(l: Lit) -> usize {
+    (l.unsigned_abs() as usize) * 2 + usize::from(l < 0)
 }
 
 impl Search {
+    fn new(count: usize, is_atom: Vec<bool>, branch: &[Lit]) -> Self {
+        let mut search = Search { clauses: Vec::new(), watches: vec![Vec::new(); count * 2], assign: vec![0; count], reason: vec![NONE; count], level: vec![0; count], trail: Vec::new(), marks: Vec::new(), head: 0, work: 0, is_atom, phase: vec![1; count], activity: vec![0.0; count], step: 1.0, heap: Vec::new(), place: vec![NONE; count], seen: vec![false; count] };
+        for &v in branch {
+            search.insert(v as u32);
+        }
+        search
+    }
+
     fn value(&self, l: Lit) -> i8 {
         let v = self.assign[l.unsigned_abs() as usize];
         if l > 0 {
             v
         } else {
             -v
+        }
+    }
+
+    fn before(&self, a: u32, b: u32) -> bool {
+        let (x, y) = (self.activity[a as usize], self.activity[b as usize]);
+        x > y || (x == y && a < b)
+    }
+
+    fn up(&mut self, mut at: usize) {
+        while at > 0 {
+            let parent = (at - 1) / 2;
+            if !self.before(self.heap[at], self.heap[parent]) {
+                break;
+            }
+            self.heap.swap(at, parent);
+            self.place[self.heap[at] as usize] = at as u32;
+            self.place[self.heap[parent] as usize] = parent as u32;
+            at = parent;
+        }
+    }
+
+    fn down(&mut self, mut at: usize) {
+        loop {
+            let (left, right) = (2 * at + 1, 2 * at + 2);
+            let mut best = at;
+            if left < self.heap.len() && self.before(self.heap[left], self.heap[best]) {
+                best = left;
+            }
+            if right < self.heap.len() && self.before(self.heap[right], self.heap[best]) {
+                best = right;
+            }
+            if best == at {
+                break;
+            }
+            self.heap.swap(at, best);
+            self.place[self.heap[at] as usize] = at as u32;
+            self.place[self.heap[best] as usize] = best as u32;
+            at = best;
+        }
+    }
+
+    fn insert(&mut self, v: u32) {
+        if self.place[v as usize] != NONE {
+            return;
+        }
+        self.place[v as usize] = self.heap.len() as u32;
+        self.heap.push(v);
+        self.up(self.heap.len() - 1);
+    }
+
+    /// The atom to decide next: the first of the order that has no value.
+    fn next(&mut self) -> Option<Lit> {
+        while let Some(&top) = self.heap.first() {
+            let last = self.heap.len() - 1;
+            self.heap.swap(0, last);
+            self.heap.pop();
+            self.place[top as usize] = NONE;
+            if let Some(&moved) = self.heap.first() {
+                self.place[moved as usize] = 0;
+                self.down(0);
+            }
+            if self.assign[top as usize] == 0 {
+                return Some(top as Lit);
+            }
+        }
+        None
+    }
+
+    fn bump(&mut self, v: usize) {
+        self.activity[v] += self.step;
+        if self.activity[v] > 1e100 {
+            for a in &mut self.activity {
+                *a *= 1e-100;
+            }
+            self.step *= 1e-100;
+        }
+        if self.place[v] != NONE {
+            self.up(self.place[v] as usize);
         }
     }
 
@@ -744,14 +1050,14 @@ impl Search {
         self.trail.push(l);
     }
 
-    /// Makes an atom true as a decision.
+    /// Gives an atom the value that it had last as a decision.
     fn decide(&mut self, v: Lit) {
         self.marks.push(self.trail.len());
         let at = v as usize;
-        self.assign[at] = 1;
+        self.assign[at] = self.phase[at];
         self.reason[at] = NONE;
         self.level[at] = self.marks.len() as u32;
-        self.trail.push(v);
+        self.trail.push(if self.phase[at] == 1 { v } else { -v });
     }
 
     /// Takes back every decision after the first `level` ones.
@@ -759,85 +1065,173 @@ impl Search {
         let Some(&mark) = self.marks.get(level as usize) else { return };
         while self.trail.len() > mark {
             if let Some(l) = self.trail.pop() {
-                self.assign[l.unsigned_abs() as usize] = 0;
+                let v = l.unsigned_abs() as usize;
+                self.phase[v] = self.assign[v];
+                self.assign[v] = 0;
+                if self.is_atom[v] {
+                    self.insert(v as u32);
+                }
             }
         }
         self.marks.truncate(level as usize);
         self.head = self.trail.len();
     }
 
-    /// Looks at one clause: `false` when every literal is false. A clause
-    /// with one literal left makes that literal true.
-    fn visit(&mut self, n: usize) -> bool {
-        self.work += 1;
-        let mut unit = None;
-        let mut free = 0;
-        for &l in &self.clauses[n] {
-            match self.value(l) {
-                1 => return true,
-                0 => {
-                    // A literal that stands twice in a clause is one literal.
-                    if unit != Some(l) {
-                        free += 1;
-                    }
-                    unit = Some(l);
-                }
-                _ => {}
-            }
+    /// Adds a clause of the formulas before any decision. The clause when
+    /// it is false already.
+    fn add(&mut self, mut clause: Vec<Lit>) -> Option<usize> {
+        // A literal that stands twice in a clause is one literal, and a
+        // clause with a literal and its negation holds.
+        clause.sort_unstable_by_key(|l| (l.unsigned_abs(), *l < 0));
+        clause.dedup();
+        if clause.windows(2).any(|pair| pair[0] == -pair[1]) {
+            return None;
         }
-        match (free, unit) {
-            (0, _) => false,
-            (1, Some(l)) => {
-                self.imply(l, n);
-                true
+        let n = self.clauses.len();
+        match clause.len() {
+            0 => {
+                self.clauses.push(clause);
+                return Some(n);
             }
-            _ => true,
-        }
-    }
-
-    /// Unit propagation; the clause of a conflict when there is one.
-    fn propagate(&mut self) -> Option<usize> {
-        while self.head < self.trail.len() {
-            let l = self.trail[self.head];
-            self.head += 1;
-            let slot = (l.unsigned_abs() as usize) * 2 + usize::from(l > 0);
-            for at in 0..self.occurs[slot].len() {
-                let n = self.occurs[slot][at] as usize;
-                if !self.visit(n) {
-                    return Some(n);
+            1 => {
+                let l = clause[0];
+                self.clauses.push(clause);
+                match self.value(l) {
+                    0 => self.imply(l, n),
+                    1 => {}
+                    _ => return Some(n),
                 }
+            }
+            _ => {
+                self.watches[slot(clause[0])].push(n as u32);
+                self.watches[slot(clause[1])].push(n as u32);
+                self.clauses.push(clause);
             }
         }
         None
     }
 
-    /// The decisions that make every literal of the clause false, as they were made.
-    fn decisions_behind(&self, clause: usize) -> Vec<Lit> {
-        let mut seen = vec![false; self.assign.len()];
-        let mut open: Vec<usize> = self.clauses[clause].iter().map(|l| l.unsigned_abs() as usize).collect();
-        let mut found = Vec::new();
-        while let Some(v) = open.pop() {
-            if std::mem::replace(&mut seen[v], true) {
-                continue;
+    /// Unit propagation; the clause of a conflict when there is one.
+    fn propagate(&mut self) -> Option<usize> {
+        while self.head < self.trail.len() {
+            let failed = -self.trail[self.head];
+            self.head += 1;
+            let watching = std::mem::take(&mut self.watches[slot(failed)]);
+            let mut kept: Vec<u32> = Vec::with_capacity(watching.len());
+            let mut conflict = None;
+            let mut at = 0;
+            while at < watching.len() {
+                let n = watching[at] as usize;
+                at += 1;
+                self.work += 1;
+                if self.clauses[n][0] == failed {
+                    self.clauses[n].swap(0, 1);
+                }
+                let first = self.clauses[n][0];
+                if self.value(first) == 1 {
+                    kept.push(n as u32);
+                    continue;
+                }
+                // Another literal that is not false takes the watch.
+                let other = (2..self.clauses[n].len()).find(|&k| self.value(self.clauses[n][k]) != -1);
+                if let Some(k) = other {
+                    self.clauses[n].swap(1, k);
+                    let moved = self.clauses[n][1];
+                    self.watches[slot(moved)].push(n as u32);
+                    continue;
+                }
+                kept.push(n as u32);
+                if self.value(first) == -1 {
+                    conflict = Some(n);
+                    kept.extend_from_slice(&watching[at..]);
+                    break;
+                }
+                self.imply(first, n);
             }
-            match self.reason[v] {
-                NONE => found.push(if self.assign[v] == 1 { v as Lit } else { -(v as Lit) }),
-                reason => open.extend(self.clauses[reason as usize].iter().map(|l| l.unsigned_abs() as usize).filter(|&other| other != v)),
+            self.watches[slot(failed)] = kept;
+            if conflict.is_some() {
+                return conflict;
             }
         }
-        found.sort_unstable_by_key(|d| self.level[d.unsigned_abs() as usize]);
-        found
+        None
+    }
+
+    /// The clause that a conflict teaches, and the decisions to keep. Its
+    /// first literal is the one consequence of the last decision that every
+    /// way to the conflict passes; the others were given their value before
+    /// that decision. A value that holds without any decision is left out.
+    fn analyze(&mut self, conflict: usize) -> (Vec<Lit>, u32) {
+        let current = self.marks.len() as u32;
+        let mut learned: Vec<Lit> = vec![0];
+        let mut marked: Vec<usize> = Vec::new();
+        // The marked consequences of the last decision that are not replaced yet.
+        let mut here = 0usize;
+        let mut clause = Some(conflict);
+        let mut at = self.trail.len();
+        loop {
+            if let Some(n) = clause.take() {
+                for k in 0..self.clauses[n].len() {
+                    let q = self.clauses[n][k];
+                    let v = q.unsigned_abs() as usize;
+                    if self.seen[v] || self.level[v] == 0 {
+                        continue;
+                    }
+                    self.seen[v] = true;
+                    marked.push(v);
+                    if self.level[v] == current {
+                        here += 1;
+                    } else {
+                        learned.push(q);
+                    }
+                }
+            }
+            if here == 0 || at == 0 {
+                break;
+            }
+            at -= 1;
+            let p = self.trail[at];
+            let v = p.unsigned_abs() as usize;
+            if !self.seen[v] || self.level[v] != current {
+                continue;
+            }
+            if here == 1 {
+                learned[0] = -p;
+                break;
+            }
+            here -= 1;
+            clause = Some(self.reason[v] as usize);
+        }
+        for &v in &marked {
+            self.seen[v] = false;
+            if self.is_atom[v] {
+                self.bump(v);
+            }
+        }
+        self.step /= 0.95;
+        // The second literal is the one that was given its value last.
+        let mut back = 0;
+        for k in 1..learned.len() {
+            let level = self.level[learned[k].unsigned_abs() as usize];
+            if level > back {
+                back = level;
+                learned.swap(1, k);
+            }
+        }
+        (learned, back)
     }
 
     fn satisfied(&self) -> bool {
         self.clauses.iter().all(|clause| clause.iter().any(|&l| self.value(l) == 1))
     }
 
-    /// Adds a clause and returns its index.
+    /// Adds a clause and returns its index. Its first two literals are
+    /// watched: the caller puts first the two that lose their value first
+    /// when decisions are taken back.
     fn learn(&mut self, clause: Vec<Lit>) -> usize {
         let n = self.clauses.len();
-        for &l in &clause {
-            self.occurs[(l.unsigned_abs() as usize) * 2 + usize::from(l < 0)].push(n as u32);
+        if clause.len() >= 2 {
+            self.watches[slot(clause[0])].push(n as u32);
+            self.watches[slot(clause[1])].push(n as u32);
         }
         self.clauses.push(clause);
         n

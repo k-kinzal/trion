@@ -1,0 +1,10 @@
+namespace x
+primitive message
+
+A secure API means an API that encrypts the message.
+
+[G1]
+The API shall be secure.
+
+[G2]
+The API shall not encrypt the message.

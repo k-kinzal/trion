@@ -31,7 +31,9 @@ struct VerifyArgs {
     #[arg(long, value_name = "N")]
     scope: Option<usize>,
     /// Stop each solver query after this many decisions; a result that the
-    /// limit leaves open is reported as unknown.
+    /// limit leaves open is reported as unknown. A limit above the default
+    /// of 400000 also raises, in the same proportion, the work that the
+    /// queries of one analysis may make together.
     #[arg(long, value_name = "N")]
     decision_limit: Option<u64>,
     /// Check the properties of the reading: context independence, relation
@@ -50,6 +52,11 @@ struct VerifyArgs {
     /// `z3 -in`: a command that reads SMT-LIB on its standard input.
     #[arg(long, value_name = "COMMAND")]
     prover: Option<String>,
+    /// Compare with a saved JSON report of an earlier verification: the
+    /// verification fails when that report is about another text, another
+    /// version of the rules or of the programs, or other settings.
+    #[arg(long, value_name = "REPORT")]
+    against: Option<PathBuf>,
 }
 
 impl VerifyArgs {
@@ -73,6 +80,7 @@ impl VerifyArgs {
         if let Some(command) = &self.prover {
             settings.prover = command.split_whitespace().map(str::to_string).collect();
         }
+        settings.against = self.against.clone();
         settings
     }
 }
@@ -225,6 +233,16 @@ fn report(verification: &Verification) -> serde_json::Value {
         "properties": verification.properties,
         "stability": verification.stability,
         "gates": verification.gates,
+        "checker": verification.checked.diagnostics,
+        "scenarios": verification.checked.scenarios,
+        "witness": verification.checked.witness,
+        "variations": verification.checked.variations,
+        "derivations": verification.checked.derivations,
+        "individuals": analysis.model.individuals,
+        "readings": analysis.model.individuals.iter().flat_map(|i| &i.meanings).map(|m| serde_json::json!({"statement": m.statement, "version": m.version, "lines": m.lines()})).collect::<Vec<_>>(),
+        "claims": analysis.claims.claims,
+        "obligations": analysis.claims.obligations,
+        "outcome": verification.outcome,
     })
 }
 
@@ -252,6 +270,43 @@ fn print_report(project: &Project, verification: &Verification) {
     for source in &sources.sources {
         println!("source coverage of {}: {:.2}%", source.id, source.percent);
     }
+    print_diagnostics(&verification.checked.diagnostics);
+    // How each statement about individuals was read, so that an author can
+    // set the reading beside the sentence.
+    if let Some(individuals) = &analysis.model.individuals {
+        println!("individuals: semantic version {}; domains of {} individuals of each declared type ({})", individuals.version, individuals.scope, individuals.types.iter().filter(|(noun, declared)| noun == declared).map(|(noun, _)| noun.as_str()).collect::<Vec<_>>().join(", "));
+        for meaning in &individuals.meanings {
+            println!("reading [{}]:", meaning.statement);
+            for line in meaning.lines() {
+                println!("  {line}");
+            }
+        }
+        for fact in &individuals.domain {
+            println!("reading [{}]: a statement about the domain ({})", fact.statement, serde_json::to_value(&fact.fact).ok().and_then(|v| v["form"].as_str().map(str::to_string)).unwrap_or_default());
+        }
+    }
+    let derivations = &verification.checked.derivations;
+    if derivations.of_statements > 0 {
+        println!("reading over individuals: the record of {} of {} typed statements and the contract of {} of {} instances were derived again and agree; {} statements or instances hold a form that the check does not derive", derivations.statements, derivations.of_statements, derivations.contracts, derivations.of_instances, derivations.not_derived.len());
+    }
+    if derivations.of_texts > 0 {
+        println!("text of the statements: the tree of {} of {} statements about individuals was read again from the text by a grammar apart from the parser and agrees; {} hold a form outside that grammar", derivations.texts, derivations.of_texts, derivations.not_read.len());
+        for (statement, why) in &derivations.not_read {
+            println!("  not read from the text [{statement}]: {why}");
+        }
+    }
+    if let Some(witness) = &verification.checked.witness {
+        println!("behaviour that keeps every contract ({}): {}", witness.state, witness.what);
+    }
+    if let Some(variations) = &verification.checked.variations {
+        println!("variations of the scenarios: {} behaviours, each next to a scenario by one fact; the reference evaluator and the formulas of the reading judge {} of them alike, and {} are not decided", variations.behaviours, variations.agreed, variations.undecided.len());
+        println!("situations of the scenarios: {} situations that the statements without normative force allow; the formulas of the reading give a response to {} of them, and the reference evaluator accepts each of these; {} have no response within their moments, and {} are not decided", variations.situations, variations.answered, variations.unanswered.len(), variations.open.len());
+        println!("situations of the statements: {} statements and pairs of statements with a condition; the statements without normative force keep {} of them apart, and to a situation of {} the formulas of the reading give a response that the reference evaluator accepts; {} have no response, and {} are not decided", variations.together, variations.apart, variations.together_answered, variations.together_unanswered.len(), variations.together_open.len());
+    }
+    for scenario in &verification.checked.scenarios {
+        let undefined = if scenario.undefined.is_empty() { String::new() } else { format!("; the share of {} has no value in it and is not counted as met", scenario.undefined.iter().map(|(statement, _)| format!("[{statement}]")).collect::<Vec<_>>().join(", ")) };
+        println!("scenario {}: {} for the reference evaluator, {} for the formulas of the reading (expected: {}){undefined}", scenario.name, scenario.reference, scenario.generated, if scenario.expect.is_empty() { "nothing" } else { &scenario.expect });
+    }
     print_diagnostics(&verification.prover);
     print_diagnostics(&verification.properties);
     print_diagnostics(&verification.stability);
@@ -259,8 +314,31 @@ fn print_report(project: &Project, verification: &Verification) {
     let specs: usize = project.set.packages.iter().flat_map(|p| &p.documents).map(|d| d.specs.len()).sum();
     let proved = analysis.checks.iter().filter(|c| c.result == "proved").count();
     println!("checked {specs} specifications: {} errors, {} warnings; {proved}/{} checks proved, {} examples run", count(&all, Severity::Error) + verification.unread().len(), count(&all, Severity::Warning), analysis.checks.len(), analysis.examples.len());
+    // Each claim apart: what one says is not what another says.
+    for claim in &analysis.claims.claims {
+        let subject = claim.subject.as_ref().map_or(String::new(), |subject| format!(" ({subject})"));
+        let reason = claim.reason.as_ref().map_or(String::new(), |reason| format!(": {reason}"));
+        let vacuous = if claim.vacuous { ", of nothing" } else { "" };
+        let range = if matches!(claim.verdict, trion_verification::Verdict::Proved | trion_verification::Verdict::Refuted) { format!(" within {}", claim.range.phrase()) } else { String::new() };
+        println!("claim {}{subject}: {}{vacuous}{reason}{range}", claim.claim, claim.verdict.as_str());
+    }
     for gate in &verification.gates {
         println!("gate {}: {}", gate.name, gate.state);
+    }
+    let outcome = &verification.outcome;
+    for blocker in outcome.blockers.iter().take(LISTED) {
+        let statement = blocker.statement.as_ref().map_or(String::new(), |id| format!(" [{id}]"));
+        println!("blocked by {} ({}){statement}", blocker.gate, blocker.code);
+    }
+    if outcome.blockers.len() > LISTED {
+        println!("blocked by {} more findings (`--json` lists them)", outcome.blockers.len() - LISTED);
+    }
+    println!("covers: {}", outcome.covers);
+    if !outcome.not_examined.is_empty() {
+        println!("not examined: {}", outcome.not_examined.iter().map(|what| what.split(':').next().unwrap_or(what)).collect::<Vec<_>>().join(", "));
+    }
+    for declared in &outcome.declared {
+        println!("declared, not checked: {declared}");
     }
     println!("{}", if verification.failed() { "not verified" } else { "verified" });
 }

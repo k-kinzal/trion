@@ -21,8 +21,23 @@
 //!   answers every situation.
 //!
 //! The search ends for symbols with finitely many values. A chosen quantity
-//! that must follow a given quantity has no finite case distinction; the
-//! search then ends at its bound with [`ForAll::Open`].
+//! that must follow a given quantity has no finite case distinction: no
+//! list of constants answers `for every x some y is x + 1`. For such a
+//! group a *symbolic response* is sought:
+//!
+//! - *Affine responses.* Each chosen quantity that is compared with a given
+//!   one is replaced by a term `g + c` (a given quantity of the same
+//!   comparison and a constant taken from its bound) or by a constant. The
+//!   replaced conclusions speak about given symbols and chosen facts only,
+//!   and they are decided as above. A substitution that answers every
+//!   situation is a witness of the existential quantifier: the claim holds,
+//!   and the result names the substitution.
+//!
+//! The fragment that this decides is linear integer arithmetic in which a
+//! response of the form `g + c` exists. Where none of the candidates
+//! answers every situation the search ends with [`ForAll::Open`] and the
+//! reason: the elimination of quantifiers over the integers is not
+//! implemented, and the end of a search is no refutation.
 
 use crate::certificate::Status;
 use crate::formula::{Atom, Cmp, Formula};
@@ -43,7 +58,11 @@ pub enum ForAll {
     /// together with, for each response that was found, the denial that
     /// this response answers the situation; or the premises with the denial
     /// of a conclusion that needs no response.
-    Holds { refuted: Vec<Vec<usize>> },
+    ///
+    /// `symbolic` names each response that is a term over given quantities:
+    /// `capacity := load + 0.001`. A query of such a group speaks about the
+    /// conclusions with the term in the place of the chosen quantity.
+    Holds { refuted: Vec<Vec<usize>>, symbolic: Vec<String> },
     /// Situations without a response, one for each group of conclusions
     /// that has one.
     Fails { situations: Vec<Unanswered> },
@@ -164,6 +183,135 @@ fn answered(formula: &Formula, chosen: &dyn Fn(&str) -> bool, atoms: &BTreeMap<A
     })
 }
 
+/// A term that stands for a chosen quantity: a given quantity with an
+/// offset, or a constant.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Term {
+    given: Option<String>,
+    offset: i64,
+}
+
+/// A formula with each chosen quantity of `with` replaced by its term.
+fn substituted(formula: &Formula, with: &BTreeMap<(String, String), Term>) -> Formula {
+    let constant = |value: bool| if value { Formula::True } else { falsity() };
+    match formula {
+        Formula::True => Formula::True,
+        Formula::Atom(Atom::Num { attr, unit, cmp, n }) => match with.get(&(attr.clone(), unit.clone())) {
+            Some(Term { given: Some(given), offset }) => Formula::Atom(Atom::Num { attr: given.clone(), unit: unit.clone(), cmp: *cmp, n: n - offset }),
+            Some(Term { given: None, offset }) => constant(compare(i128::from(*offset), *cmp, i128::from(*n))),
+            None => formula.clone(),
+        },
+        Formula::Atom(Atom::Lin { terms, unit, cmp, n }) => {
+            let mut bound = i128::from(*n);
+            let mut left: BTreeMap<String, i64> = BTreeMap::new();
+            for (attr, coefficient) in terms {
+                match with.get(&(attr.clone(), unit.clone())) {
+                    Some(term) => {
+                        bound -= i128::from(*coefficient) * i128::from(term.offset);
+                        if let Some(given) = &term.given {
+                            *left.entry(given.clone()).or_default() += coefficient;
+                        }
+                    }
+                    None => *left.entry(attr.clone()).or_default() += coefficient,
+                }
+            }
+            left.retain(|_, coefficient| *coefficient != 0);
+            match i64::try_from(bound) {
+                Ok(bound) if left.is_empty() => constant(compare(0, *cmp, i128::from(bound))),
+                Ok(bound) => Formula::Atom(Atom::Lin { terms: left.into_iter().collect(), unit: unit.clone(), cmp: *cmp, n: bound }),
+                Err(_) => formula.clone(),
+            }
+        }
+        Formula::Atom(_) => formula.clone(),
+        Formula::Not(inner) => Formula::Not(Box::new(substituted(inner, with))),
+        Formula::And(items) => Formula::And(items.iter().map(|item| substituted(item, with)).collect()),
+        Formula::Or(items) => Formula::Or(items.iter().map(|item| substituted(item, with)).collect()),
+        Formula::Implies(condition, response) => Formula::Implies(Box::new(substituted(condition, with)), Box::new(substituted(response, with))),
+    }
+}
+
+/// The terms that may stand for each chosen quantity of a group: for a
+/// comparison `y − g cmp n` the terms `g + n`, `g + n + 1` and `g + n − 1`
+/// (the bound itself and the nearest values on each side of it), and for a
+/// bound `y cmp n` the same constants.
+fn candidates(formulas: &[Formula], members: &[usize], chosen: &dyn Fn(&str) -> bool) -> BTreeMap<(String, String), BTreeSet<Term>> {
+    let mut found: BTreeMap<(String, String), BTreeSet<Term>> = BTreeMap::new();
+    for &id in members {
+        formulas[id].atoms(true, &mut |atom, _| match atom {
+            Atom::Num { attr, unit, n, .. } if chosen(attr) => {
+                found.entry((attr.clone(), unit.clone())).or_default().extend([-1, 0, 1].map(|d| Term { given: None, offset: n + d }));
+            }
+            Atom::Lin { terms, unit, n, .. } => {
+                let own: Vec<&(String, i64)> = terms.iter().filter(|(attr, _)| chosen(attr)).collect();
+                let other: Vec<&(String, i64)> = terms.iter().filter(|(attr, _)| !chosen(attr)).collect();
+                for (attr, coefficient) in &own {
+                    let entry = found.entry((attr.clone(), unit.clone())).or_default();
+                    match (own.len(), other.as_slice(), coefficient) {
+                        // `y − g cmp n` and `g − y cmp n`.
+                        (1, [(given, with)], 1 | -1) if *with == -coefficient => {
+                            let offset = if *coefficient == 1 { *n } else { -*n };
+                            entry.extend([-1, 0, 1].map(|d| Term { given: Some(given.clone()), offset: offset + d }));
+                        }
+                        (1, [], 1) => entry.extend([-1, 0, 1].map(|d| Term { given: None, offset: n + d })),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        });
+    }
+    found
+}
+
+/// The most substitutions that are tried for one group.
+const SUBSTITUTIONS: usize = 256;
+
+/// Seeks a symbolic response for a group of conclusions: a substitution of
+/// its chosen quantities by terms over given quantities under which every
+/// situation has a response. Returns the queries that show it, with the
+/// substitution as a text.
+fn symbolic(instance: &Instance, premises: &[usize], members: &[usize], chosen: &dyn Fn(&str) -> bool) -> Option<(Vec<Vec<usize>>, String)> {
+    let formulas = instance.formulas();
+    let found = candidates(&formulas, members, chosen);
+    // Each chosen quantity that a comparison joins with a given one needs a term.
+    let mut needed: BTreeSet<(String, String)> = BTreeSet::new();
+    for &id in members {
+        formulas[id].atoms(true, &mut |atom, _| {
+            if let Atom::Lin { terms, unit, .. } = atom {
+                if terms.iter().any(|(attr, _)| !chosen(attr)) {
+                    needed.extend(terms.iter().filter(|(attr, _)| chosen(attr)).map(|(attr, _)| (attr.clone(), unit.clone())));
+                }
+            }
+        });
+    }
+    if needed.is_empty() || needed.iter().any(|quantity| found.get(quantity).is_none_or(BTreeSet::is_empty)) {
+        return None;
+    }
+    let quantities: Vec<&(String, String)> = needed.iter().collect();
+    let mut choices: Vec<BTreeMap<(String, String), Term>> = vec![BTreeMap::new()];
+    for quantity in &quantities {
+        choices = choices.into_iter().flat_map(|done| found[*quantity].iter().map(move |term| done.iter().map(|(k, v)| (k.clone(), v.clone())).chain([((*quantity).clone(), term.clone())]).collect::<BTreeMap<_, _>>())).take(SUBSTITUTIONS).collect();
+    }
+    for choice in choices {
+        let replaced: Vec<usize> = members.iter().map(|&id| instance.add(&substituted(&formulas[id], &choice))).collect();
+        // The replaced conclusions hold no comparison between a chosen and a given quantity.
+        if let ForAll::Holds { refuted, .. } = for_all_exists(instance, premises, &[], &replaced, chosen) {
+            let shown: Vec<String> = choice
+                .iter()
+                .map(|((attr, unit), term)| {
+                    let scaled = term.offset as f64 / crate::formula::NUMERIC_SCALE as f64;
+                    match &term.given {
+                        Some(given) => format!("{attr} := {given} + {scaled} {unit}"),
+                        None => format!("{attr} := {scaled} {unit}"),
+                    }
+                })
+                .collect();
+            return Some((refuted, shown.join(", ")));
+        }
+    }
+    None
+}
+
 fn find(parent: &mut Vec<usize>, mut x: usize) -> usize {
     while parent[x] != x {
         parent[x] = parent[parent[x]];
@@ -174,11 +322,20 @@ fn find(parent: &mut Vec<usize>, mut x: usize) -> usize {
 
 /// Decides whether, for every valuation of the given symbols that satisfies
 /// the premises, some valuation of the chosen symbols satisfies the
-/// conclusions. `chosen` tells whether a symbol of an atom
-/// ([`Atom::symbols`]) is chosen by a response. An atom that is no
-/// comparison is chosen when one of its symbols is.
-pub fn for_all_exists(instance: &Instance, premises: &[usize], conclusions: &[usize], chosen: &dyn Fn(&str) -> bool) -> ForAll {
+/// `standing` formulas and the conclusions. `chosen` tells whether a symbol
+/// of an atom ([`Atom::symbols`]) is chosen by a response. An atom that is
+/// no comparison is chosen when one of its symbols is.
+///
+/// The standing formulas are what a response keeps besides the conclusions.
+/// The caller states that they have a response in every situation by
+/// themselves, as formulas do whose copies over given symbols stand among
+/// the premises. A group of them that no conclusion shares a chosen symbol
+/// with is therefore not examined.
+pub fn for_all_exists(instance: &Instance, premises: &[usize], standing: &[usize], conclusions: &[usize], chosen: &dyn Fn(&str) -> bool) -> ForAll {
     let formulas = instance.formulas();
+    let required: BTreeSet<usize> = conclusions.iter().copied().collect();
+    let all: Vec<usize> = standing.iter().chain(conclusions).copied().collect();
+    let conclusions = all.as_slice();
     let stated: BTreeSet<String> = premises.iter().map(|&id| formulas[id].to_string()).collect();
     // The conclusions that share a chosen symbol stand in one group.
     let mut numbers: BTreeMap<String, usize> = BTreeMap::new();
@@ -204,12 +361,13 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], conclusions: &[us
     }
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     let mut refuted: Vec<Vec<usize>> = Vec::new();
+    let mut responses: Vec<String> = Vec::new();
     let mut unanswered: Vec<Unanswered> = Vec::new();
     for (&id, symbol) in conclusions.iter().zip(&first) {
         match symbol {
             Some(symbol) => groups.entry(find(&mut parent, *symbol)).or_default().push(id),
             // A conclusion that no response decides holds in every situation.
-            None if stated.contains(&formulas[id].to_string()) => {}
+            None if !required.contains(&id) || stated.contains(&formulas[id].to_string()) => {}
             None => {
                 let denial = instance.add(&Formula::not(formulas[id].clone()));
                 let query: Vec<usize> = premises.iter().copied().chain([denial]).collect();
@@ -221,7 +379,7 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], conclusions: &[us
             }
         }
     }
-    'groups: for members in groups.into_values() {
+    'groups: for members in groups.into_values().filter(|members| members.iter().any(|id| required.contains(id))) {
         // What a situation fixes for this group: its atoms and quantities without a chosen symbol.
         let mut facts: BTreeSet<Atom> = BTreeSet::new();
         let mut measures: BTreeSet<(String, String)> = BTreeSet::new();
@@ -251,11 +409,20 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], conclusions: &[us
             });
         }
         let limit = if follows { FOLLOWING } else { RESPONSES };
+        // No list of constants follows a given quantity: a term over the
+        // given quantities may, and it is sought first.
+        if follows {
+            if let Some((queries, substitution)) = symbolic(instance, premises, &members, chosen) {
+                refuted.extend(queries);
+                responses.push(substitution);
+                continue 'groups;
+            }
+        }
         let mut blocks: Vec<usize> = Vec::new();
         loop {
             if blocks.len() == limit {
                 let reason = if follows {
-                    format!("a quantity of the response is compared with a quantity of the situation, and {limit} responses do not answer every situation: the elimination of quantifiers over integers is not implemented")
+                    format!("a quantity of the response is compared with a quantity of the situation; {limit} constant responses do not answer every situation, and no response of the form `given quantity + constant` does: the elimination of quantifiers over integers is not implemented, and the end of the search refutes nothing")
                 } else {
                     format!("{limit} responses do not answer every situation of one group of statements")
                 };
@@ -268,6 +435,7 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], conclusions: &[us
                     refuted.push(query);
                     break;
                 }
+                Status::Unknown if follows => return ForAll::Open { reason: "a quantity of the response is compared with a quantity of the situation; no response of the form `given quantity + constant` answers every situation, and a query of the search for constant responses ended at its bounds: the elimination of quantifiers over integers is not implemented, and the end of the search refutes nothing".to_string() },
                 Status::Unknown => return ForAll::Open { reason: "a query ended at its bounds".to_string() },
                 Status::Satisfiable => {}
             }
@@ -325,7 +493,7 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], conclusions: &[us
         }
     }
     if unanswered.is_empty() {
-        ForAll::Holds { refuted }
+        ForAll::Holds { refuted, symbolic: responses }
     } else {
         ForAll::Fails { situations: unanswered }
     }
@@ -347,7 +515,7 @@ mod tests {
         let instance = Instance::new(&[], &[], None);
         let premises: Vec<usize> = premises.iter().map(|f| instance.add(f)).collect();
         let conclusions: Vec<usize> = conclusions.iter().map(|f| instance.add(f)).collect();
-        for_all_exists(&instance, &premises, &conclusions, &|symbol| chosen.contains(&symbol))
+        for_all_exists(&instance, &premises, &[], &conclusions, &|symbol| chosen.contains(&symbol))
     }
 
     #[test]
@@ -368,7 +536,7 @@ mod tests {
         let statements: Vec<Formula> = (0..20).map(|n| Formula::implies(val(&format!("part{n}"), "on"), act(&format!("signal{n}")))).collect();
         let chosen: Vec<String> = (0..20).map(|n| format!("signal{n}")).collect();
         let chosen: Vec<&str> = chosen.iter().map(String::as_str).collect();
-        let ForAll::Holds { refuted } = decide(&[], &statements, &chosen) else { panic!("each statement has a response") };
+        let ForAll::Holds { refuted, .. } = decide(&[], &statements, &chosen) else { panic!("each statement has a response") };
         assert_eq!(refuted.len(), 20);
     }
 
@@ -379,11 +547,52 @@ mod tests {
         assert!(matches!(decide(&[closed.clone()], &[closed], &[]), ForAll::Holds { .. }));
     }
 
+    fn lin(terms: &[(&str, i64)], cmp: Cmp, n: i64) -> Formula {
+        Formula::Atom(Atom::Lin { terms: terms.iter().map(|(attr, coefficient)| (attr.to_string(), *coefficient)).collect(), unit: String::new(), cmp, n })
+    }
+
+    /// For every integer x some integer y is x + 1: no list of constants
+    /// for y answers every x, and the term `x + 1` does.
+    #[test]
+    fn a_quantity_that_follows_a_given_quantity_has_a_symbolic_response() {
+        let successor = lin(&[("y", 1), ("x", -1)], Cmp::Eq, 1000);
+        let ForAll::Holds { symbolic, refuted } = decide(&[], &[successor.clone()], &["y"]) else { panic!("y := x + 1 answers every x") };
+        assert_eq!(symbolic, ["y := x + 1 "]);
+        assert!(!refuted.is_empty());
+        // A strict bound: some y is greater than x.
+        assert!(matches!(decide(&[], &[lin(&[("y", 1), ("x", -1)], Cmp::Gt, 0)], &["y"]), ForAll::Holds { .. }));
+        // Two bounds that one term meets: x < y ≤ x + 2.
+        let window = [lin(&[("y", 1), ("x", -1)], Cmp::Gt, 0), lin(&[("y", 1), ("x", -1)], Cmp::Le, 2000)];
+        assert!(matches!(decide(&[], &window, &["y"]), ForAll::Holds { .. }));
+        // The same formula with the quantifiers the other way round is another
+        // claim: some y is x + 1 for every x. Here y is given and nothing is
+        // chosen, so the comparison must follow from the premises, and it does not.
+        assert!(matches!(decide(&[], &[successor], &[]), ForAll::Fails { .. }));
+    }
+
+    /// Where no term of the form `given + constant` answers every situation,
+    /// the search ends without an answer and says why: the end of a search
+    /// is no refutation.
+    #[test]
+    fn a_response_outside_the_affine_fragment_leaves_the_claim_open() {
+        // y = x + 1 and y = x + 2 together have no response; the search ends open with the reason.
+        let both = [lin(&[("y", 1), ("x", -1)], Cmp::Eq, 1000), lin(&[("y", 1), ("x", -1)], Cmp::Eq, 2000)];
+        match decide(&[], &both, &["y"]) {
+            ForAll::Fails { .. } => {}
+            ForAll::Open { reason } => assert!(reason.contains("the elimination of quantifiers over integers is not implemented"), "{reason}"),
+            ForAll::Holds { .. } => panic!("no y is both x + 1 and x + 2"),
+        }
+        // y is twice x: a response exists and is no term `x + c`.
+        let double = lin(&[("y", 1), ("x", -2)], Cmp::Eq, 0);
+        let ForAll::Open { reason } = decide(&[], &[double], &["y"]) else { panic!("no affine term with coefficient one is twice x") };
+        assert!(reason.contains("refutes nothing"), "{reason}");
+    }
+
     #[test]
     fn a_response_may_depend_on_the_situation() {
         // The lamp follows the door: no single response answers both situations, and two do.
         let follows = [Formula::implies(val("door", "open"), act("light")), Formula::implies(Formula::not(val("door", "open")), Formula::not(act("light")))];
-        let ForAll::Holds { refuted } = decide(&[], &follows, &["light"]) else { panic!("the lamp can follow the door") };
+        let ForAll::Holds { refuted, .. } = decide(&[], &follows, &["light"]) else { panic!("the lamp can follow the door") };
         assert_eq!(refuted.len(), 1);
     }
 }

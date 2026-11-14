@@ -21,7 +21,7 @@ mod formula;
 mod instance;
 mod quantified;
 
-pub use certificate::{decide, Answer, Certificate, Justification, LinearDerivation, LinearSource, Literal, Prover, Quantity, Refutation, Side, Status, Step, Witness, WitnessPart};
+pub use certificate::{decide, Answer, Certificate, Connective, Definition, Justification, Operand, LinearDerivation, LinearSource, Literal, Prover, Quantity, Refutation, Side, Status, Step, Witness, WitnessPart};
 pub use formula::{Atom, Cmp, Formula, NUMERIC_SCALE};
 pub use instance::{Instance, Lit};
 pub use quantified::{for_all_exists, ForAll, Unanswered};

@@ -7,6 +7,7 @@
 
 #![warn(unreachable_pub)]
 
+mod checks;
 mod command;
 mod digest;
 mod doc;

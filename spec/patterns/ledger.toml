@@ -1,0 +1,4018 @@
+# The pattern ledger of trion: syntax x meaning, first edition (work item W01).
+#
+# One [[pattern]] table for each surface pattern that the parser accepts or
+# deliberately rejects. The ledger records what the implementation does; it
+# does not say that the reading is right. `spec/semantics/README.md` explains
+# the classification and lists every unresolved entry and open question.
+#
+# The entries describe the working tree of 2026-11-13; where it differs from
+# the baseline 24cab2aa, `open` or `note` says what the baseline did.
+#
+# Keys
+#   id          the rule name of `reading/rules.rs` where one exists; `doc-` for a
+#               construct of `document.rs`; `rej-` for a form that the parser or the
+#               reading rejects; `variant-` for a surface distinction that rules.rs
+#               reports under a broader rule (`rule` names it) but that is lowered
+#               or classified differently
+#   group       the row of the table in plan section 3
+#   surface     one to three surface forms
+#   parser      where the form is recognised, "file:function"
+#   parse       accepted | rejected | partial
+#   meaning     rule | nonnormative | unresolved | rejected
+#   lowering    where the meaning is produced, "file:function"; "" when none
+#   evidence    tests with an assertion about the meaning of the form,
+#               "path::test_fn"; empty when none was found
+#   claims      the claims of plan section 6.1 that the construct influences through
+#               its reading today; empty for a construct whose reading is absent
+#   open        undecided semantic questions, each with the work item that owns it
+#   acceptance  the acceptance examples that involve the pattern: A01-A23 of plan
+#               section 15, with a letter for a split case (A03b, A06a), as in
+#               crates/trion-cli/fixtures/acceptance/<ID>-<name>/CASE.toml
+
+[[pattern]]
+id = "obligation"
+group = "modality"
+surface = ["The API shall log the call.", "The API must log the call."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_formula; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::an_obligation_contradicts_a_prohibition",
+    "crates/trion-verification/tests/solver.rs::modal_force_maps_to_formulas",
+    "crates/trion-verification/tests/contradiction.rs::an_obligation_implies_its_plain_action",
+    "crates/trion-cli/tests/temporal_rules.rs::an_activated_positive_action_completes_eventually",
+    "crates/trion-cli/tests/draft_rules.rs::each_speech_act_has_its_own_meaning",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the contract is Act(k) and not Forbid(k) and not Discouraged(k) over one representative; actor and object identity is the string key k",
+    "W06: without a trigger an action obligation applies to 'each invocation' of its verb, declared or not; an undeclared operation has no activation boundary",
+    "W06: 'eventually complete' is met in the rest of the trace; a finite trace never refutes it",
+]
+acceptance = ["A07", "A13", "A21"]
+
+[[pattern]]
+id = "prohibition"
+group = "modality"
+surface = [
+    "The API shall not log the token.",
+    "The API must not log the token.",
+    "The system shall never store passwords.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_formula; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::an_obligation_contradicts_a_prohibition",
+    "crates/trion-verification/tests/contradiction.rs::never_is_a_prohibition",
+    "crates/trion-cli/tests/limitations.rs::a_prohibition_under_a_condition_meets_an_obligation_where_the_condition_holds",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: a prohibition with a deadline, a delay, an order phrase, `immediately` or a run forbids only the named moments (model.rs:item_formula, temporal.rs:forbidden_after); the base action stays free elsewhere",
+    "W03: `shall not A or B` denies each of A and B; `shall not either A or B` is rejected",
+]
+acceptance = ["A13", "A21"]
+
+[[pattern]]
+id = "recommendation"
+group = "modality"
+surface = ["The API should log the call."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::a_permission_or_recommendation_contradicts_a_prohibition",
+    "crates/trion-cli/tests/verification_results.rs::a_broken_recommendation_is_not_an_inconsistency",
+    "crates/trion-cli/tests/limitations.rs::the_heaviest_recommendations_that_fit_are_the_ones_to_keep",
+]
+claims = ["contract_sat", "situation_total"]
+open = [
+    "W02: a recommendation is not Forbid and not Discouraged; it is soft (reported as recommendation-violation, kept or dropped by weight) and must not be counted as a hard member of contract_sat",
+    "W06: advice with `before`/`after`/`immediately`/`in a row` has no reading and is rejected (UNRESOLVED_TEMPORAL_SCOPE)",
+]
+acceptance = ["A17"]
+
+[[pattern]]
+id = "recommendation-against"
+group = "modality"
+surface = ["The API should not return 200."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::advice_against_conflicts_with_an_obligation",
+]
+claims = ["contract_sat", "situation_total"]
+open = [
+    "W02: Discouraged(k) conflicts with an obligation or advice for k as recommendation-violation, not as a contradiction; its place among the claims is undecided",
+]
+acceptance = ["A17"]
+
+[[pattern]]
+id = "permission"
+group = "modality"
+surface = ["The API may log the call."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_formula; crates/trion-language/src/reading/priority.rs:apply"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::a_permission_does_not_oblige",
+    "crates/trion-verification/tests/contradiction.rs::a_narrow_prohibition_overrides_a_permission",
+    "crates/trion-verification/tests/proof_engine.rs::a_general_permission_is_narrowed_in_its_own_formula",
+    "crates/trion-cli/tests/key_misreadings.rs::a_permission_of_a_composed_response_is_one_permission",
+    "crates/trion-cli/tests/draft_rules.rs::each_speech_act_has_its_own_meaning",
+]
+claims = ["contract_sat", "situation_total"]
+open = [
+    "W03: a permission is the absence of a prohibition (not Forbid(k)); it obliges nothing",
+    "W05: a narrower prohibition of the same action silently narrows a general permission (priority.rs) without an `overrides` line; the narrowed contract must be shown beside the authored one",
+]
+acceptance = []
+
+[[pattern]]
+id = "permission-denied"
+group = "modality"
+surface = ["The client may not retry."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::may_not_is_rejected_with_a_request_for_an_explicit_form",
+]
+claims = []
+open = [
+    "the rule name exists in rules.rs but no parsed tree reaches it: `may not` is ParseError::AmbiguousModal; model.rs:action_formula maps a hand-built (May, negated) to true",
+]
+acceptance = []
+
+[[pattern]]
+id = "action"
+group = "phrases"
+surface = ["send the report to the user", "log out", "securely store the message"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:item_formula; crates/trion-language/src/reading/key.rs:action"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::an_obligation_implies_its_plain_action",
+    "crates/trion-cli/tests/limitations.rs::time_is_read_from_the_sentence_and_not_kept_in_the_action_name",
+    "crates/trion-cli/tests/reading_tree.rs::an_adverb_before_the_verb_is_the_manner_of_the_verb",
+    "crates/trion-verification/tests/contradiction.rs::entering_a_mode_is_being_in_it",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: an action is the uninterpreted key 'actor|verb object roles manner'; an obligation with roles or a manner also obliges the bare action (base_action), but two actions that differ in one role are unrelated atoms",
+    "W03: `enter X` also asserts the state `in X` (model.rs:item_formula): an implicit state change that plan 4.4 forbids without a rule",
+    "W03: a manner adverb that is no word of time stays in the action name; a quality adverb is only reported (variant-quality-without-measure)",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "action-passive-or-state"
+group = "phrases"
+surface = [
+    "The valve shall be closed.",
+    "The report shall be signed by the auditor.",
+    "The status shall become Paid.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:state_formula; crates/trion-language/src/reading/model.rs:active_voice"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::passive_with_agent_meets_active",
+    "crates/trion-verification/tests/contradiction.rs::required_states_exclude_each_other",
+    "crates/trion-verification/tests/contradiction.rs::a_passive_action_is_not_a_state",
+    "crates/trion-cli/tests/reading_context.rs::a_bare_participle_is_the_passive_of_an_action_and_establishes_a_named_state",
+    "crates/trion-cli/tests/temporal_rules.rs::an_untriggered_state_requirement_holds_without_an_activation",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: `be <word>` is a state unless the word is spelled like a participle (then a passive action; `closed` is special-cased in model.rs:state_formula): the split is by spelling, not by a declaration",
+    "W06: a required state holds at the next moment after a trigger; whether it persists afterwards is unspecified",
+]
+acceptance = ["A22"]
+
+[[pattern]]
+id = "actions-either"
+group = "composition"
+surface = [
+    "The API shall either accept the request or reject the request.",
+    "The author shall remove or weaken a constraint.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp_alternatives; crates/trion-language/src/syntax/parse.rs:vp_conjunction"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::required_alternatives_are_a_choice",
+    "crates/trion-verification/tests/contradiction.rs::every_alternative_can_be_excluded",
+    "crates/trion-verification/tests/contradiction.rs::a_bare_or_is_a_choice",
+    "crates/trion-cli/tests/reading_weak.rs::a_bare_verb_before_a_conjunction_takes_the_object_and_the_roles_of_the_next_verb",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: the choice is inclusive (both alternatives may be performed); under a prohibition, advice or a permission the alternatives are conjoined instead",
+    "W05: where the subject is universal the choice is made once for the representative; per-individual choice is not expressible",
+]
+acceptance = ["A16"]
+
+[[pattern]]
+id = "actions-and"
+group = "composition"
+surface = [
+    "The API shall notify the customer and alert the team.",
+    "The API shall notify the customer and shall not create an order.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp_conjunction"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::coordinated_actions_each_hold",
+    "crates/trion-cli/tests/draft_rules.rs::a_conjunction_imposes_no_order",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: `shall A and shall be B only when C` binds the condition to the last item only (model.rs:claim_formula); the scope of a trailing condition over a coordination needs a rule",
+]
+acceptance = []
+
+[[pattern]]
+id = "statements-and"
+group = "composition"
+surface = [
+    "The parser reads the source file, and the checker reports the diagnostic.",
+    "The field may be declared on the test and shall support navigation.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_core_group; crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-cli/tests/key_misreadings.rs::a_comma_and_a_whole_statement_join_two_statements",
+    "crates/trion-verification/tests/draft_rules.rs::coordinated_clauses_keep_their_own_subject_and_speech_act",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: one statement id covers several speech acts; frames, `unless`, `only when` and `exactly when` apply to the whole conjunction, and a descriptive conjunct under a normative one is counted as a contract, not as background",
+]
+acceptance = []
+
+[[pattern]]
+id = "description"
+group = "descriptions"
+surface = [
+    "The door is open.",
+    "The room is archived and is locked.",
+    "The room is not locked.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_description"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::single_values_accumulate_into_a_domain",
+    "crates/trion-verification/tests/contradiction.rs::a_negated_value_contradicts_the_value",
+    "crates/trion-verification/tests/draft_rules.rs::a_description_holds_in_its_stated_scope",
+    "crates/trion-cli/tests/key_misreadings.rs::a_repeated_copula_states_two_predicates_of_one_subject",
+    "crates/trion-verification/tests/contradiction.rs::a_negated_condition_is_the_complement",
+    "crates/trion-cli/tests/limit_rest.rs::the_statements_are_kept_in_each_situation_or_the_situation_is_a_conflict",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: an unguarded description yields Dom(attr, value) ('the value belongs to the attribute'), a guarded one Val(attr, value) ('the value holds'): one surface, two atoms; the background only links them by Val implies Dom",
+    "W03: state persistence, multi-valued attributes and undefined values have no rule; an attribute holds at most one value at a time for every attribute, declared or not (model.rs:background)",
+    "W03: `is not X` is accepted and read as `is never X`; ParseError::NegatedDescription is never raised",
+    "W02: a description that excludes a situation removes it from situation_total; a normative statement never does",
+]
+acceptance = ["A14", "A21"]
+
+[[pattern]]
+id = "description-adverb"
+group = "descriptions"
+surface = ["The pump is never active.", "The valve is always closed."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_description"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::a_negated_value_contradicts_the_value",
+    "crates/trion-cli/tests/limit_rest.rs::the_statements_are_kept_in_each_situation_or_the_situation_is_a_conflict",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: `always` adds nothing to the formula of a description; only `never` changes it",
+]
+acceptance = ["A14"]
+
+[[pattern]]
+id = "predicate-words"
+group = "descriptions"
+surface = ["is running", "is frozen", "is ready"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_predicate"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula; crates/trion-language/src/reading/key.rs:value_parts"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::single_values_accumulate_into_a_domain",
+    "crates/trion-cli/tests/reading_tree.rs::a_function_word_in_any_open_place_is_rejected_or_changes_the_model",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: the value is the canonical text of the predicate words; a function word in it is rejected, every other word is part of an uninterpreted value name",
+]
+acceptance = []
+
+[[pattern]]
+id = "predicate-nominal"
+group = "descriptions"
+surface = ["is a part of a block or a header", "is a document of the trion language"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_predicate"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:predicate_nominals; crates/trion-language/src/reading/model.rs:core_formula; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/reading_tree.rs::a_nominal_predicate_names_classes",
+    "crates/trion-cli/tests/reading_account.rs::a_nominal_predicate_is_named_as_its_noun_phrases_are",
+    "crates/trion-cli/tests/limitations.rs::an_inclusion_carries_what_holds_of_the_wider_concept",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: `Each A is a B.` is an inclusion read individual by individual; a named subject (`The X is a B.`) is only a value of X",
+    "W03: the classes are split on `or`/`and` followed by an article in the rendered text (model.rs:predicate_nominals), not on the tree",
+]
+acceptance = []
+
+[[pattern]]
+id = "predicate-enumeration"
+group = "descriptions"
+surface = [
+    "The door is open or closed.",
+    "room_type is one of Private and Public.",
+    "The mode is fast, slow, or off.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_enumeration"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula; crates/trion-language/src/reading/model.rs:compile"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::an_enumeration_rejects_a_value_outside_it",
+    "crates/trion-verification/tests/contradiction.rs::every_enumeration_spelling_closes_the_domain",
+    "crates/trion-verification/tests/contradiction.rs::two_different_enumerations_contradict",
+    "crates/trion-cli/tests/engine_keys.rs::an_enumeration_grounds_its_values",
+    "crates/trion-cli/tests/reading_context.rs::an_enumeration_lists_its_values_and_excludes_the_others_as_a_relation",
+    "crates/trion-verification/tests/missing.rs::a_closed_domain_reports_an_unhandled_value",
+    "crates/trion-cli/tests/closed_routes.rs::an_enumeration_says_that_its_subject_has_one_of_the_values",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "closed 2026-11-14: an unguarded enumeration says that its subject has one of the listed values at each moment (`Val(a, v1) ∨ …` beside the closure of the domain); before, forbidding each value was reported consistent",
+    "W03: `is A and B`, `is A or B` and `is one of A and B` are one construct: each lists the values of the subject; the conjunction is the punctuation of the list in an unguarded enumeration",
+    "W03: under a condition the same surface is a disjunction of Val atoms, not a domain declaration",
+    "W12: a value being a member of the domain says nothing about reachability",
+]
+acceptance = ["A14", "A22"]
+
+[[pattern]]
+id = "predicate-prepositional"
+group = "descriptions"
+surface = ["is in flight mode", "is below the limit"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_predicate"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula; crates/trion-language/src/reading/key.rs:value_parts"
+evidence = []
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: the phrase is one uninterpreted value (`Dom(pump, below limit)`); `below <named quantity>` is not a comparison here (compare predicate-comparison with measure-named)",
+    "no test asserts the meaning of a prepositional predicate",
+]
+acceptance = []
+
+[[pattern]]
+id = "predicate-able-to"
+group = "descriptions"
+surface = ["The client is able to retry."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_description"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: the capability `is able to <vp>`; migration: write a permission with `may`, or define the capability as a term; restored by W03 with a meaning rule",
+    "W03: the capability is the uninterpreted value `able to <vp>` of the subject (key.rs Mark::Ability); it is related neither to the action `<subject>|<vp>` nor to a permission, so it constrains nothing that another statement says",
+    "no test asserts a meaning; decide between permission, possibility of a trace, or rejection",
+]
+acceptance = []
+
+[[pattern]]
+id = "predicate-comparison"
+group = "numeric"
+surface = [
+    "The size is at most 10 MB.",
+    "The size is between 3 and 5 MB.",
+    "The timeout is less than the retry interval.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_comparison"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:comparison_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::numeric_bounds_compose",
+    "crates/trion-verification/tests/contradiction.rs::numeric_comparisons_cover_every_operator",
+    "crates/trion-verification/tests/contradiction.rs::comparators_are_numeric",
+    "crates/trion-cli/tests/limitations.rs::two_quantities_are_compared_with_each_other",
+    "crates/trion-cli/tests/key_misreadings.rs::a_comparison_that_is_no_bound_is_rejected",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W07: quantities are integers scaled by a fixed factor (NUMERIC_SCALE); rounding of decimals and rational bounds are not specified",
+    "W07: `between a and b` is inclusive at both ends; a descending numeric interval is a parse error, a named-quantity interval is unchecked",
+    "W09: a comparison is over one representative quantity; `for every x there is y = x + 1` has no surface form",
+]
+acceptance = ["A06", "A12"]
+
+[[pattern]]
+id = "measure-quantity"
+group = "numeric"
+surface = ["5 seconds", "200 ms", "10 MB"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_quantity"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:measure_value; crates/trion-language/src/reading/model.rs:canonical_unit"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::units_are_converted",
+    "crates/trion-verification/tests/contradiction.rs::different_units_are_reported",
+    "crates/trion-verification/tests/contradiction.rs::decimals_and_number_words_are_numbers",
+    "crates/trion-verification/tests/draft_rules.rs::numbers_compare_only_in_compatible_dimensions",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W07: the unit tables (time in ms, size in bytes, percent) are closed in model.rs:canonical_unit; any other unit is compared by its singular spelling",
+    "W07: dimension is the canonical unit string; there is no typed dimension",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "measure-bounded"
+group = "numeric"
+surface = ["for at least 30 days", "for between 2 and 4 seconds"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_bounded_quantity"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds"
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::a_duration_constrains_the_modified_action",
+    "crates/trion-cli/tests/limitations.rs::the_duration_of_an_action_is_at_most_its_elapsed_time",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W07: bounded measures are admitted after `for` only; `within at least N` is rejected (rej-within-bounded-measure)",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "measure-named"
+group = "numeric"
+surface = [
+    "within the configured timeout",
+    "is at most the elapsed time of the action",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_measure"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:key_readings; crates/trion-language/src/reading/model.rs:linear_np"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::within_a_quantity_of_time_is_a_deadline_that_the_quantity_bounds",
+    "crates/trion-cli/tests/reading_weak.rs::within_is_a_deadline_or_the_place_of_a_declared_term",
+    "crates/trion-cli/tests/reading_rules.rs::a_comparison_takes_a_measure_with_an_of_phrase",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W07: `within <noun phrase>` is a deadline only when another statement bounds that quantity in a unit of time, a place when the noun phrase is a declared term, and rejected otherwise: the reading of one sentence depends on the rest of the package",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "definition"
+group = "vocabulary"
+surface = [
+    "A session means a sequence of requests.",
+    "A guest means a user that has no account.",
+    "A notice means a report or a summary.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_definition"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:definition; crates/trion-language/src/reading/meaning.rs:apply; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::a_definition_guarantees_nothing",
+    "crates/trion-cli/tests/reading_nodes.rs::a_definition_includes_its_term_in_the_kind_that_it_names",
+    "crates/trion-cli/tests/reading_nodes.rs::the_clause_of_a_kind_is_a_property_of_each_member",
+    "crates/trion-cli/tests/reading_nodes.rs::each_alternative_kind_is_a_kind_of_the_term",
+    "crates/trion-cli/tests/limitations.rs::a_definition_carries_a_conflict_to_the_defined_term",
+    "crates/trion-cli/tests/limitations.rs::a_defined_state_means_what_its_definition_says",
+    "crates/trion-cli/tests/individual_readings.rs::a_defined_state_holds_exactly_when_its_differences_hold",
+    "crates/trion-verification/tests/vocabulary_rules.rs::a_cyclic_definition_is_rejected",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: genus-and-difference definitions are an inclusion plus the property of the clause; whether the definition is an equivalence depends on its shape (instances.rs Form::Defined is two-way, a plain genus is one-way)",
+    "W03: a definition with two kinds joined by `and`, a participle after the noun, or a clause as definiens is rejected by the reading (reading_nodes.rs::a_definition_without_a_reading_is_rejected)",
+    "W03: only `Where` may frame a definition; expansion direction and identity across namespaces are decided by the lexicon",
+    "W03: a definition by a positive action does not unfold under `shall be` against a prohibition: `A secure API means an API that encrypts the message.`, `The API shall be secure.` and `The API shall not encrypt the message.` verify with no conflict, while the mirror image (`... that encrypts no messages.` with `The API shall encrypt messages.`) is a contradiction (fixture A03b, open)",
+]
+acceptance = ["A03b", "A14"]
+
+[[pattern]]
+id = "relation"
+group = "descriptions"
+surface = [
+    "Each section has a title.",
+    "The checker reports the diagnostic.",
+    "No user sends a message.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relation; crates/trion-language/src/syntax/parse.rs:parse_indicative"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula; crates/trion-language/src/reading/model.rs:relation_item; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/reading_weak.rs::a_description_of_a_named_subject_is_a_fact",
+    "crates/trion-cli/tests/language_spec.rs::an_existence_statement_makes_a_universal_rule_bite",
+    "crates/trion-cli/tests/language_spec.rs::relation_cardinalities_compose",
+    "crates/trion-verification/tests/draft_rules.rs::a_universal_phrase_applies_to_each_instance",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: an indicative sentence with a named subject (`The checker reports ...`) asserts Act(k) as a fact; with a universal subject it holds of whatever exists and an empty domain satisfies it",
+    "W05: the verb of an indicative sentence is found by agreement and a verb list (parse.rs:parse_indicative); an unknown verb is rejected as ambiguous",
+    "W08: a counted relation is read over individuals only when another statement distinguishes individuals of the same relation (instances.rs:apply); otherwise the count bounds one representative quantity",
+]
+acceptance = ["A11", "A14"]
+
+[[pattern]]
+id = "existence"
+group = "reference-quantity"
+surface = [
+    "There is a source document.",
+    "There are at least two rooms.",
+    "There is a user U.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_core"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:exists_formula; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::an_existence_statement_makes_a_universal_rule_bite",
+    "crates/trion-cli/tests/limit_instances.rs::a_result_about_individuals_names_the_size_of_its_domains",
+    "crates/trion-verification/tests/draft_rules.rs::a_universal_phrase_applies_to_each_instance",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W08: `There are at least N` populates a bounded domain (default 3 individuals per carrier, raised to the largest stated count; counts above 4 are left to the representative reading, instances.rs LARGEST_COUNT); requested and used bounds are not recorded separately",
+    "W08: existence is the event atom `exists <noun>`; it is not tied to a moment or to an initial state",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "frame-where"
+group = "conditions"
+surface = ["Where the device includes a cache, the device shall flush the cache."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::a_feature_scope_selects_configurations_and_triggers_nothing",
+    "crates/trion-cli/tests/temporal_rules.rs::each_ears_pattern_gets_the_scope_and_timing_of_this_edition",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: a `Where` clause turns event atoms into Config atoms; a copular `Where` clause stays a Val atom, so configuration and state are told apart only for verbal clauses",
+    "W06: a configuration is timeless; nothing says whether it may change during a trace",
+]
+acceptance = ["A13"]
+
+[[pattern]]
+id = "frame-while"
+group = "conditions"
+surface = [
+    "While the door is open, the alarm shall sound.",
+    "The API shall stop while the door is open.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames; crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::a_state_scope_constrains_the_response_throughout_its_intervals",
+    "crates/trion-cli/tests/temporal_rules.rs::a_state_around_a_trigger_is_sampled_once_and_the_obligation_stays",
+    "crates/trion-cli/tests/limit_rest.rs::the_statements_are_kept_in_each_situation_or_the_situation_is_a_conflict",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: alone, `While` makes the response hold at every moment of each interval; beside a trigger it is a gate sampled once at the occurrence and never resampled",
+    "W06: an order phrase (`before`, `after`, `in a row`) under `While` without a trigger has no reading and is rejected",
+]
+acceptance = ["A13", "A21"]
+
+[[pattern]]
+id = "frame-when"
+group = "conditions"
+surface = [
+    "When the bell rings, the API shall stop.",
+    "The API shall stop when the bell rings.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames; crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::every_action_response_has_an_activation_policy",
+    "crates/trion-cli/tests/temporal_rules.rs::an_activated_positive_action_completes_eventually",
+    "crates/trion-cli/tests/draft_rules.rs::trailing_conditions_restrict_the_preceding_claim",
+    "crates/trion-verification/tests/contradiction.rs::two_events_can_occur_together",
+    "crates/trion-cli/tests/limitations.rs::an_action_raises_the_event_that_waits_for_it",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: each occurrence of the event opens one obligation that stays open until satisfaction; which occurrence a later phrase refers to is the string key of the event, not an occurrence identity",
+    "W06: a copular clause under `When` is a state atom (Val) used as an occurrence; entering versus being in the state is not distinguished",
+    "W05: an indefinite noun phrase in the trigger (`a request`) and the definite one in the response (`the request`) are the same representative; no binding id links them",
+]
+acceptance = ["A04", "A05", "A13", "A15", "A22"]
+
+[[pattern]]
+id = "frame-if"
+group = "conditions"
+surface = [
+    "If the pump fails, then the API shall raise an alarm.",
+    "The API shall stop if the door opens.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames; crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::each_ears_pattern_gets_the_scope_and_timing_of_this_edition",
+    "crates/trion-verification/tests/contradiction.rs::does_not_is_the_complement",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: `If` differs from `When` only by the flag `unwanted` on the activation; the formula is the same",
+    "W03: a preposed `If` requires `then`; a postposed `if` does not",
+]
+acceptance = ["A13"]
+
+[[pattern]]
+id = "clause-copular"
+group = "conditions"
+surface = [
+    "the door is open",
+    "the request is submitted by the user",
+    "the pump remains active",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_clause"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:clause_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::a_negated_condition_is_the_complement",
+    "crates/trion-verification/tests/contradiction.rs::a_condition_can_list_values",
+    "crates/trion-verification/tests/contradiction.rs::a_condition_outside_the_domain_is_unreachable",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: `remains` is read exactly as `is`; persistence is not expressed",
+    "W03: a passive clause with an agent stays a value of the subject (`submitted by user`), it does not meet the active event `user submit request`",
+]
+acceptance = []
+
+[[pattern]]
+id = "clause-verbal"
+group = "conditions"
+surface = ["the bell rings", "the user sends a message", "the size exceeds 100"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_verbal_clause; crates/trion-language/src/syntax/parse.rs:boundary_verbal"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:clause_formula; crates/trion-language/src/reading/model.rs:event_key; crates/trion-language/src/reading/model.rs:verbal_comparison"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::inflected_events_are_one_event",
+    "crates/trion-verification/tests/contradiction.rs::verbal_bounds_are_numeric",
+    "crates/trion-verification/tests/contradiction.rs::an_action_triggers_its_event",
+    "crates/trion-cli/tests/limit_defects.rs::has_and_have_are_one_verb",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: the event key drops articles, `each`/`every`/`any` and inflection, so `a user sends` and `the users send` are one event; an action meets an event only when their keys are textually equal (model.rs:compile)",
+    "W05: the subject/verb boundary is decided by a verb list and determiners; residual ambiguity is rejected (rej-ambiguous-verb-boundary)",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "clause-verbal-denied"
+group = "conditions"
+surface = [
+    "the file does not exist",
+    "the job has not completed",
+    "no heartbeat is received",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_verbal_clause"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:event_key; crates/trion-language/src/reading/model.rs:clause_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::does_not_is_the_complement",
+    "crates/trion-verification/tests/contradiction.rs::no_in_a_condition_is_a_denial",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: the denial of an event is 'no occurrence at this moment'; `has not completed` is the same atom as `completes`, so the perfect carries no 'so far' meaning",
+]
+acceptance = []
+
+[[pattern]]
+id = "clauses-and"
+group = "conditions"
+surface = ["When the door opens and the alarm is active, ..."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_clause_group; crates/trion-language/src/syntax/parse.rs:parse_coordinated_clauses"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:group_formula"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: in a trigger at most one conjunct may be an event; the other conjuncts are states read at the instant of the event (parse.rs:parse_frames)",
+    "no test with a meaning assertion was found for a coordinated guard",
+]
+acceptance = []
+
+[[pattern]]
+id = "clauses-or"
+group = "conditions"
+surface = ["When the door opens or the bell rings, ..."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_clause_group; crates/trion-language/src/syntax/parse.rs:parse_coordinated_clauses"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:group_formula"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: a disjunction of events is one trigger; which occurrence opened the obligation is not kept",
+    "no test with a meaning assertion was found for a coordinated guard",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-postposed-condition"
+rule = "frame-when"
+group = "conditions"
+surface = [
+    "The API shall stop when the bell rings.",
+    "The pump is red when the valve is open.",
+    "The API shall stop while the door is open.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:guard_formula"
+evidence = [
+    "crates/trion-cli/tests/draft_rules.rs::trailing_conditions_restrict_the_preceding_claim",
+    "crates/trion-cli/tests/reading_nodes.rs::a_pronoun_of_a_leading_condition_refers_forward_to_the_one_noun_phrase_of_the_core",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W05: a postposed `when`/`if`/`while` becomes a frame of the whole sentence, exactly as the preposed form; with a coordinated core it applies to every conjunct",
+    "W05: a second trigger, preposed or postposed, is rejected (rej-second-trigger)",
+]
+acceptance = ["A13"]
+
+[[pattern]]
+id = "exception-unless"
+group = "exceptions"
+surface = [
+    "The pump shall stop, unless the override is active.",
+    "The pump is blue unless the valve is open.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence; crates/trion-language/src/document.rs:item_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:guard_formula; crates/trion-language/src/reading/model.rs:Composer::node; crates/trion-language/src/reading/temporal.rs:obligation"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::an_exception_lifts_a_conflict",
+    "crates/trion-verification/tests/missing.rs::an_exception_covers_the_other_values",
+    "crates/trion-cli/tests/temporal_rules.rs::an_exception_of_a_triggered_response_is_read_at_activation",
+    "crates/trion-cli/tests/draft_rules.rs::trailing_conditions_restrict_the_preceding_claim",
+    "crates/trion-cli/tests/draft_rules.rs::an_exception_applies_where_it_is_written",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W05: `unless E` is the assumption not E; it says nothing about what is required when E holds",
+    "W06: with a trigger the exception is sampled at activation, otherwise throughout the scope of the statement",
+    "W05: on an item of an action list the exception is the disjunction `E or action` inside the guarantee, a different operator from the sentence-level assumption",
+]
+acceptance = ["A13"]
+
+[[pattern]]
+id = "condition-only-if"
+group = "exceptions"
+surface = [
+    "The API shall stop only when status is Closed.",
+    "Each variable shall be available only where the grammar permits a use of that variable.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:claim_formula"
+evidence = [
+    "crates/trion-cli/tests/closed_routes.rs::a_necessary_condition_forbids_the_action_where_it_fails",
+    "crates/trion-cli/tests/language_spec.rs::a_necessary_condition_constrains_only_its_claim",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "closed 2026-11-14: of an action the necessary condition forbids the action where the condition fails (`C ∨ (¬Act(k) ∧ Forbid(k))`, advice against it under `should`); of a state it is `claim → C`. Before, the contract was `(Act(k) ∧ ¬Forbid(k) ∧ ¬Discouraged(k)) → C`, which a completion marked forbidden satisfied without C",
+    "the condition restricts and does not require: inside the condition the action is neither required nor permitted by this statement",
+    "W05: `only when`, `only if` and `only where` are one operator; the clause is not a frame, so the statement has no activation",
+]
+acceptance = []
+
+[[pattern]]
+id = "condition-only-if-denied"
+group = "exceptions"
+surface = [
+    "The API shall not stop only when the door is open.",
+    "The API shall not stop exactly when the door is open.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/closed_routes.rs::a_prohibition_confined_by_a_necessary_condition_is_not_read",
+]
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-14 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before as `Forbid → C`, which not forbidding satisfies); lost capability: a prohibition confined by `only when` or `exactly when`; migration: state the prohibition under its condition (`While the door is open, the API shall not stop.`) and what holds elsewhere in a statement of its own",
+]
+acceptance = []
+
+
+[[pattern]]
+id = "condition-if-and-only-if"
+group = "exceptions"
+surface = [
+    "The API shall start exactly when the bell rings.",
+    "The pump is green exactly when the valve is shut.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:claim_formula"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::an_exact_condition_is_both_sufficient_and_necessary",
+    "crates/trion-cli/tests/draft_rules.rs::trailing_conditions_restrict_the_preceding_claim",
+    "crates/trion-cli/tests/closed_routes.rs::a_necessary_condition_forbids_the_action_where_it_fails",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "the sufficient direction is `C → claim`; the necessary direction is that of condition-only-if: of an action, the prohibition of the action where C fails",
+    "W06: the condition is not a trigger, so the response has no activation and no 'later moment'",
+]
+acceptance = []
+
+[[pattern]]
+id = "concession-even-when"
+group = "concession-purpose-quality"
+surface = [
+    "The system shall close the door, even when the door is open.",
+    "..., even if the user is absent.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/acceptance.rs::each_acceptance_case_is_met_or_is_listed_as_open_with_the_work_that_closes_it",
+]
+claims = []
+open = [
+    "W03: `even when P` / `even if P` is kept as text (Sentence.concession) and the claim is read without it: the claim stays unconditional and P is no condition (fixture A02, closed); P is not recorded as a situation that must be possible, and the non-normative status is not shown to the user",
+    "W03: only a postposed `even when`/`even if` is this rule (rules.rs:is_emphasis); every other concession is concession-while-gerund",
+]
+acceptance = ["A02"]
+note = "rule name added after 24cab2aa; at the baseline no rule visited Sentence.concession"
+
+[[pattern]]
+id = "concession-while-gerund"
+group = "concession-purpose-quality"
+surface = ["The system shall close the door, while retaining the origin."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/acceptance.rs::each_acceptance_case_is_met_or_is_listed_as_open_with_the_work_that_closes_it",
+]
+claims = []
+open = [
+    "W03: `while <gerund> ...` states a simultaneous requirement and no reading rule makes a requirement of it: grounding.rs:unvisited stops the statement with UNSUPPORTED_SEMANTICS and the gate `meaning` fails (fixture A01, closed); a rule that gives X a guarantee and a duration is still missing",
+    "W03: the trigger is any postposed `while` followed by a word in -ing (parse.rs:parse_sentence), so `while pending requests exist` is taken for a concession too",
+]
+acceptance = ["A01", "A20"]
+note = "at 24cab2aa the phrase was dropped without a diagnostic and the package verified"
+
+[[pattern]]
+id = "purpose"
+group = "concession-purpose-quality"
+surface = [
+    "The API shall log the call so that the auditor reviews the call.",
+    "The server shall send the message, in order to stop the client.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limit_defects.rs::a_purpose_does_not_change_the_required_action",
+    "crates/trion-cli/tests/reading_tree.rs::a_purpose_is_rejected",
+    "crates/trion-verification/tests/draft_rules.rs::a_purpose_is_parsed_and_rejected_because_it_has_no_formal_reading",
+]
+claims = []
+open = [
+    "W03: normative achievement condition, causal goal and non-normative intent are not distinguished; every purpose is rejected with UNSUPPORTED_SEMANTICS (grounding.rs:unvisited)",
+    "W03: the model still holds the contract of the statement without its purpose (model.rs:compile); only the diagnostic stops success",
+]
+acceptance = ["A20"]
+
+[[pattern]]
+id = "variant-quality-without-measure"
+rule = "action"
+group = "concession-purpose-quality"
+surface = ["The API shall be secure.", "The API shall respond quickly."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "unresolved"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_property_beyond_one_model_is_named_by_its_kind",
+    "crates/trion-cli/tests/acceptance.rs::each_acceptance_case_is_met_or_is_listed_as_open_with_the_work_that_closes_it",
+]
+claims = []
+open = [
+    "W02: the word stays in an uninterpreted action or value name; grounding.rs:silence reports `inexpressible-property` as an error and a meaning obligation, so the gate `meaning` fails and the claims are unsupported (fixture A03, closed; a warning at 24cab2aa); the quality list is a fixed word list (grounding.rs QUALITIES), a quality outside it passes silently",
+    "W03: a definition or a primitive of the same word silences the report; `primitive secure` gives no meaning, and a definition by a positive action does not unfold under `shall be` (fixture A03b, open; see definition)",
+]
+acceptance = ["A03", "A03b", "A20"]
+
+[[pattern]]
+id = "variant-run-relation"
+rule = "action"
+group = "concession-purpose-quality"
+surface = [
+    "The API shall respond deterministically.",
+    "The operation shall be idempotent.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "unresolved"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_property_beyond_one_model_is_named_by_its_kind",
+    "crates/trion-cli/tests/limit_rest.rs::the_same_response_for_the_same_request_is_a_function",
+]
+claims = []
+open = [
+    "W09: a relation between runs is reported as the error `inexpressible-property` (gate `meaning` fails); it needs a hyperproperty or a functional reading",
+]
+acceptance = ["A03", "A20"]
+
+[[pattern]]
+id = "variant-optimum-or-preference"
+rule = "action"
+group = "concession-purpose-quality"
+surface = ["The API shall respond as fast as possible."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "unresolved"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_property_beyond_one_model_is_named_by_its_kind",
+]
+claims = []
+open = [
+    "W02: an optimum is reported as the error `inexpressible-property` (gate `meaning` fails); the advice is a bound or a weighted `should`",
+]
+acceptance = ["A03", "A20"]
+
+[[pattern]]
+id = "variant-proportion-word"
+rule = "action"
+group = "concession-purpose-quality"
+surface = ["The API shall usually respond.", "The availability shall be high."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "unresolved"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_property_beyond_one_model_is_named_by_its_kind",
+]
+claims = []
+open = [
+    "W07: `usually`, `typically`, `rarely`, `probability`, `availability`, `on average` are reported as the error `inexpressible-property` (gate `meaning` fails); the measured form is variant-proportion",
+]
+acceptance = ["A03", "A10", "A20"]
+
+[[pattern]]
+id = "noun-phrase-bare"
+group = "phrases"
+surface = ["requests", "telemetry", "room_type"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np_at"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:subject_key; crates/trion-language/src/reading/key.rs:np_parts"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::a_capital_is_not_a_new_term",
+    "crates/trion-verification/tests/vocabulary.rs::a_plural_and_its_singular_are_one_term",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W03: a bare plural and its singular are one term and one representative; genericity is not distinguished from a named thing",
+]
+acceptance = []
+
+[[pattern]]
+id = "noun-phrase-article"
+group = "phrases"
+surface = ["the request", "a request", "an order"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:subject_key; crates/trion-language/src/reading/key.rs:np_parts"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::articles_do_not_change_identity",
+    "crates/trion-cli/tests/reading_nodes.rs::a_repeated_noun_phrase_is_one_antecedent_and_a_second_thing_is_a_second_one",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: in the model `a` and `the` name the same representative; only pronoun resolution tells a second `a report` from the first",
+    "W03: an article between two words of a name is rejected",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "noun-phrase-universal"
+group = "reference-quantity"
+surface = ["each request", "every file", "all attachments"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:np_parts; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/engine_keys.rs::an_action_on_each_thing_is_the_action_on_the_thing",
+    "crates/trion-verification/tests/draft_rules.rs::a_universal_phrase_applies_to_each_instance",
+    "crates/trion-cli/tests/limit_instances.rs::the_members_of_a_room_are_counted",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: in an action key `each X` is the representative X (Mark::General); universal quantification over individuals exists only for the relation forms of instances.rs",
+    "W09: the order of a universal subject and an existential or counted object is fixed by the form, never recorded",
+]
+acceptance = ["A12", "A16"]
+
+[[pattern]]
+id = "noun-phrase-none"
+group = "reference-quantity"
+surface = ["No client shall retry.", "accept no connections", "No member is the owner."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:core_formula; crates/trion-language/src/reading/model.rs:item_formula; crates/trion-language/src/reading/model.rs:event_key"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_no_subject_denies_its_description",
+    "crates/trion-verification/tests/contradiction.rs::no_in_a_condition_is_a_denial",
+    "crates/trion-cli/tests/reading_account.rs::a_denied_both_denies_the_conjunction",
+    "crates/trion-cli/tests/reading_nodes.rs::no_in_a_role_is_rejected",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W03: `no` as subject or object denies the claim; `no` inside a role is rejected; `No X may` is a parse error (rej-no-with-may)",
+]
+acceptance = []
+
+[[pattern]]
+id = "noun-phrase-existential"
+group = "reference-quantity"
+surface = [
+    "Some room has no owner.",
+    "Some accepted construct has no supported formal interpretation.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/limit_instances.rs::a_statement_about_some_individual_is_not_about_all_of_them",
+    "crates/trion-cli/tests/reading_rules.rs::each_accepted_construct_denotes_one_expression",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W08: the representative reading of a `some` subject is true (model.rs:core_formula); the whole meaning is the bounded reading over individuals, which is absent when the scope is 0 or the statement stands under a condition",
+    "W09: `some` in object position is not an existential; it is a word of the name",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "noun-phrase-counted"
+group = "reference-quantity"
+surface = ["at most 3 titles", "exactly 1 owner", "one or more statements"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds; crates/trion-language/src/reading/model.rs:relation_item; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::a_counted_object_bounds_one_number",
+    "crates/trion-cli/tests/reading_nodes.rs::a_bare_cardinal_counts_at_least_that_many_things",
+    "crates/trion-cli/tests/reading_nodes.rs::a_count_for_each_thing_bounds_no_total",
+    "crates/trion-cli/tests/engine_keys.rs::a_relation_without_an_object_counts_in_its_role_phrase",
+    "crates/trion-cli/tests/language_spec.rs::relation_cardinalities_compose",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W07: a counted object bounds one integer quantity `<action> count` of the representative; distinctness of the counted things is not expressed",
+    "W08: the bounded reading over individuals handles counts up to 4 (instances.rs LARGEST_COUNT); larger counts fall back to the representative quantity without a note in the result",
+    "W03: `both` is in this rule but carries no count: `Both operands shall be numbers.` reads as `the operand`",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "noun-phrase-reference"
+group = "reference-quantity"
+surface = ["its report", "that file", "another room"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det; crates/trion-language/src/syntax/reference.rs:resolve"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/syntax/reference.rs:resolve"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_pronoun_with_one_candidate_antecedent_names_that_antecedent",
+    "crates/trion-cli/tests/reading_nodes.rs::a_pronoun_with_two_candidate_antecedents_is_ambiguous",
+    "crates/trion-cli/tests/reading_nodes.rs::a_demonstrative_names_the_thing_that_the_sentence_names",
+    "crates/trion-verification/tests/contradiction.rs::a_pronoun_is_its_antecedent",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: a reference is rewritten to its antecedent's noun phrase before the reading; the link is by text, not by a binding id, and does not cross sentences",
+    "W03: `another X` is reported as an unread word that tells two things apart unless it is part of a declared term",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "noun-phrase-modified"
+group = "phrases"
+surface = ["the source file", "an analysis report", "each cited statement"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np_at"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:np_parts; crates/trion-language/src/reading/meaning.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/grounding_engine.rs::a_modified_phrase_is_a_kind_of_its_head",
+    "crates/trion-cli/tests/grounding_engine.rs::a_modifier_that_denies_its_head_makes_no_kind",
+    "crates/trion-cli/tests/reading_account.rs::an_action_on_a_kind_of_a_noun_is_an_action_on_the_noun",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W03: a modified phrase is a kind of its head once the head has a meaning; a privative modifier (`former`, `non-`) blocks it by a word list",
+    "W03: modifiers are concatenated into the name; which modifier restricts and which names is not typed",
+]
+acceptance = []
+
+[[pattern]]
+id = "noun-phrase-kind-word"
+group = "phrases"
+surface = ["the first message", "the otherwise item", "a later statement"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np_at"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:key_readings"
+evidence = [
+    "crates/trion-cli/tests/reading_tree.rs::an_order_word_is_read_inside_a_declared_term",
+    "crates/trion-cli/tests/reading_tree.rs::a_function_word_in_any_open_place_is_rejected_or_changes_the_model",
+    "crates/trion-cli/tests/reading_account.rs::a_word_of_a_declared_term_is_part_of_a_name",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W03: a word of time, order, number or degree before a head is read only as part of a defined or declared term; elsewhere the statement is rejected (UNSUPPORTED_SEMANTICS), except after `before`/`after` where it selects an occurrence (order-of-occurrence)",
+]
+acceptance = []
+
+[[pattern]]
+id = "noun-phrase-of"
+group = "reference-quantity"
+surface = ["the name of the owner of the room", "the report of one user"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np_at"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:np_parts; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::owner_order_does_not_change_identity",
+    "crates/trion-cli/tests/reading_nodes.rs::a_count_of_owners_above_one_is_rejected",
+    "crates/trion-cli/tests/limit_instances.rs::the_owner_of_a_room_is_one_of_the_members_of_that_room",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: `X of Y` is named `Y X`; possession is a relation between individuals only in the instances forms, elsewhere it is a compound name",
+    "W03: a count above one before an owner is rejected",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "noun-phrases-and"
+group = "phrases"
+surface = ["the user and the admin", "both the parser and the checker"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np_group"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:item_formula; crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_list_of_objects_is_one_action_for_each_object",
+    "crates/trion-cli/tests/reading_context.rs::a_coordination_inside_a_role_is_one_action_for_each_noun_phrase",
+    "crates/trion-cli/tests/reading_nodes.rs::noun_phrases_that_or_joins_are_one_antecedent_and_those_that_and_joins_are_a_plural_one",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: a coordinated subject or object distributes the claim over its members; a collective reading (`A and B together`) does not exist",
+    "W05: `between A and B` / `among A and B` are not distributed (model.rs:role_group)",
+]
+acceptance = []
+
+[[pattern]]
+id = "noun-phrases-or"
+group = "phrases"
+surface = ["the user or the admin", "either the admin or the owner"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np_group"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:item_formula; crates/trion-language/src/reading/model.rs:core_formula"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_list_of_objects_is_one_action_for_each_object",
+    "crates/trion-cli/tests/document_rules.rs::a_prohibition_reaches_every_alternative_subject_and_a_relation_keeps_its_roles",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: an `or` object is a choice only under an obligation; under a prohibition, advice or a permission it reaches each member",
+    "W05: an `or` subject under a prohibition is a conjunction (model.rs:core_formula); under an obligation it is a disjunction of obligations",
+]
+acceptance = ["A16"]
+
+[[pattern]]
+id = "relative-verbal"
+group = "reference-quantity"
+surface = [
+    "each statement that shares no atom",
+    "each request that arrives from the gateway",
+    "a user who sends a token",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_body"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:relative_property; crates/trion-language/src/reading/meaning.rs:restricted"
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::a_restricted_noun_phrase_is_a_kind_of_its_head",
+    "crates/trion-cli/tests/reading_rules.rs::a_repeated_marker_continues_the_clauses_of_the_outer_head",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: the restricted phrase is a new class name (`statement that share no atom`), included in its head, with the clause as a property of each member; whether a given thing belongs to the class is never decided from the clause",
+    "W05: roles inside the relative attach to the relative's verb (innermost attachment)",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "relative-verbal-denied"
+group = "reference-quantity"
+surface = ["each rule that does not cite a source"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_body"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:relative_property"
+evidence = []
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "only a parse test exists (trion-language tests/syntax.rs::a_relative_clause_can_be_negated); no test asserts the denied property",
+]
+acceptance = []
+
+[[pattern]]
+id = "relative-copular"
+group = "reference-quantity"
+surface = [
+    "each report that is signed by the user",
+    "each block introduced by a header",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_body"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:relative_property; crates/trion-language/src/reading/meaning.rs:restricted"
+evidence = [
+    "crates/trion-cli/tests/reading_tree.rs::a_phrase_after_a_subject_noun_restricts_the_noun",
+    "crates/trion-cli/tests/reading_participle.rs::a_past_participle_after_a_noun_is_no_word_of_its_name",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: a participle or a preposition phrase directly after a subject noun is this relative without `that is`; after an object noun the same participle is rejected or read as a role",
+]
+acceptance = []
+
+[[pattern]]
+id = "relative-object-gap"
+group = "reference-quantity"
+surface = ["each request that the gateway forwards", "a report that the checker signs"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_object_gap"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:relative_property"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::the_clause_of_a_kind_is_a_property_of_each_member",
+    "crates/trion-cli/tests/key_misreadings.rs::a_relative_clause_without_a_reading_is_rejected",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: the head is the missing object of the inner verb; the gap opens only before a determiner-led subject, and a coordinated inner subject is rejected",
+    "W05: the generated property is `exists(class) implies Act(inner subject|verb class)`; inner and outer roles are told apart only by the class name",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "relative-whose"
+group = "reference-quantity"
+surface = ["each account whose owner is inactive"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_at"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:relative_property"
+evidence = []
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: the clause becomes a value of the compound attribute `<class> owner`; no test asserts it",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "relative-where"
+group = "reference-quantity"
+surface = ["a point of a flow where a step follows"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_at"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:relative_property"
+evidence = []
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: read as `exists(class) implies <clause>`; only a parse test exists (trion-language tests/grammar_gaps.rs::where_after_a_noun_names_a_place_by_what_holds_there)",
+]
+acceptance = []
+
+[[pattern]]
+id = "content-of-noun"
+group = "phrases"
+surface = ["the proof that the token is valid"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_at; crates/trion-language/src/syntax/parse.rs:content_clause"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: a noun named by a content clause (`the proof that the token is valid`); migration: define the phrase as a term, or state the clause in a statement of its own; restored by W03 with a meaning rule",
+    "W03: `that <clause>` after a noun (no gap) is kept as part of the noun's name (`proof that token is valid`); no axiom relates it to the atoms of the clause, and the only test asserts that nothing is reported unread (reading_rules.rs::a_content_clause_and_a_demonstrative_are_read)",
+    "W05: `that` after a noun is a content clause or a relative by the shape of what follows; the choice is not shown to the author",
+]
+acceptance = []
+
+[[pattern]]
+id = "content-of-verb"
+group = "phrases"
+surface = [
+    "The checker shall report that the room is locked.",
+    "The checker shall not assume that the trigger occurs.",
+    "The checker shall verify that the room is locked.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp; crates/trion-language/src/syntax/parse.rs:content_clause"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:apply; crates/trion-language/src/reading/key.rs:content_parts"
+evidence = [
+    "crates/trion-cli/tests/key_misreadings.rs::a_content_clause_is_read_by_the_class_of_its_verb",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: a verb that is about a proposition (report, state, assert, declare, record, indicate, assume, check, decide, verify, confirm, prove) names the action by verb and proposition and says nothing of whether the proposition holds; the verb classes are fixed word lists (syntax/words.rs:content_class)",
+    "W03: any other verb with `that <clause>` is rejected",
+]
+acceptance = []
+
+[[pattern]]
+id = "content-established"
+group = "phrases"
+surface = [
+    "The API shall ensure that the token is valid.",
+    "The checker shall guarantee that the room is locked.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp; crates/trion-language/src/syntax/parse.rs:content_clause"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/key_misreadings.rs::a_content_clause_is_read_by_the_class_of_its_verb",
+    "crates/trion-cli/tests/reading_account.rs::an_action_that_makes_a_proposition_hold_implies_it",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "closed 2026-11-14: only `ensure`, `guarantee` and `establish` make their clause hold when the action completes; `verify`, `confirm` and `prove` examine a proposition and are read as the verbs that are about a proposition (content-of-verb). Before, `shall verify that P` made P hold, and a property P followed from the duty to examine it; migration: write `ensure` where the action makes the clause hold",
+    "W06: the clause holds at the moment of completion only; persistence is unspecified",
+]
+acceptance = []
+
+[[pattern]]
+id = "content-permitted"
+group = "phrases"
+surface = [
+    "The checker shall allow the gate to open.",
+    "The checker shall let an author state a subject.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/reading_weak.rs::a_controlled_clause_is_permitted_or_required",
+    "crates/trion-cli/tests/reading_nodes.rs::the_object_of_a_controlling_verb_is_the_subject_of_the_clause_after_it",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: let/allow/permit/enable make the inner action not forbidden; forbidding the permission forbids the inner action; the controller's own action is still obliged",
+    "W05: the object of the control verb is the subject of the inner clause; `let X` without a verb is rejected",
+]
+acceptance = []
+
+[[pattern]]
+id = "content-required"
+group = "phrases"
+surface = ["The checker shall require the gate to close."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/reading_weak.rs::a_controlled_clause_is_permitted_or_required",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: `require X to V` obliges X to V (the inner action is performed and not forbidden); who is obliged, the controller or X, is not typed",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-recipient"
+group = "phrases"
+surface = ["send the report to the user", "give each user a report"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::the_first_of_two_objects_receives_the_second",
+    "crates/trion-cli/tests/reading_context.rs::a_coordination_inside_a_role_is_one_action_for_each_noun_phrase",
+    "crates/trion-cli/tests/reading_rules.rs::only_excludes_the_actions_with_another_focus",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-means"
+group = "phrases"
+surface = ["via the gateway", "using a token"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+    "no test asserts a meaning of `via`/`using` beyond naming",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-topic"
+group = "phrases"
+surface = ["notify the user about the outage"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+    "no test asserts a meaning of `about` beyond naming",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-source"
+group = "phrases"
+surface = ["read the request from the queue", "within 5 seconds from the request"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/temporal.rs:Builder::origin"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+    "W06: beside a deadline, `from <noun>` is the origin of the deadline (temporal.rs:Builder::origin), elsewhere a part of the name; no test separates the two",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "role-goal"
+group = "phrases"
+surface = ["move the file into the archive"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+    "no test asserts a meaning of `into` beyond naming",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-location"
+group = "phrases"
+surface = ["log the request in the audit store", "rename a term within the namespace"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = [
+    "crates/trion-cli/tests/reading_weak.rs::within_is_a_deadline_or_the_place_of_a_declared_term",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-agent"
+group = "phrases"
+surface = ["shall be rejected by the API", "is logged by the daemon"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles; crates/trion-language/src/syntax/parse.rs:parse_optional_agent"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:active_voice"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::passive_with_agent_meets_active",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: a passive with an agent is rewritten to the active action of the agent only for `be <one participle> by <one agent>`; other passives stay a value of the subject",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-other"
+group = "phrases"
+surface = [
+    "keep the record as a draft",
+    "return the same response for the same request",
+    "print each report with the file of the report",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/key.rs:action_parts; crates/trion-language/src/reading/model.rs:item_formula"
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::the_same_response_for_the_same_request_is_a_function",
+    "crates/trion-cli/tests/reading_nodes.rs::a_gerund_after_without_is_rejected",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the role phrase is part of the uninterpreted action key; an obligation with the role also obliges the bare action, but the role is not a typed argument that another statement can address",
+    "W03: as, against, through, across, without, during, among, onto, toward, upon, except, including, excluding, regarding, with and `for <noun>` are opaque to reasoning (ast.rs RolePp::Other): `listen for requests` and `wait for the user` name an action and oblige the bare one; see variant-exclusion-role and variant-by-outside-passive",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-exclusion"
+group = "phrases"
+surface = [
+    "send the file except the header",
+    "send the file without a header",
+    "send the file excluding the header",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: an exclusion after the verb of a statement with a modal verb (`send the file except the header`); migration: state the excluded part in a statement of its own (`The API shall not send the header.`); restored by W03/W05 with a meaning rule",
+    "W03/W05: `except`, `excluding` and `without <noun>` are opaque RolePp::Other phrases: the exclusion is part of the action name only, and the obligation also obliges the bare action (`Act(send file)`) without the exclusion; no diagnostic is raised (a gerund after `without` is rejected, rej-without-gerund)",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-by"
+group = "time"
+surface = ["The API shall respond by the deadline."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: `by <noun>` after an active verb of a statement with a modal verb (`respond by the deadline`); migration: write a deadline with `within` or `before <clause>` and a means with `using <noun>`; restored by W03/W06 with a meaning rule",
+    "W06/W03: `by <noun>` after an active verb is an opaque RolePp::Other: the action is named `respond by deadline`, the bare action is obliged, and no deadline is read; ParseError::ByOutsidePassive, which the comments of parse.rs and ast.rs promise, is never raised",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "role-deadline"
+group = "time"
+surface = [
+    "respond within 5 seconds",
+    "respond within 2 seconds after the session opens",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds; crates/trion-language/src/reading/temporal.rs:Builder::response"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::a_deadline_measures_completion_from_the_activation",
+    "crates/trion-cli/tests/temporal_rules.rs::a_deadline_without_an_origin_is_reported",
+    "crates/trion-cli/tests/limitations.rs::a_deadline_and_a_delay_of_one_action_are_one_quantity",
+    "crates/trion-cli/tests/limitations.rs::a_deadline_and_a_delay_relate_two_moments",
+    "crates/trion-verification/tests/contradiction.rs::an_obligation_implies_its_plain_action",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: the deadline is `elapsed <= n` from the activation (or a named origin) to the completion; the bound is inclusive; the length of a moment in time units is not defined, so the numeric quantity and the trace positions are separate constraints",
+    "W06: under `shall not`, `within n` denies the timing and leaves the action free",
+]
+acceptance = ["A06", "A06a", "A06b"]
+
+[[pattern]]
+id = "deadline-origin"
+group = "time"
+surface = [
+    "within 5 seconds of the last retry",
+    "within 5 seconds of the first retry",
+    "within 5 seconds of the next retry",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::origin; crates/trion-language/src/reading/temporal.rs:resolve_origins"
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::a_deadline_is_measured_from_the_occurrence_that_a_noun_names",
+    "crates/trion-cli/tests/temporal_order.rs::a_deadline_names_the_first_or_the_next_occurrence_as_its_origin",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: the noun names an occurrence when an event or action of the package derives from the same word (retry, failure/fail); first = first of the trace, next = first after the activation, last/bare = last before the completion; an occurrence with no event in the package is UNRESOLVED_TEMPORAL_SCOPE",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "role-delay"
+group = "time"
+surface = [
+    "respond at least 2 seconds after the first failure",
+    "respond at least 10 seconds after the timer expires",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:split_delay"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds; crates/trion-language/src/reading/temporal.rs:Builder::response"
+evidence = [
+    "crates/trion-cli/tests/temporal_order.rs::a_time_bound_before_after_bounds_the_delay_of_the_response",
+    "crates/trion-cli/tests/limitations.rs::a_deadline_and_a_delay_of_one_action_are_one_quantity",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: a delay and a deadline bound the same quantity `<action> elapsed`, whatever their origins; two bounds with different origins are therefore compared as one quantity",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "role-duration"
+group = "time"
+surface = ["wait for 5 seconds", "retain each record for at least 30 days"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds; crates/trion-language/src/reading/model.rs:measure_axioms"
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::a_duration_constrains_the_modified_action",
+    "crates/trion-cli/tests/limitations.rs::the_duration_of_an_action_is_at_most_its_elapsed_time",
+    "crates/trion-cli/tests/limit_defects.rs::a_proportion_is_not_read_as_a_duration",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: `for n` is the quantity `<action> duration` (= n, or bounded); it is at most the elapsed time and is not placed on the trace",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-rate"
+group = "measure"
+surface = ["send at most 3 messages per second"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: a rate `per <unit>`; migration: state a count and a deadline of one activation; a rate over a window has no form yet; restored by W07 with a meaning rule",
+    "W07: `per <unit>` reaches the action name only; the count bound ignores it (model.rs:action_bounds), so `at most 3 messages per second` and `at least 5 messages per minute` are reported as a contradiction of `count <= 3` and `count >= 5`",
+    "W07: a rate needs a window, a population and an evaluation interval",
+]
+acceptance = []
+
+[[pattern]]
+id = "role-before"
+group = "time"
+surface = [
+    "notify the customer before the payment clears",
+    "shall not send the report before the API retries the request",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response; crates/trion-language/src/reading/temporal.rs:orders_after; crates/trion-language/src/reading/temporal.rs:forbidden_after"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::before_after_and_until_name_their_event_and_their_boundary",
+    "crates/trion-cli/tests/temporal_order.rs::a_completion_and_an_occurrence_are_ordered_on_the_trace",
+    "crates/trion-cli/tests/temporal_order.rs::a_prohibition_with_an_order_phrase_forbids_the_named_moments_only",
+    "crates/trion-cli/tests/reading_rules.rs::an_action_with_an_order_role_implies_the_action",
+    "crates/trion-cli/tests/temporal_order.rs::two_completions_cannot_each_come_before_the_other_in_the_rest_of_the_trace_either",
+    "crates/trion-cli/tests/acceptance.rs::each_acceptance_case_is_met_or_is_listed_as_open_with_the_work_that_closes_it",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: `A before B` orders the completion of A and the begin of B by event key, not by occurrence; at 24cab2aa a cycle (A before B and B before A under one trigger) was refuted on the listed moments and accepted in the unordered rest of the trace; the working tree gives the first completion in the rest a time and refutes the cycle, and keeps opposite orders under different triggers apart",
+    "W06: which occurrence of a recurring B is compared is not selected; a permission, advice, a state or a statement under `While` with `before` is rejected",
+]
+acceptance = ["A04", "A05"]
+
+[[pattern]]
+id = "role-after"
+group = "time"
+surface = [
+    "bill the customer after the payment clears",
+    "respond within 2 seconds after the session opens",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response; crates/trion-language/src/reading/temporal.rs:orders_after"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::before_after_and_until_name_their_event_and_their_boundary",
+    "crates/trion-cli/tests/temporal_order.rs::a_completion_and_an_occurrence_are_ordered_on_the_trace",
+    "crates/trion-cli/tests/temporal_rules.rs::a_deadline_measures_completion_from_the_activation",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: beside a deadline or a delay the clause is the origin of the bound and orders nothing; alone it orders the start of the response after the begin of the event",
+    "W06: same rest-of-trace and occurrence-identity questions as role-before",
+]
+acceptance = ["A04", "A05", "A06"]
+
+[[pattern]]
+id = "role-until"
+group = "time"
+surface = [
+    "sound the alarm until the operator acknowledges the alarm",
+    "hold the door until the door is locked",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response"
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::before_after_and_until_name_their_event_and_their_boundary",
+    "crates/trion-cli/tests/temporal_rules.rs::a_state_around_a_trigger_is_sampled_once_and_the_obligation_stays",
+    "crates/trion-cli/tests/temporal_rules.rs::an_activated_positive_action_completes_eventually",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: the response holds at every moment before the first moment of the clause and the obligation ends there ('eventually ... unless cancelled'); if the clause never occurs the response must hold in the whole rest",
+    "W06: the boundary moment itself is excluded; inclusivity is fixed in code only",
+]
+acceptance = []
+
+[[pattern]]
+id = "order-of-occurrence"
+group = "time"
+surface = [
+    "log the request before the first retry",
+    "shall not send the report after the first retry",
+    "log the request before the retry",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response; crates/trion-language/src/reading/temporal.rs:resolve_origins; crates/trion-language/src/reading/temporal.rs:between_moments"
+evidence = [
+    "crates/trion-cli/tests/temporal_order.rs::a_completion_and_an_occurrence_are_ordered_on_the_trace",
+    "crates/trion-cli/tests/temporal_order.rs::a_bare_noun_after_before_is_an_occurrence_alone_and_in_the_package",
+    "crates/trion-cli/tests/temporal_order.rs::a_prohibition_with_an_order_phrase_forbids_the_named_moments_only",
+    "crates/trion-cli/tests/temporal_order.rs::a_word_of_time_without_a_reading_is_rejected_with_the_reason",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: first/earliest, next/following, last/latest/previous/preceding select an occurrence of the event that the noun names; `before the last ...` is rejected because it is known only when the trace ends",
+    "W06: the noun is matched to an event of the package by word derivation (temporal.rs:verbs_of); with no such event the statement is UNRESOLVED_TEMPORAL_SCOPE",
+]
+acceptance = ["A04", "A05"]
+
+[[pattern]]
+id = "occurrences-in-a-row"
+group = "time"
+surface = [
+    "retry the request twice in a row",
+    "shall not send the report twice in a row",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:split_frequency; crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response"
+evidence = [
+    "crates/trion-cli/tests/temporal_order.rs::a_count_in_a_row_is_read_as_a_run_of_completions",
+    "crates/trion-cli/tests/temporal_order.rs::a_prohibition_with_immediately_or_a_run_forbids_the_named_moments_only",
+    "crates/trion-cli/tests/reading_tree.rs::an_order_of_occurrences_is_rejected_where_it_is_not_read",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: a run is completions at consecutive listed moments; whether a run may extend into the rest of the trace is not specified",
+    "W06: without a count, under a permission or advice, on a state, or under `While` the phrase is rejected",
+]
+acceptance = []
+
+[[pattern]]
+id = "timing-immediately"
+group = "time"
+surface = ["When the timer expires, the API shall immediately respond."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response"
+evidence = [
+    "crates/trion-cli/tests/temporal_order.rs::a_completion_and_an_occurrence_are_ordered_on_the_trace",
+    "crates/trion-cli/tests/temporal_order.rs::a_prohibition_with_immediately_or_a_run_forbids_the_named_moments_only",
+    "crates/trion-cli/tests/reading_tree.rs::an_order_of_occurrences_is_rejected_where_it_is_not_read",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: `immediately` is 'completes at the next moment after the activation'; without a trigger the statement is rejected; no time unit is attached to a moment",
+]
+acceptance = ["A04"]
+
+[[pattern]]
+id = "timing-always"
+group = "time"
+surface = ["The API shall always log the request."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/temporal.rs:Builder::response"
+evidence = [
+    "crates/trion-cli/tests/temporal_order.rs::always_is_a_completion_at_each_moment",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: `always` is a completion at every moment after the activation; how it reads in the rest of the trace is not stated; `shall not always` is rejected",
+]
+acceptance = []
+
+[[pattern]]
+id = "timing-eventually"
+group = "time"
+surface = ["The API shall eventually send the report."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_tree.rs::an_order_of_occurrences_is_rejected_where_it_is_not_read",
+]
+claims = []
+open = [
+    "W06: `eventually` adds nothing: every activated positive action already 'eventually completes' (syntax/words.rs:is_liveness, grounding.rs:unvisited); the liveness itself is met in the rest of the trace and is never refuted by a finite trace (A07)",
+]
+acceptance = ["A07"]
+
+[[pattern]]
+id = "variant-frame-after-once-upon-on"
+rule = "frame-when"
+group = "time"
+surface = [
+    "After the job ends, the app shall stop.",
+    "Once the ticket is closed, the app shall stop.",
+    "On startup, the app shall stop.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula"
+evidence = [
+    "crates/trion-cli/tests/ears.rs::forms_outside_ears_are_named",
+    "crates/trion-cli/tests/temporal_order.rs::after_once_upon_and_on_open_the_frame_of_when",
+    "crates/trion-cli/tests/temporal_order.rs::an_opener_of_time_takes_one_event_as_when_does",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "rule: After, Once, Upon (`Upon receipt of a token,`) and On open the frame of When: the statement applies at each occurrence of the event; a noun phrase alone is the event `<noun> occurs`. 'strictly after', 'the first time' and 'at the instant' are not distinguished, by rule",
+    "closed 2026-11-14: the one-event rule covers these openers as it covers When and If (`After A occurs and B occurs,` is a parse error); before, two events under `and` were accepted",
+]
+acceptance = ["A05"]
+
+[[pattern]]
+id = "frame-counted-event"
+group = "time"
+surface = [
+    "After 3 failed retries, the app shall stop.",
+    "When 3 users join, the app shall stop.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/acceptance.rs::a_construct_that_a_rule_names_and_gives_no_meaning_stops_the_verification",
+]
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-14 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: a counted subject of the event of a frame; migration: name the event that the count reaches (`When the retry limit is reached,`) or state the count as a state (`While the number of failed retries is at least 3,`); restored by W06/W07 with a rule that counts occurrences",
+    "before: the count stayed in the event name (`Event(3 failed retry)`), unrelated to the action or event `retry` and to any number",
+]
+acceptance = []
+
+[[pattern]]
+id = "frame-before"
+group = "time"
+surface = [
+    "Before a node is drained, the app shall stop.",
+    "Before the door opens, the API shall stop.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: a preposed `Before <clause>,` frame; migration: write the order after the verb (`shall stop before the door opens`); restored by W06 with a meaning rule",
+    "W06: the frame becomes the free event atom `Event(before <clause>)` (model.rs:frame_formula), related neither to the clause nor to any moment; the contract is vacuous whenever nothing else names that atom, and no diagnostic is raised",
+    "W06: decide whether a preposed `Before X` is a deadline at X, a state scope until X, or rejected",
+]
+acceptance = ["A04"]
+
+[[pattern]]
+id = "variant-frame-during"
+rule = "frame-while"
+group = "time"
+surface = ["During maintenance, the app shall stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: read as `While`; a bare noun becomes the event `<noun> occurs` used as an interval, so an event atom stands for a state",
+    "only a parse test exists (trion-language tests/syntax.rs::temporal_openers_are_frames)",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-frame-until"
+rule = "frame-while"
+group = "time"
+surface = ["Until the timer expires, the API shall stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frame_formula"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::until_is_the_complement",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: a preposed `Until X` is the state scope not X at each moment; it holds again after X ends, so 'up to the first X' is not expressed (compare role-until)",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-frequency"
+rule = "action"
+group = "time"
+surface = ["retry the request at most 3 times", "retry the request twice"]
+parser = "crates/trion-language/src/syntax/parse.rs:split_frequency"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:frequency; crates/trion-language/src/reading/model.rs:action_bounds"
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::how_often_an_action_occurs_is_a_quantity_of_its_activation",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: `n times` bounds the quantity `<action> occurrences` of one activation; the quantity is not tied to the completions on the trace unless `in a row` is written",
+]
+acceptance = []
+
+[[pattern]]
+id = "composition-all"
+group = "composition"
+surface = ["The API shall perform all of the following actions:"]
+parser = "crates/trion-language/src/document.rs:action_list"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::node"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::an_all_list_requires_each_action",
+    "crates/trion-cli/tests/language_spec.rs::lists_nest_and_items_carry_identifiers",
+    "crates/trion-cli/tests/draft_rules.rs::a_composition_is_not_its_leaves_asserted_one_by_one",
+    "crates/trion-cli/tests/draft_rules.rs::the_modal_of_a_list_head_applies_to_the_whole_list",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: an item may carry its own `unless`; items share the frames of the head",
+]
+acceptance = []
+
+[[pattern]]
+id = "composition-some"
+group = "composition"
+surface = ["The API shall perform one or more of the following actions:"]
+parser = "crates/trion-language/src/document.rs:action_list"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::node"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_some_list_requires_one_action_or_more",
+    "crates/trion-cli/tests/draft_rules.rs::a_composition_is_not_its_leaves_asserted_one_by_one",
+    "crates/trion-cli/tests/draft_rules.rs::a_binding_stays_inside_its_alternative",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: the choice is one disjunction for the representative subject; it is not decomposed into sentences",
+]
+acceptance = ["A16"]
+
+[[pattern]]
+id = "composition-one"
+group = "composition"
+surface = ["The API shall perform exactly one of the following actions:"]
+parser = "crates/trion-language/src/document.rs:action_list"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::node"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_one_list_requires_exactly_one_action",
+    "crates/trion-cli/tests/key_misreadings.rs::a_permission_of_a_composed_response_is_one_permission",
+    "crates/trion-cli/tests/draft_rules.rs::a_composition_is_not_its_leaves_asserted_one_by_one",
+    "crates/trion-cli/tests/draft_rules.rs::a_binding_stays_inside_its_alternative",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: exclusivity is 'the chosen item holds and no action of another item is performed'; an action shared by two items makes the list unsatisfiable",
+    "W05: with a universal subject every individual shares one choice (A16)",
+]
+acceptance = ["A16"]
+
+[[pattern]]
+id = "composition-sequence"
+group = "composition"
+surface = ["The API shall perform the following actions in order:"]
+parser = "crates/trion-language/src/document.rs:action_list"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::sequence; crates/trion-language/src/reading/temporal.rs:Builder::structure"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_sequence_requires_each_action_in_order",
+    "crates/trion-cli/tests/temporal_rules.rs::ordered_actions_have_a_start_and_a_completion",
+    "crates/trion-cli/tests/limit_rest.rs::an_object_that_a_response_introduces_is_one_thing_of_its_binding",
+    "crates/trion-cli/tests/draft_rules.rs::each_designated_action_follows_the_completion_of_the_previous",
+    "crates/trion-cli/tests/draft_rules.rs::an_ordered_list_adds_only_occurrence_and_order",
+    "crates/trion-cli/tests/draft_rules.rs::a_binding_reaches_later_items_of_an_ordered_list",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W06: order is Before(a, b) between action keys, a strict partial order closed by background axioms (model.rs:compile); two statements that order the same keys in opposite ways conflict even when they speak of different occurrences",
+    "W06: a state cannot be an item of a sequence",
+]
+acceptance = ["A04", "A05"]
+
+[[pattern]]
+id = "composition-flow"
+group = "diagrams"
+surface = ["When a result arrives, the checker shall follow this flow:"]
+parser = "crates/trion-language/src/document.rs:flow"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::flow; crates/trion-language/src/expand.rs:lowered; crates/trion-language/src/reading/temporal.rs:Builder::structure"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_flow_reads_as_its_ordered_actions",
+    "crates/trion-cli/tests/reading_context.rs::a_flow_without_choices_is_read_as_its_ordered_action_list",
+    "crates/trion-cli/tests/temporal_rules.rs::a_flow_instance_has_one_occurrence_of_each_step_one_sampling_and_no_verdict",
+    "crates/trion-cli/tests/diagram_rules.rs::a_flow_with_choices_expands_to_sentences_that_the_parser_reads",
+    "crates/trion-cli/tests/draft_rules.rs::a_flow_edge_orders_its_steps",
+    "crates/trion-cli/tests/draft_rules.rs::an_obligatory_flow_requires_the_steps_of_its_selected_path",
+    "crates/trion-cli/tests/draft_rules.rs::a_prohibited_flow_prohibits_its_whole_pattern_only",
+    "crates/trion-cli/tests/draft_rules.rs::a_permitted_flow_admits_its_pattern_without_requiring_it",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: a flow without choices is its ordered action list; with choices it is reachability atoms `reach <step> in <statement text>` scoped by the sentence source text",
+    "W05: cycles are rejected (rej-flow-cycle); a join is the disjunction of its incoming paths",
+]
+acceptance = []
+
+[[pattern]]
+id = "flow-choice"
+group = "diagrams"
+surface = [
+    "choose after inspect:",
+    "when the result is valid -> accept",
+    "otherwise -> fail",
+]
+parser = "crates/trion-language/src/document.rs:choice"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::flow; crates/trion-verification/src/analysis/flows.rs:check_flow_guards"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::exclusive_and_complete_guards_pass",
+    "crates/trion-cli/tests/language_spec.rs::overlapping_guards_are_an_error",
+    "crates/trion-cli/tests/language_spec.rs::a_choice_without_otherwise_must_cover_every_case",
+    "crates/trion-cli/tests/language_spec.rs::an_uninterpreted_guard_is_an_obligation",
+    "crates/trion-cli/tests/temporal_rules.rs::guards_are_judged_from_invariants_definitions_and_the_path_never_from_the_flow",
+    "crates/trion-cli/tests/draft_rules.rs::a_choice_holds_guarded_targets_and_an_otherwise",
+    "crates/trion-cli/tests/draft_rules.rs::guard_order_does_not_set_a_priority",
+    "crates/trion-cli/tests/draft_rules.rs::a_gating_state_is_not_assumed_at_a_later_choice",
+    "crates/trion-cli/tests/draft_rules.rs::an_undecided_guard_question_is_not_reported_as_proved",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: guards are sampled once, at the completion of the step before the choice; exclusivity and coverage are proof obligations judged from invariants and definitions only",
+    "W02: an uninterpreted guard leaves the obligation open; it must stay a non-success",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-bare-cardinal"
+rule = "noun-phrase-counted"
+group = "reference-quantity"
+surface = ["send two reports", "send 2 reports"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_bare_cardinal_counts_at_least_that_many_things",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W07/W11: a bare cardinal is 'at least N', `exactly N` is equality; the lower-bound reading must be shown to the author",
+    "W03: a number word after a determiner (`the two reports`) is rejected",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "variant-exactly-n"
+rule = "noun-phrase-counted"
+group = "reference-quantity"
+surface = ["have exactly 1 title", "has exactly one owner"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds; crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::a_counted_object_bounds_one_number",
+    "crates/trion-cli/tests/language_spec.rs::an_existence_statement_makes_a_universal_rule_bite",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W08: equality over individuals is checked in a bounded domain; see noun-phrase-counted",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "variant-count-per-thing"
+rule = "noun-phrase-counted"
+group = "reference-quantity"
+surface = [
+    "send at most 1 report for each request",
+    "Each flow has at most 1 step for each step name.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:action_bounds; crates/trion-language/src/reading/meaning.rs:key_readings"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_count_for_each_thing_bounds_no_total",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W07: with `for each X` or `the same X` in a role the count bounds no total and is left to the reading over individuals; when that reading does not apply the count may bound nothing",
+]
+acceptance = []
+
+[[pattern]]
+id = "subject-counted-descriptive"
+group = "reference-quantity"
+surface = ["At most 5 users have a profile.", "At least 2 users are active."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relation; crates/trion-language/src/syntax/parse.rs:parse_description"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: a counted subject of a statement without a modal verb (`At most 5 users have a profile.`); migration: count the individuals with `There are at most 5 users.` or `The number of users is at most 5.`; a count of the individuals that stand in a relation has no form yet; restored by W07/W08 with a meaning rule",
+    "W07/W08: in a sentence without a modal the count is folded into the subject name (`Act(at most 5 user|have profile)`, `Dom(at least 2 user, active)`): `At most 5 users have a profile.` and `Exactly 6 users have a profile.` are reported consistent with no diagnostic (model.rs:core_formula via subject_key)",
+    "trion-verification tests/contradiction.rs::a_bounded_quantifier_is_its_own_claim asserts only that no conflict with a prohibition is reported",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "object-zero-or-more"
+group = "reference-quantity"
+surface = ["The API shall send zero or more reports."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_det"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "W02: rejected with UNSUPPORTED_SEMANTICS since 2026-11-13 to stop a false success (reading/rules.rs::UNRESOLVED; the statement was accepted and verified before); lost capability: `zero or more <noun>` as the object of a statement with a modal verb; migration: write a permission with `may`, or the bound that is meant; restored by W07 with a meaning rule",
+    "W07: under `shall`, `zero or more X` drops the count and keeps the obligation of the bare action (model.rs:item_formula with base_action): it contradicts `shall not send a report`; in a relation the same phrase is true (model.rs:relation_item)",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-no-two"
+rule = "noun-phrase-none"
+group = "reference-quantity"
+surface = ["No two rooms have the same name."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relation"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/instances.rs:of_core"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_denial_of_a_pair_is_read_over_individuals_or_rejected",
+    "crates/trion-cli/tests/limit_instances.rs::no_two_rooms_have_the_same_name",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W08: read only over the bounded domain of individuals (true for the representative); a pair among the things of an owner, or without `the same`, is rejected",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "variant-number-of-and-total"
+rule = "predicate-comparison"
+group = "numeric"
+surface = [
+    "The number of members of each room is at most 1.",
+    "The total size of all attachments is at most 10 MB.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_description"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/instances.rs:of_core; crates/trion-language/src/reading/instances.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/limit_instances.rs::the_members_of_a_room_are_counted",
+    "crates/trion-cli/tests/limit_instances.rs::a_total_is_the_sum_over_the_individuals_that_exist",
+    "crates/trion-cli/tests/limit_instances.rs::the_owner_of_a_room_is_one_of_the_members_of_that_room",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W08: counts and sums range over the individuals of the bounded domain; the result holds for domains of that size only",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "variant-linear-quantity"
+rule = "relation"
+group = "numeric"
+surface = [
+    "The timeout exceeds the retry interval.",
+    "The total is the sum of the fee and the tax.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relation; crates/trion-language/src/syntax/parse.rs:parse_comparison"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:verbal_comparison; crates/trion-language/src/reading/model.rs:linear_np; crates/trion-language/src/reading/model.rs:resolve_units"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::two_quantities_are_compared_with_each_other",
+    "crates/trion-cli/tests/limitations.rs::sums_multiples_and_differences_of_quantities_are_read",
+    "crates/trion-cli/tests/limitations.rs::quantities_of_one_comparison_share_one_unit",
+    "crates/trion-verification/tests/contradiction.rs::verbal_bounds_are_numeric",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W07: linear integer relations between named quantities; `exceeds`/`surpasses` between things that are no quantities is rejected",
+    "W09: quantities are free integers of one model; no quantifier alternation is expressible (A12)",
+]
+acceptance = ["A12"]
+
+[[pattern]]
+id = "variant-same-for-same"
+rule = "role-other"
+group = "reference-quantity"
+surface = ["The API shall return the same response for the same request."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/instances.rs:functional"
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::the_same_response_for_the_same_request_is_a_function",
+    "crates/trion-cli/tests/engine_keys.rs::the_same_thing_is_the_thing",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W09: read as functionality of one relation (each request has at most one response) over the bounded individuals; it is not determinism over runs, and any other `same ... same` shape is only reported as inexpressible",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-only-focus"
+rule = "action"
+group = "phrases"
+surface = [
+    "The editor shall write only to the file.",
+    "Admins shall delete only inactive users.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:check_formal_reading"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:key_readings"
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::only_excludes_the_actions_with_another_focus",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: `only` after the verb excludes the same action with another focus (another role phrase or object) that some statement names; actions that no statement names are not excluded",
+    "W05: a sentence-initial `Only` is a parse error (rej-words-without-formal-reading)",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-pronoun"
+rule = "noun-phrase-reference"
+group = "reference-quantity"
+surface = ["print its report", "report their paths", "the checker shall print it"]
+parser = "crates/trion-language/src/syntax/reference.rs:resolve"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/syntax/reference.rs:resolve"
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_pronoun_with_one_candidate_antecedent_names_that_antecedent",
+    "crates/trion-cli/tests/reading_nodes.rs::number_agreement_makes_an_antecedent_the_only_candidate",
+    "crates/trion-cli/tests/reading_nodes.rs::a_noun_phrase_is_no_antecedent_of_a_pronoun_in_its_owner",
+    "crates/trion-cli/tests/reading_nodes.rs::an_object_pronoun_is_not_the_subject_of_its_clause",
+    "crates/trion-cli/tests/document_rules.rs::a_pronoun_takes_the_one_subject_of_the_conditions",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: exactly one candidate antecedent in the sentence is required; two are AMBIGUOUS_REFERENCE, none UNRESOLVED_REFERENCE; visibility is the sentence (plus the conditions of an enclosing block)",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "variant-explicit-variable"
+group = "reference-quantity"
+surface = [
+    "When the API receives a call C1, the API shall log C1.",
+    "create an analysis report R for A; retain R;",
+]
+parser = "crates/trion-language/src/document.rs:Vars::apply"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/document.rs:Vars::apply; crates/trion-language/src/reading/meaning.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::an_object_that_a_response_introduces_is_one_thing_of_its_binding",
+    "crates/trion-cli/tests/document_rules.rs::a_variable_is_bound_in_its_sentence_or_in_an_enclosing_block",
+    "crates/trion-cli/tests/document_bindings.rs::two_bindings_do_not_require_two_objects",
+    "crates/trion-cli/tests/document_bindings.rs::a_type_name_and_an_instance_name_are_told_apart",
+    "crates/trion-cli/tests/flow_rules.rs::the_model_keeps_composition_operators_and_binders",
+    "crates/trion-cli/tests/draft_rules.rs::a_definite_reference_resolves_to_its_binding",
+    "crates/trion-cli/tests/draft_rules.rs::a_binding_ends_with_its_statement",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: a variable bound in a condition is replaced by its type (every object of the type); a variable introduced by a response is one marked thing `#R@<statement>`; two bindings in two statements are neither identified nor kept apart",
+    "W05: variables are substituted in the text before parsing; capture is avoided by the statement tag only",
+]
+acceptance = ["A15", "A16"]
+
+[[pattern]]
+id = "variant-proportion"
+group = "measure"
+surface = [
+    "respond within 200 ms for 99.9 percent of requests",
+    "respond for at most 90 percent of requests",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles; crates/trion-language/src/document.rs:push_spec"
+parse = "partial"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::a_share_of_a_declared_population_is_a_quantity",
+]
+claims = []
+open = [
+    "W02: in a statement that names no declared type of individuals a share is rejected with UNSUPPORTED_SEMANTICS (`share-of-representative`, reading/grounding.rs) since 2026-11-14 to stop a false success: one representative stands for each type, so the share was a quantity between 0 and 100 that nothing tied to a behaviour, and the package was verified; lost capability: a share in a package without `individuals`; migration: declare the type that the statement is about (`individuals request`) and name it in the statement; the share is then read by variant-share-of-activations",
+]
+acceptance = ["A08", "A09", "A10"]
+
+[[pattern]]
+id = "doc-measure"
+group = "measure"
+surface = ["measure requests"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/document.rs:push_spec; crates/trion-language/src/reading/model.rs:proportion"
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::a_share_of_a_declared_population_is_a_quantity",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W07: the declaration only licenses `percent of <name>`; it defines no population, interval or non-emptiness",
+]
+acceptance = ["A08", "A09", "A10"]
+
+[[pattern]]
+id = "doc-package"
+group = "packages"
+surface = ["package trion edition \"1\""]
+parser = "crates/trion-language/src/document.rs:package"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/project.rs::the_entry_file_declares_the_package_of_the_manifest",
+    "crates/trion-cli/tests/project.rs::an_included_file_has_no_package_declaration",
+]
+claims = []
+open = [
+    "W13: the edition string is stored and not tied to a semantic version of the reading rules",
+]
+acceptance = ["A18"]
+
+[[pattern]]
+id = "doc-include"
+group = "packages"
+surface = ["include \"sentences.trion\""]
+parser = "crates/trion-language/src/document.rs:file"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/project.rs::reads_the_files_the_entry_includes",
+    "crates/trion-cli/tests/project.rs::an_include_cycle_is_an_error",
+    "crates/trion-cli/tests/document_rules.rs::a_statement_means_the_same_whatever_stands_before_it",
+    "crates/trion-cli/tests/draft_rules.rs::moving_a_statement_to_another_file_keeps_its_meaning",
+    "crates/trion-cli/tests/draft_rules.rs::include_order_is_the_reading_order",
+]
+claims = []
+open = [
+    "W01: inclusion order must not change meaning; trion-verification analysis/properties.rs:order checks reordering as a gate",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-namespace"
+group = "packages"
+surface = ["namespace trion.sentences:"]
+parser = "crates/trion-language/src/document.rs:file"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/lexicon.rs:Lexicon::in_document"
+evidence = [
+    "crates/trion-cli/tests/project.rs::namespaces_are_separate",
+    "crates/trion-cli/tests/project.rs::a_child_namespace_does_not_see_its_parent",
+    "crates/trion-cli/tests/project.rs::a_namespace_can_be_reopened_in_another_file",
+    "crates/trion-cli/tests/document_rules.rs::one_namespace_holds_declarations_of_two_files",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W03: a namespace qualifies term identity (`ns::term`); values of attributes are named without their namespace",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-use"
+group = "packages"
+surface = ["use trion.words"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/lexicon.rs:build_scopes"
+evidence = [
+    "crates/trion-cli/tests/project.rs::a_use_reaches_another_namespace",
+    "crates/trion-cli/tests/project.rs::a_use_exposes_only_declared_terms",
+    "crates/trion-cli/tests/project.rs::a_term_from_two_uses_is_ambiguous",
+    "crates/trion-cli/tests/project.rs::a_used_specification_set_detects_a_foreign_operation",
+    "crates/trion-cli/tests/draft_rules.rs::a_use_declaration_loads_nothing",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W13: a `use` of a dependency carries no version of the dependency's meaning",
+]
+acceptance = ["A18"]
+
+[[pattern]]
+id = "doc-section"
+group = "packages"
+surface = ["section \"Sentences\":"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_section_groups_statements_without_meaning",
+    "crates/trion-cli/tests/document_rules.rs::line_breaks_blank_lines_and_sections_change_no_meaning",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "doc-statement-id"
+group = "packages"
+surface = ["[MODEL-ACCEPTED]", "[D/2]"]
+parser = "crates/trion-language/src/document.rs:take_id"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::identifiers_are_unique_in_a_package",
+    "crates/trion-verification/tests/contradiction.rs::duplicate_ids_are_errors",
+]
+claims = []
+open = [
+    "W05: the id is the tag of variables introduced by the statement (`#R@D/2`) and the scope of flow reachability is the sentence text; an unidentified statement is tagged by file and line, so moving it changes binding marks",
+]
+acceptance = ["A18"]
+
+[[pattern]]
+id = "doc-shared-context"
+group = "conditions"
+surface = ["When a request arrives:", "While the door is open:"]
+parser = "crates/trion-language/src/document.rs:block_statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/document.rs:push_spec; crates/trion-language/src/reading/model.rs:guard_formula"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_shared_context_applies_its_condition_to_each_statement",
+    "crates/trion-cli/tests/language_spec.rs::a_shared_context_holds_at_most_one_trigger",
+    "crates/trion-cli/tests/document_rules.rs::a_block_shares_its_condition_and_its_subject",
+    "crates/trion-cli/tests/language_spec.rs::expand_writes_inherited_conditions_out",
+    "crates/trion-cli/tests/draft_rules.rs::an_if_then_block_shares_one_activation",
+    "crates/trion-cli/tests/draft_rules.rs::a_while_block_restricts_its_statements_to_the_state",
+    "crates/trion-cli/tests/draft_rules.rs::a_where_block_restricts_its_statements_to_the_feature",
+]
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W05: the frames of the head are merged into each statement of the block; a definition inside a context is an error; variables of the head are visible in the block",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-for-each"
+group = "reference-quantity"
+surface = ["For each request R:", "For each request R, the API shall log R."]
+parser = "crates/trion-language/src/document.rs:block_statement; crates/trion-language/src/document.rs:plain_statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/document.rs:Vars::bind_head"
+evidence = [
+    "crates/trion-cli/tests/engine_keys.rs::a_for_each_head_binds_its_whole_noun_phrase",
+    "crates/trion-cli/tests/engine_keys.rs::a_for_each_frame_opens_one_sentence",
+    "crates/trion-cli/tests/document_rules.rs::a_variable_is_bound_in_its_sentence_or_in_an_enclosing_block",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: `For each` binds a typed variable and adds no condition and no quantifier: the statement speaks of the representative of the type; the order of this universal and a choice inside the block is not kept (A16)",
+]
+acceptance = ["A16"]
+
+[[pattern]]
+id = "doc-otherwise"
+group = "conditions"
+surface = [
+    "If the pump fails, then the API shall raise an alarm; otherwise, the API shall log the pump.",
+]
+parser = "crates/trion-language/src/document.rs:otherwise_statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:compile"
+evidence = []
+claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W06: the branch is a second statement `<ID>/otherwise` whose assumption is the negated guard and whose activation is 'each occurrence of not <event>': the non-occurrence of an event at a moment triggers the branch",
+    "no test asserts the contract of an `otherwise` sentence",
+]
+acceptance = ["A13"]
+
+[[pattern]]
+id = "doc-primitive"
+group = "vocabulary"
+surface = ["primitive door", "primitive parser, sentence, keyword"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::a_statement_that_constrains_nothing_is_an_error",
+]
+claims = []
+open = [
+    "W03: a primitive only grounds a term (grounding.rs:silence) and adds no axiom; it also silences the quality report for a word of the same spelling (`primitive secure`), which lets an undefined quality pass",
+]
+acceptance = ["A03"]
+
+[[pattern]]
+id = "doc-term"
+group = "vocabulary"
+surface = ["term room: entity", "term status: attribute"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/vocabulary.rs:build_table"
+evidence = [
+    "crates/trion-verification/tests/vocabulary.rs::records_declared_terms",
+    "crates/trion-verification/tests/vocabulary.rs::a_use_against_the_declared_kind_is_an_error",
+    "crates/trion-verification/tests/vocabulary.rs::declared_mode_rejects_undeclared_terms",
+    "crates/trion-verification/tests/vocabulary.rs::an_unknown_kind_is_an_error",
+]
+claims = []
+open = [
+    "W03: the kind (entity, object, attribute, value, action) is checked against use; it is not a type in the formulas",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-predicate"
+group = "vocabulary"
+surface = ["predicate respond(request)", "predicate close(system, door)"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:compile; crates/trion-language/src/reading/temporal.rs:obligation; crates/trion-language/src/reading/vocabulary.rs:build_table"
+evidence = [
+    "crates/trion-verification/tests/vocabulary_rules.rs::an_uninterpreted_predicate_has_a_signature_an_identity_and_no_axioms",
+    "crates/trion-cli/tests/temporal_rules.rs::an_untriggered_requirement_applies_to_each_invocation_of_its_declared_operation",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W03: the declaration adds no axiom; its one semantic effect is that an untriggered obligation with that verb gets 'each invocation' as activation and as deadline origin; no test shows the signature constraining the arguments of an action",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "doc-alias"
+group = "vocabulary"
+surface = ["alias client = user"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/lexicon.rs:collect_aliases"
+evidence = [
+    "crates/trion-verification/tests/contradiction.rs::an_alias_unifies_terms",
+    "crates/trion-verification/tests/contradiction.rs::an_alias_reaches_objects_values_and_chains",
+    "crates/trion-verification/tests/contradiction.rs::conflicting_or_cyclic_aliases_are_errors",
+    "crates/trion-cli/tests/project.rs::an_alias_is_closed_within_its_namespace",
+    "crates/trion-cli/tests/grounding_engine.rs::a_definition_that_an_alias_collapses_is_reported",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W03: an alias identifies two names before any reading; it is an identity, not an inclusion",
+]
+acceptance = ["A15"]
+
+[[pattern]]
+id = "doc-environment"
+group = "vocabulary"
+surface = ["environment user"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/environment.rs:control"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_declaration_decides_who_controls_an_actor",
+    "crates/trion-cli/tests/limitations.rs::a_response_before_what_the_environment_decides_cannot_be_kept",
+    "crates/trion-cli/tests/engine_keys.rs::a_control_declaration_reaches_the_namespaces_that_use_it",
+]
+claims = ["situation_total"]
+open = [
+    "W09: without a declaration control is inferred (an obliged actor is system, an awaited one environment); the only consequence is the `unrealizable` report for a response ordered before an environment action; observation and choice points are not modelled (A19)",
+]
+acceptance = ["A19"]
+
+[[pattern]]
+id = "doc-system"
+group = "vocabulary"
+surface = ["system API"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/environment.rs:control"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_declaration_decides_who_controls_an_actor",
+]
+claims = ["situation_total"]
+open = ["W09: see doc-environment"]
+acceptance = ["A19"]
+
+[[pattern]]
+id = "doc-detailed-by"
+group = "priority"
+surface = ["detailed by [D1], [D2]"]
+parser = "crates/trion-language/src/document.rs:details"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/meaning.rs:apply; crates/trion-language/src/reading/meaning.rs:check"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_statement_holds_exactly_when_its_details_hold",
+    "crates/trion-cli/tests/engine_keys.rs::a_refinement_stays_out_of_a_proof_that_its_statement_is_not_part_of",
+    "crates/trion-cli/tests/engine_keys.rs::a_concept_block_and_a_flow_can_detail_a_statement",
+    "crates/trion-cli/tests/grounding_engine.rs::a_statement_with_many_details_is_decided",
+]
+claims = ["property_entails"]
+open = [
+    "W11: the line declares an equivalence (the statement holds exactly when the conjunction of its details holds), a strong axiom, not a document link; it is a premise of checks and comparisons only and is not searched with the contracts (ConstraintKind::Refinement)",
+    "W02: a statement grounded only through `detailed by` passes and is merely listed (`refinement_only`)",
+]
+acceptance = ["A23"]
+
+[[pattern]]
+id = "doc-overrides"
+group = "priority"
+surface = ["overrides [GENERAL]"]
+parser = "crates/trion-language/src/document.rs:rank"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/priority.rs:apply; crates/trion-language/src/reading/priority.rs:check"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_statement_overrides_another_without_editing_it",
+    "crates/trion-cli/tests/limitations.rs::a_priority_names_a_statement_ends_somewhere_and_ranks_a_conflict",
+    "crates/trion-cli/tests/limitations.rs::a_priority_holds_through_a_refinement_and_an_inclusion",
+    "crates/trion-verification/tests/proof_engine.rs::an_overridden_statement_and_a_default_stay_in_every_query",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: the loser's formula is narrowed to where the winner's condition does not hold (the authored condition is kept beside it); a cycle of priorities is reported and nothing is narrowed",
+    "W02: the narrowed contract, not the authored one, enters contract_sat and situation_total",
+]
+acceptance = ["A17"]
+
+[[pattern]]
+id = "doc-default"
+group = "priority"
+surface = ["default"]
+parser = "crates/trion-language/src/document.rs:rank"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/priority.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::a_default_yields_to_each_more_specific_statement_that_contradicts_it",
+    "crates/trion-verification/tests/proof_engine.rs::an_overridden_statement_and_a_default_stay_in_every_query",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = [
+    "W05: 'more specific' is decided by solver queries about the conditions; a default yields only to a statement that contradicts it where both apply",
+]
+acceptance = ["A17"]
+
+[[pattern]]
+id = "doc-weight"
+group = "priority"
+surface = ["weight 5"]
+parser = "crates/trion-language/src/document.rs:rank"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/mod.rs:analyze_from"
+evidence = [
+    "crates/trion-cli/tests/limitations.rs::the_heaviest_recommendations_that_fit_are_the_ones_to_keep",
+    "crates/trion-cli/tests/verification_results.rs::a_broken_recommendation_is_not_an_inconsistency",
+]
+claims = []
+open = [
+    "W02: a weight ranks `should` statements only (an error on any other statement); the heaviest satisfiable set is reported as a preference and never drops a hard statement (A17)",
+]
+acceptance = ["A17"]
+
+[[pattern]]
+id = "doc-concept"
+group = "diagrams"
+surface = ["concept:", "each order -> has -> exactly one buyer;"]
+parser = "crates/trion-language/src/document.rs:concept"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/expand.rs:concept_edge; crates/trion-language/src/reading/model.rs:relation_item"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_concept_diagram_is_equivalent_to_its_sentences",
+    "crates/trion-cli/tests/language_spec.rs::a_concept_edge_expands_to_a_sentence",
+    "crates/trion-cli/tests/diagram_rules.rs::a_target_cardinality_leaves_the_inverse_relation_free",
+    "crates/trion-cli/tests/document_bindings.rs::a_diagram_and_its_expansion_have_one_environment",
+    "crates/trion-cli/tests/draft_rules.rs::a_concept_edge_is_formalized_like_english_and_its_conflicts_name_the_edge",
+    "crates/trion-cli/tests/draft_rules.rs::a_target_cardinality_counts_the_related_targets",
+    "crates/trion-cli/tests/draft_rules.rs::a_concept_edge_does_not_require_an_instance",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W05: each edge is the generated sentence `Each A <relation> <cardinality> B.` read by the same parser; equivalence with authored sentences is a check, decided over bounded traces",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-diagram-kind"
+group = "diagrams"
+surface = [
+    "diagram kind dependency:",
+    "preserves \"each edge is one relation statement\"",
+]
+parser = "crates/trion-language/src/document.rs:diagram_kind"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/diagram_rules.rs::a_declared_diagram_kind_is_normative_and_an_undeclared_one_is_not",
+    "crates/trion-cli/tests/diagram_rules.rs::what_a_package_declares_and_nothing_checks_is_named_in_the_result",
+]
+claims = []
+open = [
+    "W10/W11: the `preserves` string states why the expansion keeps the meaning of an element; each element is read as its expansion sentence (`element`, `types` and `expansion` are used), and the statement itself is not checked. Since 2026-11-14 every view of a result names it as `declared, not checked` (verify.rs:declared_of); before, a verified result said nothing of it",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-diagram"
+group = "diagrams"
+surface = ["diagram dependency:"]
+parser = "crates/trion-language/src/document.rs:declared_diagram"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/document.rs:declared_diagram; crates/trion-language/src/reading/model.rs:compile"
+evidence = [
+    "crates/trion-cli/tests/diagram_rules.rs::a_declared_diagram_kind_is_normative_and_an_undeclared_one_is_not",
+    "crates/trion-cli/tests/flow_rules.rs::a_diagram_is_a_typed_notation_for_sentences_with_one_interpretation",
+    "crates/trion-cli/tests/diagram_rules.rs::each_generated_expression_names_the_elements_and_scopes_it_came_from",
+]
+claims = [
+    "background_sat",
+    "contract_sat",
+    "situation_total",
+    "property_entails",
+    "scenario_satisfiable",
+]
+open = [
+    "W05: an element is the sentence that textual substitution into the kind's expansion gives; substitution is by placeholder name, longest first, with no capture check",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-check"
+group = "blocks"
+surface = [
+    "check SAME:\n    relation equivalent\n    left [A]\n    right [B]\n    using definitions",
+]
+parser = "crates/trion-language/src/document.rs:check_block"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/blocks.rs:run_checks"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_check_with_different_sides_is_refuted",
+    "crates/trion-cli/tests/language_spec.rs::a_check_names_existing_statements",
+    "crates/trion-cli/tests/verification_results.rs::a_check_uses_the_definitions_that_its_operands_need",
+    "crates/trion-cli/tests/verification_results.rs::a_check_that_the_bounds_leave_open_is_unknown",
+    "crates/trion-verification/tests/proof_engine.rs::a_check_is_decided_over_the_unrolled_formulas_at_the_bounds_of_the_run",
+    "crates/trion-cli/tests/draft_rules.rs::a_check_accepts_only_the_equivalent_relation",
+    "crates/trion-cli/tests/draft_rules.rs::a_check_does_not_assume_its_operands_or_its_claim",
+]
+claims = ["property_entails"]
+open = [
+    "W02: a check without a relation or without a side stays among the outcomes with `result: \"invalid\"`, one that names a missing statement is `invalid`, and one whose operand has no formal interpretation is `unsupported` (blocks.rs:run_checks); at 24cab2aa the first was `proved` and the others vanished",
+    "W02 (closed 2026-11-13): a check with a relation other than `equivalent`, with an unknown field or without `using definitions` reported `parse-check` and was still decided as an equivalence and listed as `proved`; the parser now marks the block (`Check.malformed`) and its outcome is `invalid` (draft_rules.rs::an_unsupported_or_unresolved_construct_prevents_success)",
+    "W02: only `equivalent` is accepted; the environment adds 'each mentioned closed attribute holds one of its values at each moment', a premise the consistency search does not use",
+    "W02: an inconsistent environment is reported as unknown; a proof needs the nearest axioms only, a refutation every axiom that reaches the operands",
+]
+acceptance = ["A20", "A23"]
+
+[[pattern]]
+id = "doc-example"
+group = "blocks"
+surface = [
+    "example E:\n    kind consistency\n    input \"The API shall stop.\"\n    expect consistent",
+]
+parser = "crates/trion-language/src/document.rs:example_block"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/blocks.rs:run_examples"
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_syntax_example_reports_acceptance_or_its_diagnostic",
+    "crates/trion-cli/tests/language_spec.rs::a_comparison_example_classifies_the_candidate",
+    "crates/trion-cli/tests/language_spec.rs::a_consistency_example_uses_only_its_input_and_definitions",
+    "crates/trion-cli/tests/language_spec.rs::an_unmet_expectation_fails_and_keeps_both_results",
+    "crates/trion-cli/tests/language_spec.rs::an_example_that_cannot_run_is_invalid",
+    "crates/trion-cli/tests/reading_account.rs::a_reading_example_compares_the_observed_entry_with_the_expected_one",
+    "crates/trion-cli/tests/draft_rules.rs::an_example_changes_no_outer_name_source_identity_or_include",
+]
+claims = ["property_entails"]
+open = [
+    "W04: the expected value is written by the author of the specification and compared with what the implementation observes; it is not an independent oracle (plan 11.4)",
+    "W02: kinds are syntax, comparison, consistency and reading; an unknown outcome satisfies no expectation",
+]
+acceptance = ["A20", "A23"]
+
+[[pattern]]
+id = "doc-source"
+group = "sources"
+surface = [
+    "source EARS:\n    title \"EARS\"\n    locator \"https://example.org/ears\"\n    quote Q1 \"The system shall\"",
+]
+parser = "crates/trion-language/src/document.rs:source_block"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/sources.rs::a_changed_quote_is_an_error",
+    "crates/trion-cli/tests/sources.rs::a_changed_source_is_an_error",
+    "crates/trion-cli/tests/sources.rs::coverage_below_the_minimum_fails",
+]
+claims = []
+open = [
+    "W11: a source is evidence of origin; quote matching, sha256 and coverage are checked in trion-cli sources.rs and say nothing about the validity of a statement",
+]
+acceptance = ["A18"]
+
+[[pattern]]
+id = "doc-cite"
+group = "sources"
+surface = ["cite EARS", "cite EARS#Q1"]
+parser = "crates/trion-language/src/document.rs:annotation"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/sources.rs::only_a_cited_quote_counts",
+    "crates/trion-cli/tests/sources.rs::a_block_citation_covers_for_every_statement_in_it",
+    "crates/trion-cli/tests/sources.rs::an_unknown_source_or_quote_is_unresolved",
+    "crates/trion-verification/tests/draft_rules.rs::a_nested_citation_adds_to_the_inherited_ones",
+    "crates/trion-cli/tests/draft_rules.rs::a_citation_informs_a_statement_without_entailing_or_importing_anything",
+]
+claims = []
+open = [
+    "W11: a citation under a malformed statement is dropped silently (document.rs:body)",
+]
+acceptance = ["A18"]
+
+[[pattern]]
+id = "doc-unsourced"
+group = "sources"
+surface = ["unsourced \"design decision of this edition\""]
+parser = "crates/trion-language/src/document.rs:annotation"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/sources.rs::specifications_without_a_source_are_listed_with_their_reason",
+    "crates/trion-cli/tests/sources.rs::a_specification_without_a_source_is_a_warning",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "doc-note"
+group = "sources"
+surface = ["note \"kept for readers\""]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::quoted_excerpts_notes_titles_locators_and_inputs_are_data",
+    "crates/trion-cli/tests/draft_rules.rs::a_note_explains_without_constraining",
+]
+claims = []
+open = [
+    "W11: the text of a note is discarded by the parser; it is not shown in any result",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-ref"
+group = "sources"
+surface = ["ref [MODEL-ACCEPTED]"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_reference_names_an_existing_statement",
+]
+claims = []
+open = ["W11: only the existence of the target is checked"]
+acceptance = []
+
+[[pattern]]
+id = "doc-compatibility"
+group = "sources"
+surface = [
+    "compatibility EARS-2009:\n    source EARS\n    revision \"2009\"\n    form Event-driven",
+]
+parser = "crates/trion-language/src/document.rs:compatibility_block"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/diagram_rules.rs::a_compatibility_claim_names_a_revision_and_its_sentence_forms",
+    "crates/trion-cli/tests/diagram_rules.rs::what_a_package_declares_and_nothing_checks_is_named_in_the_result",
+]
+claims = []
+open = [
+    "W10/W11: the claim is checked for a declared source and an equal revision string (trion-cli sources.rs); that the listed sentence forms agree with the external grammar is stated by the package and not checked. Since 2026-11-14 every view of a result names the claim as `declared, not checked` (verify.rs:declared_of); before, a verified result said nothing of it",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-role"
+group = "extensions"
+surface = [
+    "role operation:\n    activate: <sentence>\n    form F1: <sentence>. where $name matches /<regex>/\n    required R1: <sentence>",
+]
+parser = "crates/trion-language/src/document.rs:role_block; crates/trion-language/src/document.rs:role_line"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:compile; crates/trion-verification/src/analysis/structure.rs:find_required_missing"
+evidence = [
+    "crates/trion-verification/tests/forms.rs::an_imported_form_rejects_a_foreign_operation",
+    "crates/trion-verification/tests/forms.rs::a_shape_violation_is_not_called_a_contradiction",
+    "crates/trion-verification/tests/forms.rs::a_role_required_form_is_a_definite_omission",
+    "crates/trion-verification/tests/forms.rs::a_selector_limits_the_rule",
+    "crates/trion-verification/tests/forms.rs::a_negated_form_rejects_a_match",
+]
+claims = []
+open = [
+    "W14: `form` and `required` check the surface of statements by tree matching and regular expressions; passing them says nothing about the meaning of the statement, and they produce Role atoms that are no part of the behaviour",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-bind"
+group = "extensions"
+surface = ["bind checkout as grpc.operation"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:compile"
+evidence = [
+    "crates/trion-verification/tests/forms.rs::an_explicit_binding_applies_the_role",
+    "crates/trion-verification/tests/forms.rs::an_alias_reaches_a_bound_term",
+    "crates/trion-cli/tests/project.rs::a_namespace_role_binds_like_a_package_role",
+]
+claims = []
+open = [
+    "W14: a binding asserts Role(subject, role) as a constraint of kind Binding; an activation sentence binds implicitly by matching",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-extend"
+group = "extensions"
+surface = ["extend status with Suspended"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:compile; crates/trion-verification/src/analysis/structure.rs:check_extensions"
+evidence = [
+    "crates/trion-cli/tests/ears.rs::an_extension_adds_to_a_closed_domain",
+    "crates/trion-cli/tests/ears.rs::only_a_closed_domain_can_be_extended",
+]
+claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+open = [
+    "W03: an extension adds values to a closed domain declared elsewhere without contradicting the enumeration; the extended values are recorded with the declaring namespace",
+]
+acceptance = []
+
+[[pattern]]
+id = "doc-classify"
+group = "extensions"
+surface = ["classify sentences as pattern."]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/structure.rs:check_classifications"
+evidence = [
+    "crates/trion-cli/tests/ears.rs::the_ears_package_closes_the_syntax",
+    "crates/trion-cli/tests/ears.rs::an_extension_allows_a_form",
+    "crates/trion-cli/tests/ears.rs::an_extension_is_scoped_to_its_namespace",
+    "crates/trion-cli/tests/ears.rs::each_pattern_is_classified",
+]
+claims = []
+open = [
+    "W14: classification restricts which sentence forms a namespace may use (`syntax-not-allowed`); it is a form check and adds nothing to the model",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-may-not"
+group = "modality"
+surface = ["The API may not stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::may_not_is_rejected_with_a_request_for_an_explicit_form",
+]
+claims = []
+open = [
+    "`may not` is neither a prohibition nor a denial of permission in this edition; do not read it as `shall not`",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-no-with-may"
+group = "modality"
+surface = ["No client may retry."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = ["ParseError::NoWithMay; no test names this form"]
+acceptance = []
+
+[[pattern]]
+id = "rej-unsupported-modal"
+group = "modality"
+surface = ["The API can retry.", "The API will stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_core"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "can, will, would, could, might, ought are ParseError::UnsupportedModal; capability is written `is able to` (see predicate-able-to, unresolved); no test names this form",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-counted-normative-subject"
+group = "reference-quantity"
+surface = [
+    "Two bindings shall not name a variable.",
+    "At most 3 bindings shall name a variable.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = ["crates/trion-cli/tests/reading_weak.rs::a_rule_has_no_counted_subject"]
+claims = []
+open = [
+    "a counted subject is rejected only before a modal: `at most N` and `exactly N` always, `at least N` and a bare N only above 1; the same subject in a sentence without a modal is accepted and unread (variant-counted-descriptive-subject)",
+]
+acceptance = ["A11"]
+
+[[pattern]]
+id = "rej-second-trigger"
+group = "conditions"
+surface = [
+    "When the door opens, when the bell rings, the API shall stop.",
+    "When A occurs, the API shall stop when B occurs.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames; crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/ears.rs::a_second_trigger_is_rejected",
+    "crates/trion-cli/tests/language_spec.rs::a_shared_context_holds_at_most_one_trigger",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-multiple-event-conjuncts"
+group = "conditions"
+surface = ["When the door opens and the bell rings, the API shall stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "two events under `and` in one When/If are rejected; under `or` they are accepted; the check does not cover After/Once/Upon/On; no test names this form",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-frame-order"
+group = "conditions"
+surface = ["When the bell rings, While the pump runs, the API shall stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::a_complex_sentence_orders_feature_state_and_trigger",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-if-without-then"
+group = "conditions"
+surface = ["If the pump fails, the API shall raise an alarm."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_frames"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::an_if_condition_is_followed_by_then",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-frame-on-definition"
+group = "vocabulary"
+surface = ["When the bell rings, a session means a sequence of requests."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_sentence"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = ["a definition takes `Where` frames only; no test names this form"]
+acceptance = []
+
+[[pattern]]
+id = "rej-leading-unless"
+group = "exceptions"
+surface = ["Unless the override is active, the pump shall stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_core"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-verification/tests/draft_rules.rs::a_rejection_explains_the_violated_rule",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-negated-alternatives"
+group = "composition"
+surface = ["The API shall not either accept the call or reject the call."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = ["no test names this form"]
+acceptance = []
+
+[[pattern]]
+id = "rej-ungrouped-response-operators"
+group = "composition"
+surface = [
+    "the client shall record the failure and retry the request or notify the operator",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:vp_conjunction"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::mixed_operators_need_grouping",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-words-without-formal-reading"
+group = "phrases"
+surface = [
+    "Only admins shall delete users.",
+    "Neither the client nor the server shall retry.",
+    "The API is required to return 200.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:check_formal_reading"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-language/tests/syntax.rs::words_without_a_formal_reading_are_rejected",
+    "crates/trion-language/tests/syntax.rs::a_literal_word_is_not_rejected",
+]
+claims = []
+open = [
+    "sentence-initial `only`, nobody/none/nothing, neither/nor, `but`, and `is required/allowed/forbidden to`",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-unread-function-word"
+group = "phrases"
+surface = [
+    "The parser shall not accept a sentence because the sentence contains a keyword.",
+    "The server shall send the first message to the client.",
+]
+parser = "crates/trion-language/src/reading/grounding.rs:silence; crates/trion-language/src/reading/grounding.rs:unvisited"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::a_part_without_a_reading_is_an_error",
+    "crates/trion-cli/tests/reading_tree.rs::a_function_word_in_any_open_place_is_rejected_or_changes_the_model",
+    "crates/trion-verification/tests/key_mutation.rs::a_closed_class_word_changes_the_model_or_is_rejected",
+    "crates/trion-cli/tests/reading_account.rs::a_function_word_that_the_parser_took_for_a_content_word_is_rejected",
+]
+claims = []
+open = [
+    "W03: the parser accepts the sentence and the reading rejects it with UNSUPPORTED_SEMANTICS when a closed-class word stands in an open place; the gate is a word list (syntax/words.rs), so a function word outside the list passes as a content word",
+]
+acceptance = ["A20"]
+
+[[pattern]]
+id = "rej-unresolved-or-ambiguous-reference"
+group = "reference-quantity"
+surface = [
+    "It shall print the report.",
+    "The checker shall print each report with its file.",
+]
+parser = "crates/trion-language/src/syntax/reference.rs:resolve"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_pronoun_without_a_candidate_antecedent_is_unresolved",
+    "crates/trion-cli/tests/reading_nodes.rs::a_pronoun_with_two_candidate_antecedents_is_ambiguous",
+    "crates/trion-cli/tests/reading_weak.rs::this_without_an_antecedent_is_unresolved",
+]
+claims = []
+open = []
+acceptance = ["A15"]
+
+[[pattern]]
+id = "rej-without-gerund"
+group = "phrases"
+surface = ["The checker shall read the file without changing the report."]
+parser = "crates/trion-language/src/reading/grounding.rs:silence"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_gerund_after_without_is_rejected",
+]
+claims = []
+open = [
+    "the simultaneous prohibition must be written `and shall not change the report`; compare concession-while-gerund",
+]
+acceptance = ["A01"]
+
+[[pattern]]
+id = "rej-within-bounded-measure"
+group = "time"
+surface = ["respond within at least 5 seconds"]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_roles"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = ["ParseError::WithinTakesPlainMeasure; no test names this form"]
+acceptance = []
+
+[[pattern]]
+id = "rej-descending-between"
+group = "numeric"
+surface = ["The size is between 6 and 4 MB."]
+parser = "crates/trion-language/src/syntax/parse.rs:check_between_order"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "numeric bounds only; a named-quantity interval is unchecked; no test names this form",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-unknown-number-word"
+group = "numeric"
+surface = ["at least eleventy nodes", "within twenty-one seconds"]
+parser = "crates/trion-language/src/syntax/parse.rs:unknown_number_word_at"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = []
+claims = []
+open = [
+    "number words are zero to twenty, the tens and hundred, single words only; no test names this form",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-ambiguous-verb-boundary"
+group = "phrases"
+surface = ["When the client frobs telemetry, the app shall stop."]
+parser = "crates/trion-language/src/syntax/parse.rs:boundary_verbal"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-language/tests/syntax.rs::an_unknown_verb_stays_ambiguous",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-proportion-without-measure"
+group = "measure"
+surface = ["The API shall respond within 200 ms for 99.9 percent of requests."]
+parser = "crates/trion-language/src/document.rs:push_spec"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/limit_rest.rs::a_share_of_a_declared_population_is_a_quantity",
+    "crates/trion-cli/tests/limit_defects.rs::a_proportion_is_not_read_as_a_duration",
+]
+claims = []
+open = [
+    "W07: rejected with UNSUPPORTED_SEMANTICS until `measure <population>` is declared",
+]
+acceptance = ["A08"]
+
+[[pattern]]
+id = "rej-deadline-without-origin"
+group = "time"
+surface = [
+    "The gateway shall respond within 2 seconds.",
+    "The valve shall be closed within 5 seconds.",
+]
+parser = "crates/trion-language/src/reading/temporal.rs:Builder::response"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/temporal_rules.rs::a_deadline_without_an_origin_is_reported",
+]
+claims = []
+open = [
+    "W06: UNRESOLVED_TEMPORAL_SCOPE unless the sentence has a trigger, a state scope, an explicit origin, or the verb is a declared predicate",
+]
+acceptance = ["A06"]
+
+[[pattern]]
+id = "rej-time-word-without-reading"
+group = "time"
+surface = [
+    "When the timer expires, the API may log the request before the API sends the report.",
+    "The API shall immediately respond.",
+    "When the timer expires, the API shall not always respond.",
+]
+parser = "crates/trion-language/src/reading/temporal.rs:Builder::response"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/temporal_order.rs::a_word_of_time_without_a_reading_is_rejected_with_the_reason",
+    "crates/trion-cli/tests/reading_tree.rs::an_order_of_occurrences_is_rejected_where_it_is_not_read",
+]
+claims = []
+open = [
+    "W06: order phrases, `immediately`, `always` and `in a row` are read only for required or forbidden actions with an activation; elsewhere UNRESOLVED_TEMPORAL_SCOPE",
+]
+acceptance = []
+
+[[pattern]]
+id = "rej-no-in-role"
+group = "reference-quantity"
+surface = ["The checker shall send a report to no user."]
+parser = "crates/trion-language/src/reading/grounding.rs:silence"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = ["crates/trion-cli/tests/reading_nodes.rs::no_in_a_role_is_rejected"]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-definition-without-reading"
+group = "vocabulary"
+surface = [
+    "A bundle means a report and a summary.",
+    "A closed room means the room is locked.",
+]
+parser = "crates/trion-language/src/reading/meaning.rs:definition"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_nodes.rs::a_definition_without_a_reading_is_rejected",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-ungrounded-statement"
+group = "vocabulary"
+surface = ["The room shall keep the ledger."]
+parser = "crates/trion-language/src/reading/grounding.rs:silence"
+parse = "accepted"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/reading_rules.rs::a_statement_that_constrains_nothing_is_an_error",
+    "crates/trion-cli/tests/limitations.rs::a_statement_that_constrains_nothing_is_reported",
+    "crates/trion-verification/tests/vocabulary.rs::an_undeclared_term_is_accepted_only_where_something_relates_it",
+]
+claims = []
+open = [
+    "W03: a normative statement that shares no atom with another statement and has an undeclared term is an error (`ungrounded`); `primitive <term>` is enough to pass, which grounds the word and not the requirement",
+]
+acceptance = ["A20"]
+
+[[pattern]]
+id = "rej-not-controlled-english"
+group = "packages"
+surface = ["[A] API は停止する。"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_statement_outside_controlled_english_is_rejected",
+    "crates/trion-language/tests/document.rs::a_japanese_sentence_is_not_controlled_english",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-flow-cycle"
+group = "diagrams"
+surface = ["a -> b", "b -> a"]
+parser = "crates/trion-language/src/document.rs:flow_problem"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::a_flow_cycle_is_unsupported",
+    "crates/trion-cli/tests/language_spec.rs::a_flow_has_one_start_and_a_finish",
+]
+claims = []
+open = ["W05: cyclic flows are out of the supported range"]
+acceptance = []
+
+[[pattern]]
+id = "rej-unknown-diagram-kind"
+group = "diagrams"
+surface = ["diagram state:"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/language_spec.rs::an_unknown_diagram_kind_is_unsupported",
+]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "rej-definition-in-context"
+group = "vocabulary"
+surface = ["When a request arrives:\\n    A session means a sequence of requests."]
+parser = "crates/trion-language/src/document.rs:push_spec"
+parse = "rejected"
+meaning = "rejected"
+lowering = ""
+evidence = [
+    "crates/trion-cli/tests/draft_rules.rs::a_definition_stays_outside_shared_contexts",
+]
+claims = []
+open = []
+acceptance = []
+
+# ---- statements about individuals (W03 to W10) ----
+
+[[pattern]]
+id = "doc-individuals"
+group = "blocks"
+surface = [
+    "individuals user, room, message",
+]
+parser = "crates/trion-language/src/document.rs:body"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/ground.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/individuals.rs::one_noun_names_one_individual_in_the_condition_and_in_the_response",
+    "crates/trion-cli/tests/individuals.rs::a_package_that_declares_no_individuals_keeps_its_reading",
+    "crates/trion-cli/tests/individuals.rs::the_record_of_a_reading_states_the_variables_and_what_is_said_of_them",
+]
+claims = ["background_sat", "contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W05: a declaration moves the whole package to the reading over individuals (spec/semantics/readings.md); a statement that names a declared type outside the typed fragment is rejected and does not keep its representative reading",
+    "W08: every result is within domains of `scope` individuals of each carrier and is not lifted",
+]
+acceptance = ["A15", "A16"]
+
+[[pattern]]
+id = "doc-scenario"
+group = "blocks"
+surface = [
+    "scenario STORED:\n    given a user U1, a message M1\n    given U1 is the author of M1.\n    at 0 ms: U1 sends M1.\n    at 1 seconds: the system stores M1.\n    expect allowed",
+]
+parser = "crates/trion-language/src/document.rs:scenario_block"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-checker/src/scenario.rs:world"
+evidence = [
+    "crates/trion-cli/tests/individuals.rs::the_rooms_example_is_verified_and_each_scenario_is_judged_as_its_requirement_expects",
+    "crates/trion-cli/tests/individuals.rs::a_seeded_fault_of_the_reading_is_found_by_a_scenario",
+    "crates/trion-cli/tests/individuals.rs::a_scenario_that_is_not_read_is_judged_of_nothing",
+]
+claims = ["scenario_satisfiable"]
+open = [
+    "W12: a scenario states one complete finite behaviour; an initial state and transitions are not stated, and `scenario_reachable` is never examined (A22)",
+    "W04: at most six individuals of one noun; an occurrence may be repeated at any number of moments; a scenario is judged only in a package that declares its individuals",
+    "an enumeration gives each individual one of its values at each moment, so a scenario states the state of each individual that an enumeration speaks of, from its first moment on",
+]
+acceptance = ["A07", "A10", "A22"]
+
+[[pattern]]
+id = "variant-share-of-activations"
+group = "measure"
+rule = "measure-quantity"
+surface = [
+    "When a user posts a message, the system shall store the message within 2 seconds for at least 99 percent of postings.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/typed.rs:read; crates/trion-language/src/reading/temporal.rs:share_contract"
+evidence = [
+    "crates/trion-cli/tests/individuals.rs::a_share_is_a_count_of_the_activations_that_a_response_answers",
+    "crates/trion-cli/tests/individuals.rs::the_shares_of_one_population_within_two_deadlines_are_ordered",
+    "crates/trion-cli/tests/individuals.rs::the_formulas_count_the_activations_of_a_share",
+    "crates/trion-cli/tests/individuals.rs::one_measure_names_the_activations_of_one_condition",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W07: a share is a count of the activations of its statement, in the reference evaluator and in the formulas: each instance at each moment of the trace is one activation, sequential counters count the population, the unanswered and the completed activations, and the bound is compared in whole numbers (temporal.rs:share_contract). The count binds where the behaviour ends with the trace; where it goes on, the counts of the trace are not those of the behaviour and only a bound of all or of none binds",
+    "W07: a lower bound counts the activations that the response meets as a requirement; an upper bound counts each activation whose action completes in time, whatever forbids it or advises against it",
+    "W07: one measure names one population: statements that share a measure have the same variables and conditions, or the later one is rejected",
+    "W08: a scenario of a hundred postings is judged (examples/rooms/measurements.trion, individuals.rs::a_share_of_a_hundred_postings_is_counted): the formulas are stated for the behaviour, without the activations whose condition fails in it",
+]
+acceptance = ["A08", "A09", "A10"]
+
+[[pattern]]
+id = "variant-chosen-individual"
+group = "reference-quantity"
+rule = "noun-phrase-article"
+surface = [
+    "When a user reports a message, the system shall create a ticket.",
+    "When a user enters a room, the system shall notify a member of the room.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/typed.rs:read; crates/trion-language/src/reading/ground.rs:apply"
+evidence = [
+    "crates/trion-cli/tests/individuals.rs::a_response_chooses_the_individual_that_it_introduces",
+    "crates/trion-cli/tests/individuals.rs::a_chosen_individual_stands_in_the_relation_that_names_it",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W03: in a package with declared individuals, `a` or `an` that first names an individual of a declared type in what an obligation requires or advice advises is chosen by the response (rule `variable-some` of spec/semantics/core.md): some individual of the kind, in the named relations, meets the response. At the baseline the noun was one representative",
+    "W05: one individual may answer several activations; a reading that requires another individual for each activation is not stated",
+    "W03: with `the`, among alternative actions (`either … or`) and beside a share the statement is rejected; in a list of actions each action has its individuals, and the response chooses them together",
+    "W08: which individuals there are is given by the situation: a package that requires `create a ticket` says that there is a ticket, or a domain without one is a situation without a response (contradiction)",
+    "W10: the contract of such an instance is one alternative for each choice of individuals; the check of the reading derives each alternative again",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-permitted-individual"
+group = "reference-quantity"
+rule = "noun-phrase-article"
+surface = [
+    "When a user enters a room, the system may notify a member of the room.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_vp"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/typed.rs:read"
+evidence = [
+    "crates/trion-cli/tests/individual_forms.rs::a_permission_names_any_individual",
+    "crates/trion-cli/tests/individual_forms.rs::advice_chooses_the_individual_that_it_introduces",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W03: `a` or `an` that first names an individual in what a permission permits names any individual: each is permitted (rule `variable-any`). Under `should` the response chooses the individual, as under `shall`",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-relative-over-individuals"
+group = "reference-quantity"
+surface = [
+    "When a user that is a member of a room posts a message to the room, the system shall store the message.",
+    "The system shall store each message that a member of a room posts to the room.",
+    "When a user posts a message to a room whose mode is maintenance, the system shall reject the message.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_relative_body"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/normal.rs:normal"
+evidence = [
+    "crates/trion-cli/tests/individual_forms.rs::a_relative_clause_is_a_condition_of_the_statement",
+    "crates/trion-checker/tests/surface.rs::a_tree_that_brackets_the_words_otherwise_is_refused",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W05: a relative clause on a noun of a declared type is a condition of the statement (rule `variable-that`): with a copula a `While` condition, with a verb the event of the statement. The statement with the clause and the statement with the condition have one record",
+    "W05: rejected: an event in a relative clause beside the event of the statement (a statement applies at one event), the denial of an event, a clause on an individual that the response chooses, a clause in `unless` or in an order. Lost capability: none against the baseline, which read the restricted noun as a class name whose membership nothing decided",
+    "W01: an article alone is no predicate (`that is a`): a relative clause before the verb of a condition ends where its predicate ends. At the baseline `When a user that is a member of a room posts …` was parsed with `member` as the verb",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-no-over-individuals"
+group = "reference-quantity"
+surface = [
+    "No user shall archive a room.",
+    "The system shall store no message.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/normal.rs:normal"
+evidence = [
+    "crates/trion-cli/tests/individual_forms.rs::no_denies_the_statement_of_each_individual",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W05: `no T` as the subject or the object of a statement with a modal verb denies the statement of each individual (rule `variable-no`); beside a denied verb it is rejected. `no` in a condition is rejected: it speaks of all individuals at once",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-count-over-individuals"
+group = "reference-quantity"
+surface = [
+    "While two users are members of a room, the system shall not close the room.",
+    "When a user posts a message to a room, the system shall notify two members of the room.",
+]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_np"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/normal.rs:normal"
+evidence = [
+    "crates/trion-cli/tests/individual_forms.rs::a_count_names_different_individuals",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W05: a number before a noun of a declared type names so many different individuals, one by one (rules `variable-count`, `variable-other`): in a `While` or `Where` condition each stands in the clause, in what an obligation requires or advice advises the action is taken on each and the response chooses them. Two variables of one noun that differ by an ordinal are different individuals",
+    "W05: rejected: a count in the event of a statement (several occurrences of one moment), before the subject of a statement with a modal verb, in what is forbidden or permitted, in a list of actions, and a count of more than six. `at most` and `exactly` before a declared type are read only by a statement about the domain",
+]
+acceptance = []
+
+[[pattern]]
+id = "variant-composition-over-individuals"
+group = "composition"
+surface = [
+    "When a user posts a message to a room, the system shall perform the following actions in order:\n    validate the message;\n    store the message;",
+    "When a user posts a message to a room, the system shall perform one or more of the following actions:\n    store the message;\n    reject the message;",
+]
+parser = "crates/trion-language/src/document.rs:action_list"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/normal.rs:normal"
+evidence = [
+    "crates/trion-cli/tests/individual_forms.rs::a_composition_requires_its_actions_as_it_says",
+]
+claims = ["contract_sat", "situation_total", "scenario_satisfiable"]
+open = [
+    "W05: a composition of plain actions about individuals is a list of them (rule `choice-order`): `all of` requires each, `one or more of` one, and `in order` each strictly after the one before it, as `after` does. In a package without declared individuals the order is a relation between the actions that no moment of a trace decides",
+    "W05: rejected over individuals: `exactly one of`, a flow, a composition within a composition and an action with an exception of its own",
+]
+acceptance = []

@@ -1,0 +1,10 @@
+namespace x
+primitive API
+primitive request
+primitive origin
+
+[A]
+The API shall forward the request, while retaining the origin.
+
+[B]
+The API shall not retain the origin.

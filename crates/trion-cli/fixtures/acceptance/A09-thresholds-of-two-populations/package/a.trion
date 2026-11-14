@@ -1,0 +1,11 @@
+namespace x
+individuals request, upload
+primitive API
+measure requests
+measure uploads
+
+[Q1]
+When a request arrives, the API shall answer the request within 200 ms for at least 99.9 percent of requests.
+
+[Q2]
+When an upload arrives, the API shall answer the upload within 500 ms for at most 90 percent of uploads.

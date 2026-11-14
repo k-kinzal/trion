@@ -14,6 +14,13 @@ fn codes(text: &str) -> Vec<String> {
     report_codes(&check(text))
 }
 
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&check(text))
+}
+
 fn model(text: &str) -> String {
     Fixture::new(&[("a.trion", text)]).inspect(&["model", "a.trion"]).stdout
 }
@@ -37,16 +44,16 @@ fn an_action_on_each_thing_is_the_action_on_the_thing() {
 
 #[test]
 fn the_same_thing_is_the_thing() {
-    assert_eq!(codes("[A] The checker shall use the same environment.\n[B] The checker shall not use the environment.\n"), ["contradiction"]);
+    assert_eq!(codes_of_the_analysis("[A] The checker shall use the same environment.\n[B] The checker shall not use the environment.\n"), ["contradiction"]);
     // Two things that are each the same state a function of the one in the other:
     // that is read over individuals, not read away as two articles.
     let runs = check("[H1] The API shall return the same response for the same request.\n[H2] The API shall return two responses for each request.\nThere is a request.\n");
-    assert_eq!(report_codes(&runs), ["contradiction"], "{runs}");
+    assert_eq!(analysis_codes(&runs), ["contradiction"], "{runs}");
     assert!(silent(&runs, "inexpressible").is_empty(), "{runs}");
     // `another` is not read as the thing, and a name of a kind cannot say
     // that two things are not one: the statement is rejected.
     let other = check("[A] The checker shall use another environment.\n[B] The checker shall not use the environment.\n");
-    assert!(report_codes(&other).is_empty(), "{other}");
+    assert!(analysis_codes(&other).is_empty(), "{other}");
     assert!(silent(&other, "opaque").iter().any(|m| m.contains("`another` is a word that tells two things apart")), "{other}");
 }
 
@@ -75,24 +82,24 @@ fn a_refinement_stays_out_of_a_proof_that_its_statement_is_not_part_of() {
     let text = refined(150);
     let started = std::time::Instant::now();
     let report = check(&text);
-    assert!(report_codes(&report).is_empty(), "{report}");
+    assert!(analysis_codes(&report).is_empty(), "{report}");
     assert_eq!(report["checks"][0]["result"], "proved");
     assert_eq!(report["consistency"]["status"], "satisfiable");
     assert!(started.elapsed().as_secs() < 20, "the check took {:?}", started.elapsed());
     // The refinement still carries a conflict with a detail to the detailed statement.
     let conflict = check(&format!("{text}[N] When the event3 occurs, the tool shall not record the step3.\n"));
-    assert_eq!(report_codes(&conflict), ["contradiction"]);
+    assert_eq!(analysis_codes(&conflict), ["contradiction"]);
     assert!(conflict["diagnostics"][0]["message"].as_str().unwrap().contains("TOP"), "{conflict}");
 }
 
 #[test]
 fn a_concept_block_and_a_flow_can_detail_a_statement() {
     let text = "[A] The model shall keep the structure.\n    detailed by [C], [F]\n[C] concept:\n    [C/a] each order -> has -> exactly one buyer;\n[F] When a request arrives, the API shall follow this flow:\n    step check: validate the request;\n    start check\n    finish check\n[T] There is an order.\n";
-    assert!(codes(text).is_empty(), "{:?}", codes(text));
+    assert!(codes_of_the_analysis(text).is_empty(), "{:?}", codes_of_the_analysis(text));
     let conflict = check(&format!("{text}[N] Each order has no buyer.\n"));
-    assert_eq!(report_codes(&conflict), ["contradiction"]);
+    assert_eq!(analysis_codes(&conflict), ["contradiction"]);
     assert!(conflict["diagnostics"][0]["message"].as_str().unwrap().contains("`A`"), "{conflict}");
-    assert_eq!(codes("[A] The model shall keep the structure.\n    detailed by [MISSING]\n"), ["UNRESOLVED_REFERENCE"]);
+    assert_eq!(codes_of_the_analysis("[A] The model shall keep the structure.\n    detailed by [MISSING]\n"), ["UNRESOLVED_REFERENCE"]);
 }
 
 #[test]
@@ -122,7 +129,7 @@ fn a_relation_without_an_object_counts_in_its_role_phrase() {
 #[test]
 fn a_for_each_head_binds_its_whole_noun_phrase() {
     let text = "For each adverb of time A:\n    [K] The formalizer shall keep A outside the name of the action of A.\n    [L] A parser shall read A.\nFor each reference R from a statement to a source:\n    [M] The checker shall resolve R.\nFor each room R:\n    For each member M of R:\n        [N] The API shall notify M.\n";
-    assert!(codes(text).is_empty(), "{:?}", codes(text));
+    assert!(codes_of_the_analysis(text).is_empty(), "{:?}", codes_of_the_analysis(text));
     let expansion = Fixture::new(&[("a.trion", text)]).inspect(&["expand", "a.trion"]).stdout;
     // The variable is replaced by the noun phrase that it binds.
     assert!(expansion.contains("The formalizer shall keep the adverb of time outside the name of the action of the adverb of time."), "{expansion}");
@@ -135,11 +142,11 @@ fn a_for_each_head_binds_its_whole_noun_phrase() {
 #[test]
 fn a_for_each_frame_opens_one_sentence() {
     let text = "[A] For each request R, the API shall log R.\n[C] For each open room R, when a user joins R, the API shall notify the owner of R.\n";
-    assert!(codes(text).is_empty(), "{:?}", codes(text));
+    assert!(codes_of_the_analysis(text).is_empty(), "{:?}", codes_of_the_analysis(text));
     let expansion = Fixture::new(&[("a.trion", text)]).inspect(&["expand", "a.trion"]).stdout;
     assert!(expansion.contains("The API shall log the request."), "{expansion}");
     assert!(expansion.contains("When a user joins the open room, the API shall notify the owner of the open room."), "{expansion}");
     // The frame binds for its sentence only.
-    assert_eq!(codes("[A] For each request R, the API shall log R.\n[B] The API shall store R.\n"), ["UNBOUND_VARIABLE"]);
-    assert_eq!(codes("[A] For each request R, the API shall log R.\n[B] For each request, the API shall not log the request.\n"), ["contradiction"]);
+    assert_eq!(codes_of_the_analysis("[A] For each request R, the API shall log R.\n[B] The API shall store R.\n"), ["UNBOUND_VARIABLE"]);
+    assert_eq!(codes_of_the_analysis("[A] For each request R, the API shall log R.\n[B] For each request, the API shall not log the request.\n"), ["contradiction"]);
 }

@@ -242,7 +242,8 @@ fn a_package_that_is_not_verified_has_no_document() {
         let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", spec)]);
         let r = f.trion(&["doc", "--out", "out/p.html"]);
         assert_eq!((r.code, r.stdout.as_str()), (2, ""), "{}", r.stderr);
-        assert!(r.stderr.contains("the package is not verified (gate check)"), "{}", r.stderr);
+        // The gates that failed are named: the check, and the claims or the meaning that it leaves unproved.
+        assert!(r.stderr.contains("the package is not verified (gate check, ") && r.stderr.contains("claims"), "{}", r.stderr);
         assert!(!f.path().join("out/p.html").exists(), "a document was written");
     }
 }
@@ -270,7 +271,7 @@ fn the_status_says_how_far_the_situations_were_examined() {
     let apart = "[J1] When a user sends a message, the API shall store the message.\n[J2] When a user deletes a message, the API shall log the message.\n";
     let html = render(&["user", "message", "API"], apart);
     let status = html.split("id=\"status\"").nth(1).unwrap().split("</section>").next().unwrap().to_string();
-    assert!(status.contains("situations: each of the 1 largest situations of the 2 conditions was examined") && status.contains("the statements can all be kept in each situation"), "{status}");
+    assert!(status.contains("situations: every situation was examined through") && status.contains("the statements can all be kept in each situation"), "{status}");
     // The control declarations are shown as declarations.
     let declared = "environment user\nsystem API\n[E2] When the user sends a message, the API shall store the message.\n";
     let html = render(&["user", "message", "API"], declared);

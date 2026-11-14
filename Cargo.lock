@@ -496,6 +496,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
+name = "trion-checker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "trion-language",
+ "trion-solver",
+]
+
+[[package]]
 name = "trion-cli"
 version = "0.1.0"
 dependencies = [
@@ -505,6 +515,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml",
+ "trion-checker",
  "trion-language",
  "trion-solver",
  "trion-verification",
@@ -517,6 +528,7 @@ dependencies = [
  "regex",
  "serde",
  "thiserror",
+ "toml",
  "trion-solver",
 ]
 

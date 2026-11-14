@@ -278,9 +278,19 @@ pub(super) fn run_checks(set: &SpecSet, model: &Model, inst: &Instance, bounds: 
     for check in set.packages.iter().flat_map(|p| &p.documents).flat_map(|d| &d.checks) {
         let at = SpecRef::point(&check.file, check.line, &check.name);
         let obligation = format!("check {}", check.name);
+        let undecided = |result: &str| CheckOutcome { name: check.name.clone(), relation: check.relation.clone(), result: result.to_string(), file: check.file.clone(), line: check.line };
+        // A check without a relation that this edition decides, without a
+        // side or without its `using` field asks nothing: the block is
+        // reported where it is read, and nothing is proved of it.
+        if check.malformed {
+            outcomes.push(undecided("invalid"));
+            continue;
+        }
         let (left, right) = match (operand_formulas(set, model, &check.left), operand_formulas(set, model, &check.right)) {
             (Ok(left), Ok(right)) => (left, right),
             (Err(error), _) | (_, Err(error)) => {
+                // The check was asked for and is not decided: it stays among the outcomes.
+                outcomes.push(undecided(if matches!(error, OperandError::Unresolved) { "invalid" } else { "unsupported" }));
                 out.push(operand_diagnostic(&error, &obligation, at));
                 continue;
             }

@@ -552,11 +552,25 @@ fn unit_of(formula: &Formula) -> Option<String> {
     }
 }
 
-/// Reads the statements about individuals and adds what they say to the model.
-pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usize) {
+/// `true` for a statement that distinguishes individuals by itself.
+fn seed(form: &Form) -> bool {
+    match form {
+        Form::Related { quantifier, .. } => *quantifier == Quantifier::Some,
+        Form::Populated { count, .. } => !matches!(count, Count::AtLeast(1)),
+        Form::Condition { denied, .. } => *denied,
+        Form::Kind { .. } | Form::Part { .. } | Form::Defined { .. } => false,
+        _ => true,
+    }
+}
+
+/// The statements that are read over individuals, with the domain that
+/// they are read over: its size and its carriers. With `every`, each
+/// statement about the domain is read over individuals, as a package that
+/// declares the types of its individuals requires.
+fn plan(set: &SpecSet, lex: &Lexicon, scope: usize, every: bool) -> Option<(Vec<Stated>, Grounder)> {
     // A scope of zero reads no statement over individuals.
     if scope == 0 {
-        return;
+        return None;
     }
     let mut all: Vec<Stated> = Vec::new();
     for pkg in &set.packages {
@@ -571,7 +585,11 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
                 if unconditional {
                     of_core(&spec.sentence.core, &scoped, &mut forms);
                 }
-                of_conditions(&spec.sentence, &scoped, &mut forms);
+                // Where the types of the individuals are declared, a condition
+                // on an individual is read with its statement, instance by instance.
+                if !every {
+                    of_conditions(&spec.sentence, &scoped, &mut forms);
+                }
                 all.extend(forms.into_iter().map(|form| Stated { form, origin: origin.clone() }));
             }
         }
@@ -585,13 +603,6 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
     // individuals only when such a statement speaks about the same relation.
     // The representative reading stays for every statement and is the whole
     // reading of the statements that are left out here.
-    let seed = |form: &Form| match form {
-        Form::Related { quantifier, .. } => *quantifier == Quantifier::Some,
-        Form::Populated { count, .. } => !matches!(count, Count::AtLeast(1)),
-        Form::Condition { denied, .. } => *denied,
-        Form::Kind { .. } | Form::Part { .. } | Form::Defined { .. } => false,
-        _ => true,
-    };
     let mut relations: BTreeSet<String> = BTreeSet::new();
     let mut kinds: BTreeSet<String> = BTreeSet::new();
     let mut quantities: BTreeSet<String> = BTreeSet::new();
@@ -602,7 +613,8 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
             if chosen[index] {
                 continue;
             }
-            let take = seed(&stated.form)
+            let take = every
+                || seed(&stated.form)
                 || match &stated.form {
                     Form::Related { relation, .. } | Form::Counted { relation, .. } | Form::Distinct { relation, .. } | Form::Condition { relation, .. } => relations.contains(relation),
                     Form::Defined { relation, .. } => relations.contains(relation),
@@ -661,8 +673,8 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
         index += 1;
         chosen[index - 1]
     });
-    if all.is_empty() {
-        return;
+    if all.is_empty() && !every {
+        return None;
     }
     // A statement that counts n individuals is read over at least n of them:
     // a smaller domain would refute it for want of room.
@@ -720,6 +732,90 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
             }
         }
     }
+    // The individuals of the kinds of one carrier are taken from one domain.
+    // Kinds that exclude each other share no individual, so a domain that
+    // holds what each of them counts holds the sum: two lobbies, two vaults
+    // and two archives are six rooms. The sum is taken over every kind of
+    // the carrier, whether the kinds exclude each other or not: a domain is
+    // a number of places and none of them need be taken, so a larger domain
+    // loses no model, and a smaller one would refute the statements for
+    // want of room and say nothing about them.
+    let mut needed: BTreeMap<String, usize> = BTreeMap::new();
+    for stated in &all {
+        if let Form::Populated { kind, count: Count::AtLeast(n) | Count::Exactly(n) } = &stated.form {
+            *needed.entry(grounder.carriers.find(kind)).or_default() += *n as usize;
+        }
+    }
+    grounder.scope = grounder.scope.max(needed.values().copied().max().unwrap_or(0));
+    Some((all, grounder))
+}
+
+/// The size of the domain and the carrier of each noun of a statement about
+/// the domain, when each such statement is read over individuals.
+pub(super) fn domain(set: &SpecSet, lex: &Lexicon, scope: usize) -> (usize, BTreeMap<String, String>) {
+    let Some((all, mut grounder)) = plan(set, lex, scope, true) else { return (scope, BTreeMap::new()) };
+    let mut nouns: BTreeSet<String> = BTreeSet::new();
+    for stated in &all {
+        match &stated.form {
+            Form::Related { kind, target, .. } | Form::Distinct { kind, target, .. } | Form::Counted { kind, target, .. } | Form::Condition { kind, target, .. } => {
+                nouns.insert(kind.clone());
+                nouns.insert(target.clone());
+            }
+            Form::Included { narrow, wide, owner, .. } => nouns.extend([narrow.clone(), wide.clone(), owner.clone()]),
+            Form::Populated { kind, .. } | Form::Total { kind, .. } | Form::Part { kind, .. } => {
+                nouns.insert(kind.clone());
+            }
+            Form::Kind { narrow, wide, .. } => nouns.extend([narrow.clone(), wide.clone()]),
+            Form::Same { first_target, second_target, owner, .. } => nouns.extend([first_target.clone(), second_target.clone(), owner.clone()]),
+            Form::Defined { narrow, wide, target, .. } => nouns.extend([narrow.clone(), wide.clone(), target.clone()]),
+        }
+    }
+    let carriers = nouns.into_iter().map(|noun| { let root = grounder.carriers.find(&noun); (noun, root) }).collect();
+    (grounder.scope, carriers)
+}
+
+/// What each statement about the domain says, as data.
+pub(super) fn facts(set: &SpecSet, lex: &Lexicon, scope: usize) -> Vec<crate::reading::typed::DomainStatement> {
+    use crate::reading::typed::{Count as Bound, DomainFact, DomainStatement};
+    let Some((all, _)) = plan(set, lex, scope, true) else { return Vec::new() };
+    let bound = |count: &Count| match count {
+        Count::AtLeast(n) => Bound::AtLeast(*n),
+        Count::AtMost(n) => Bound::AtMost(*n),
+        Count::Exactly(n) => Bound::Exactly(*n),
+    };
+    all.iter()
+        .map(|stated| {
+            let fact = match &stated.form {
+                Form::Related { quantifier, kind, relation, target, count } => DomainFact::Related { each: *quantifier == Quantifier::All, kind: kind.clone(), relation: relation.clone(), target: target.clone(), count: bound(count) },
+                Form::Included { narrow, wide, owner, denied } => DomainFact::Included { narrow: narrow.clone(), wide: wide.clone(), owner: owner.clone(), denied: *denied },
+                Form::Distinct { relation, target, kind } => DomainFact::Distinct { relation: relation.clone(), target: target.clone(), kind: kind.clone() },
+                Form::Populated { kind, count } => DomainFact::Populated { kind: kind.clone(), count: bound(count) },
+                Form::Counted { kind, relation, target, count } => DomainFact::Counted { kind: kind.clone(), relation: relation.clone(), target: target.clone(), count: bound(count) },
+                Form::Kind { narrow, wide, both, denied } => DomainFact::Kind { narrow: narrow.clone(), wide: wide.clone(), both: *both, denied: *denied },
+                Form::Same { first, second, owner, .. } => DomainFact::Same { first: first.clone(), second: second.clone(), owner: owner.clone() },
+                Form::Defined { narrow, wide, relation, target, count } => DomainFact::Defined { narrow: narrow.clone(), wide: wide.clone(), relation: relation.clone(), target: target.clone(), count: bound(count) },
+                Form::Total { .. } | Form::Part { .. } | Form::Condition { .. } => DomainFact::Unevaluated,
+            };
+            DomainStatement { statement: stated.origin.id.clone(), source: stated.origin.text.clone(), fact }
+        })
+        .collect()
+}
+
+/// `true` when a statement is read as a statement about the domain.
+pub(super) fn about_the_domain(spec: &crate::document::Spec, lex: &Lexicon) -> bool {
+    let unconditional = spec.sentence.frames.scopes.is_empty() && spec.sentence.frames.states.is_empty() && spec.sentence.frames.trigger.is_none() && spec.sentence.exception.is_none() && !spec.otherwise;
+    let mut forms = Vec::new();
+    if unconditional {
+        of_core(&spec.sentence.core, lex, &mut forms);
+    }
+    !forms.is_empty()
+}
+
+/// Reads the statements about individuals and adds what they say to the
+/// model. `relations` names the relations that the instances of the other
+/// statements speak about, each with the noun of its owner and of its target.
+pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usize, every: bool, relations: &BTreeSet<(String, String, String)>) {
+    let Some((all, mut grounder)) = plan(set, lex, scope, every) else { return };
     let mut populated: BTreeMap<String, ()> = BTreeMap::new();
     for stated in &all {
         let Some(formula) = grounder.formula(&stated.form, lex) else { continue };
@@ -784,6 +880,7 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
             _ => {}
         }
     }
+    untyped.extend(relations.iter().cloned());
     for (relation, kind, target) in typed.iter().chain(untyped.iter().filter(|t| !typed.contains(*t))) {
         let types = typed.contains(&(relation.clone(), kind.clone(), target.clone()));
         let (owner_carrier, target_carrier) = (grounder.carriers.find(kind), grounder.carriers.find(target));

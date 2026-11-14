@@ -1,0 +1,28 @@
+id = "A19"
+title = "An output that must come before a free input is not realizable"
+work = "W09"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+The user is part of the environment: nothing says when the user requests the report. [OPEN] requires
+the door to be open before that request. For each complete behaviour there is a response: where the
+request comes at some moment, the opening may stand before it. So each situation has a response, and
+`situation_total` holds. No controller keeps the statement all the same: whatever moment it chooses
+for the opening, the user may request the report before it, and the controller would have to know a
+request that has not happened. The existence of a response in each situation is therefore not shown
+as realizability: `reactive_realizable` is refuted, it blocks the result, and no strategy is claimed.
+"""
+
+[expect]
+verified = false
+blockers = ["reactive_realizable"]
+
+[expect.claims]
+background_sat = "proved"
+contract_sat = "proved"
+situation_total = "proved"
+reactive_realizable = "refuted"
+
+[baseline]
+commit = "24cab2aa"
+note = "no claim about realizability was stated apart from the consistency of the package"

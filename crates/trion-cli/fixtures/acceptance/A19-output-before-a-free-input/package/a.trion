@@ -1,0 +1,7 @@
+namespace x
+primitive door, report, controller, user
+environment user
+system controller
+
+[OPEN]
+The controller shall open the door before the user requests the report.

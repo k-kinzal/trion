@@ -1,0 +1,6 @@
+namespace x
+primitive capacity, load
+environment load
+
+[A]
+While the load is at least 0, the capacity shall be greater than the load.

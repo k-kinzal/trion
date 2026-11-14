@@ -3248,7 +3248,10 @@ fn parse_predicate(
         words.push(word.to_string());
         at += 1;
     }
-    if words.is_empty() {
+    // An article alone says nothing of the subject: `that is a` is no
+    // predicate, whatever follows it. A capital letter is a value (`A`).
+    let mut said = words.iter().skip(usize::from(words.first().is_some_and(|w| w == "not")));
+    if words.is_empty() || said.all(|w| ["a", "an", "the"].contains(&w.as_str())) {
         return Err(ParseError::EmptyPredicate);
     }
     Ok((Predicate::Words { words }, at))
@@ -4265,11 +4268,12 @@ fn parse_frames(tokens: &[Token]) -> Result<(Frames, usize), ParseError> {
         // A trigger's `and` group takes at most ONE event (verbal) conjunct:
         // `and` over occurrences is simultaneity, which has no single
         // reading; every other conjunct must be a state (copular), read at
-        // the trigger instant. `or` groups are EXEMPT — a disjunction of
+        // the trigger instant. `After`, `Once`, `Upon` and `On` open the same
+        // frame as `When` and take the same rule. `or` groups are EXEMPT — a disjunction of
         // events is alternation (either occurrence triggers), which is
         // well-defined. While/Where frames are unrestricted: their clauses
         // are states either way.
-        if (lower == "when" || lower == "if")
+        if matches!(lower.as_str(), "when" | "if" | "after" | "once" | "upon" | "on")
             && clause.conj == Some(Conj::And)
             && clause
                 .items

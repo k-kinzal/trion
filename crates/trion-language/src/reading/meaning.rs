@@ -442,6 +442,13 @@ fn definition(term: &Np, definiens: &Definiens, lex: &Lexicon) -> Vec<(Relation,
                 keys.dedup();
                 for key in keys {
                     out.push((Relation::Property { holder: holder.clone(), state: None, formula: Formula::implies(Formula::atom(Atom::Act { key: key.clone() }), Formula::atom(disposed(&key))) }, None));
+                    // A holder that is forbidden an action is not one that does
+                    // it: `a secure API means an API that encrypts the message`
+                    // and `the API shall not encrypt the message` leave no
+                    // secure API. Without this, a definition by an action that
+                    // is done kept its word from being reported and nothing
+                    // followed from it against a prohibition (acceptance case A03b).
+                    out.push((Relation::Property { holder: holder.clone(), state: None, formula: Formula::implies(Formula::atom(Atom::Forbid { key: key.clone() }), Formula::not(Formula::atom(disposed(&key)))) }, None));
                 }
                 if !differences.is_empty() {
                     out.push((Relation::Converse { holder: holder.clone(), state: value.clone(), formula: Formula::And(differences.clone()) }, None));

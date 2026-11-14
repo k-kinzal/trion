@@ -1,0 +1,17 @@
+id = "A05"
+title = "Opposite orders in different activations are no cycle"
+work = "W06"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+[A] orders the two completions that answer an expiry of the timer, and [B] orders the two that answer
+a ring of the bell. A behaviour logs and then sends after the expiry, and sends and then logs after the
+ring: the four completions are four occurrences. Rejecting the package because the names of the actions
+form a cycle would forbid a legal repetition.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+situation_total = "proved"

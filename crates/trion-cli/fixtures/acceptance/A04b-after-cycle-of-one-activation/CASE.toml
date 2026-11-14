@@ -1,0 +1,28 @@
+id = "A04b"
+title = "Two completions of one activation cannot each come after the other"
+work = "W06"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+One expiry of the timer activates both statements. [A] requires the log that answers this expiry to
+come after the report that answers it, and [B] requires that report to come after that log: the two
+completions that answer one activation cannot each come after the other.
+
+An occurrence belongs to an activation when it opens the activation or lies after it
+(spec/semantics/core.md, section 4). Until W06 an occurrence at the moment of the activation counted
+as well: a report and a log at the moment of the expiry stood before a later log and a later report,
+and a trace kept both statements. With the rule, each of the two completions needs the other one
+strictly between the expiry and itself, and no finite order gives that.
+"""
+
+[expect]
+verified = false
+blockers = ["contradiction"]
+
+[expect.claims]
+situation_total = "refuted"
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = "the cycle was kept until W06: an occurrence at the moment of the activation counted as an occurrence of it"

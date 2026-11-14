@@ -69,10 +69,9 @@ fn an_external_solver_agrees_with_the_built_in_solver() {
             Status::Unsatisfiable => "unsat",
             Status::Unknown => panic!("the built-in solver left {src} open"),
         };
-        let Some(answer) = z3(&smt2(&set, &analysis, Bounds::default().trace_length)) else {
-            eprintln!("z3 is not installed; the cross-check did not run");
-            return;
-        };
+        // A cross-check that did not run is no cross-check that agreed: a
+        // run without the external solver fails, and it does not pass.
+        let answer = z3(&smt2(&set, &analysis, Bounds::default().trace_length)).expect("z3 did not answer: the cross-check needs `z3` on the path, and a run without it compares nothing");
         assert_eq!(answer, expected, "{src}");
         compared += 1;
     }

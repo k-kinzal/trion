@@ -22,5 +22,5 @@ extern crate self as trion_verification;
 #[cfg(test)]
 mod tests;
 
-pub use analysis::{analyze, check_properties, check_stability, smt2, temporal_forms, Analysis, Bounds, CheckOutcome, ConflictElement, ConflictExplanation, ConsistencyResult, Control, CoverageExplanation, DerivationStep, EnvironmentFindings, ExampleOutcome, GuardObligation, Isolation, Options, RelationReport, Unrealizable, VacuousCondition};
+pub use analysis::{analyze, check_properties, check_stability, smt2, temporal_forms, Analysis, AnalysisRange, Bounds, CheckOutcome, Claim, Claims, Obligation, Verdict, ConflictElement, ConflictExplanation, ConsistencyResult, Control, CoverageExplanation, DerivationStep, EnvironmentFindings, ExampleOutcome, GuardObligation, Isolation, Options, RelationReport, Unrealizable, VacuousCondition};
 pub use proof::{Proof, Query, QueryGroup, UsedBounds};

@@ -27,9 +27,10 @@ pub struct Silence {
     pub opaque: Vec<Diagnostic>,
     /// One warning for each statement that constrains nothing.
     pub ungrounded: Vec<Diagnostic>,
-    /// One warning for each statement whose property one model of a
+    /// One error for each statement whose property one model of a
     /// conjunction cannot state: a relation between runs, a proportion, an
-    /// optimum, or a quality without a measure.
+    /// optimum, or a quality without a measure. The statement is accepted
+    /// and what it requires has no meaning, so no result covers it.
     pub inexpressible: Vec<Diagnostic>,
     /// The statements that are grounded only because an abstract statement
     /// names them in `detailed by`: no other statement shares an atom with
@@ -146,6 +147,27 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
         opaque.push(Diagnostic::error(UNSUPPORTED, format!("`{}` is {} {}{phrase}: no reading rule reads it there, so the statement is rejected; {}", unread.part, unread.kind, unread.place, advice(unread.kind)), vec![at.clone()]));
     }
     opaque.extend(unvisited(set, model, &told, lex));
+    // A statement that names a declared type outside the typed fragment has
+    // no reading over individuals: its atoms would stand apart from the
+    // instances of the other statements.
+    for outside in model.individuals.iter().flat_map(|i| &i.outside) {
+        opaque.push(Diagnostic::error(UNSUPPORTED, format!("`{}` names a type of individuals in a form that no rule reads over individuals, so the statement is rejected: {}", outside.construct, outside.why), vec![outside.statement.clone()]));
+    }
+    // A share is a count of the activations of its statement. A statement
+    // that is not read over individuals has no activations to count: one
+    // representative stands for each type, and the share would be a
+    // quantity that nothing ties to a behaviour.
+    let counted: BTreeSet<&str> = model.individuals.iter().flat_map(|i| &i.shares).map(|share| share.statement.as_str()).collect();
+    for pkg in &set.packages {
+        for spec in pkg.documents.iter().flat_map(|doc| &doc.specs) {
+            let display = if pkg.is_root { spec.display_id() } else { format!("{}::{}", pkg.name, spec.display_id()) };
+            let bounds_a_share = crate::expand::formalized(spec).iter().any(|sentence| matches!(&sentence.core, Core::Deontic { vp, .. } if vp.items().iter().any(|vp| crate::reading::model::proportion(vp).is_some())));
+            if bounds_a_share && !counted.contains(display.as_str()) {
+                let at = SpecRef { id: display, file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() };
+                opaque.push(Diagnostic::error(UNSUPPORTED, "the statement bounds a share of a population (`share-of-representative`), and no rule counts the population here, so the statement is rejected: a share is a count of the activations of its statement, and a statement that names no declared type of individuals has one representative of each thing and no activations to count; declare the type that the statement is about, as in `individuals request`, and name it in the statement".to_string(), vec![at]));
+            }
+        }
+    }
 
     // Ungrounded statements.
     let mut own: BTreeMap<String, (SpecRef, BTreeSet<String>)> = BTreeMap::new();
@@ -186,7 +208,8 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
     let primitives: BTreeSet<String> = documents()
         .flat_map(|d| {
             let scoped = lex.in_document(d);
-            d.primitives.iter().flat_map(move |p| {
+            // A measure declares the population that it names: the name is taken as given, as a primitive is.
+            d.primitives.iter().chain(&d.measures).flat_map(move |p| {
                 let plain = scoped.canon(&p.name);
                 [scoped.resolve(&plain), plain]
             })
@@ -277,7 +300,9 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
             }
             let Some((kind, word, advice)) = name_of(atom).and_then(|name| beyond(name, &quality_grounded)) else { return };
             if told.insert((at.id.clone(), kind)) {
-                inexpressible.push(Diagnostic::warning("inexpressible-property", format!("`{word}` states {kind}: {advice}"), vec![at.clone()]));
+                // The statement is accepted and its quality has no meaning:
+                // while it stands, nothing is verified of the statement.
+                inexpressible.push(Diagnostic::error("inexpressible-property", format!("`{word}` states {kind}: {advice}"), vec![at.clone()]));
             }
         };
         constraint.assume.atoms(true, &mut visit);
@@ -389,6 +414,7 @@ fn advice(kind: &str) -> &'static str {
 fn unvisited(set: &SpecSet, model: &Model, told: &BTreeSet<String>, lex: &Lexicon) -> Vec<Diagnostic> {
     use crate::syntax::words::{classify, WordClass};
     let mut out = Vec::new();
+    let typed: BTreeSet<&str> = model.individuals.iter().flat_map(|i| &i.meanings).map(|m| m.statement.as_str()).collect();
     for doc in set.packages.iter().flat_map(|p| &p.documents) {
         let scoped = lex.in_document(doc);
         for spec in &doc.specs {
@@ -406,7 +432,25 @@ fn unvisited(set: &SpecSet, model: &Model, told: &BTreeSet<String>, lex: &Lexico
                 out.push(Diagnostic::error(UNSUPPORTED, format!("the purpose after `{opener}` has no formal reading, so the statement is rejected; state the intended consequence as a statement of its own, as in `When the call is logged, the auditor shall review the call.`"), vec![at]));
                 continue;
             }
+            // `even when P` leaves the claim as it is: the claim holds where
+            // P holds and where it does not, and P is no condition. `while
+            // retaining X` says that something else holds at the same time,
+            // and no rule makes a requirement of it.
+            if let Some(concession) = spec.sentence.concession.as_ref().filter(|c| !crate::reading::rules::is_emphasis(c)) {
+                out.push(Diagnostic::error(UNSUPPORTED, format!("`{concession}` states what holds while the statement is kept, and no reading rule makes a requirement of it, so the statement is rejected; state it as a requirement of its own, as in `The API shall retain the origin.`, or join it to the action with `and`"), vec![at]));
+                continue;
+            }
+            // A construct that a rule names and gives no meaning.
+            if let Some((rule, lost)) = crate::reading::rules::unresolved(&spec.sentence).into_iter().next() {
+                out.push(Diagnostic::error(UNSUPPORTED, format!("the statement holds a construct without a meaning rule (`{rule}`), so the statement is rejected: {lost}"), vec![at]));
+                continue;
+            }
             for open in crate::reading::rules::open_words(&spec.sentence) {
+                // The reading over individuals reads each word of a predicate
+                // that it accepts: `is not a member of the room` is a relation.
+                if open.place == crate::reading::rules::Place::Predicate && typed.contains(id.as_str()) {
+                    continue;
+                }
                 // A word of time or order that the temporal shape of the statement reads.
                 if model.temporal.iter().any(|shape| shape.statement.id == id && shape.read.contains(&open.word)) {
                     continue;

@@ -1,0 +1,9 @@
+namespace x
+primitive API
+primitive timer
+
+[A]
+When the timer expires, the API shall respond within 5 seconds.
+
+[B]
+When the timer expires, the API shall respond at least 6 seconds after the timer expires.

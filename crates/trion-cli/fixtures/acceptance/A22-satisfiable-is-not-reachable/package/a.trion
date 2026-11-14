@@ -1,0 +1,17 @@
+namespace x
+individuals task
+primitive system
+
+[STATES]
+A task is idle or done.
+
+[STAY]
+While a task is idle, the system shall not finish the task.
+
+[KEEP]
+While a task is done, the system shall not reopen the task.
+
+scenario DONE:
+    given a task T1
+    at 0 ms: T1 is done.
+    expect allowed

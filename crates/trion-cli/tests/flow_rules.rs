@@ -11,6 +11,13 @@ fn codes(f: &Fixture) -> Vec<String> {
     report_codes(&f.trion(&["verify", "--json"]).json())
 }
 
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(f: &Fixture) -> Vec<String> {
+    analysis_codes(&f.trion(&["verify", "--json"]).json())
+}
+
 fn unread(f: &Fixture) -> Vec<String> {
     let report = f.trion(&["verify", "--json"]).json();
     ["opaque", "ungrounded"].iter().flat_map(|list| report[list].as_array().cloned().unwrap_or_default()).map(|d| d["code"].as_str().unwrap().to_string()).collect()
@@ -33,12 +40,12 @@ fn the_loader_reads_the_entry_then_its_includes_then_the_used_dependencies() {
     let f = Fixture::raw(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("spec/a.trion", a), ("spec/deeper/b.trion", b), ("spec/unused.trion", "namespace p:\n    [C] The API shall run.\n")]);
     let r = f.trion(&["verify"]);
     assert!(r.stdout.contains("checked 2 specifications"), "{}", r.stdout);
-    assert_eq!(codes(&f), ["contradiction"]);
+    assert_eq!(codes_of_the_analysis(&f), ["contradiction"]);
     // Step dependencies: a dependency is loaded when a file uses it, after the files of the package.
     let used = Fixture::new(&[("trion.toml", &grpc_manifest()), ("a.trion", "use grpc\nbind API as grpc.service.\nThe API shall use gRPC communication.\nThe API GET /foo shall return foo.\n")]);
-    assert_eq!(codes(&used), ["shape-violation"], "the rule of the dependency is applied");
+    assert_eq!(codes_of_the_analysis(&used), ["shape-violation"], "the rule of the dependency is applied");
     let unused = Fixture::new(&[("trion.toml", &grpc_manifest()), ("a.trion", "primitive API\nprimitive foo\nThe API GET /foo shall return foo.\n")]);
-    assert!(!codes(&unused).contains(&"shape-violation".to_string()), "a dependency that no file uses states nothing here");
+    assert!(!codes_of_the_analysis(&unused).contains(&"shape-violation".to_string()), "a dependency that no file uses states nothing here");
     // A missing include stops the loader before any dependency is read.
     let missing = Fixture::raw(&[("trion.toml", &grpc_manifest()), ("trion.trion", "package p edition \"1\"\ninclude \"gone.trion\"\n")]);
     let r = missing.trion(&["verify"]);

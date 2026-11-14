@@ -1,0 +1,26 @@
+id = "A07"
+title = "A response without a deadline that never comes"
+work = "W06"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+[A] requires the storing at some later time and names no deadline. A behaviour is complete: after
+its last moment nothing happens. In NEVER the message is sent and never stored, so the behaviour
+fails [A]; that no violation shows within the first moments is no keeping of the obligation. In LATER
+the storing comes ten minutes later, and that keeps it.
+
+Over open time the claims of the package stay bounded: `contract_sat` and `situation_total` are
+proved within the stated moments and are not lifted, and nothing says that the response always comes.
+"""
+
+[expect]
+verified = true
+
+[expect.claims]
+"scenario_satisfiable:scenario NEVER" = "refuted"
+"scenario_satisfiable:scenario LATER" = "proved"
+situation_total = "proved"
+
+[baseline]
+commit = "24cab2aa"
+note = "the baseline has no scenario and no reading over individuals; a behaviour could not be stated"

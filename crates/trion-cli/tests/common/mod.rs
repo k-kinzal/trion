@@ -180,9 +180,61 @@ pub fn source_block(name: &str, kind: &str, path: &str, text: &str, extra: &str,
     block
 }
 
-/// The diagnostic codes of a JSON report.
-pub fn report_codes(value: &serde_json::Value) -> Vec<String> {
+/// The codes of the diagnostics of the analysis alone. A report holds its
+/// findings in several lists, so an empty result here is no success: a
+/// test that means `nothing was found` asserts [`report_codes`], and one
+/// that means `the package is verified` asserts [`assert_verified`].
+pub fn analysis_codes(value: &serde_json::Value) -> Vec<String> {
     value["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).collect()
+}
+
+/// The codes of every finding of a JSON report: the diagnostics of the
+/// analysis, and what a statement says that no rule reads, grounds or can
+/// express. Empty only when none of these lists holds a finding.
+pub fn report_codes(value: &serde_json::Value) -> Vec<String> {
+    let mut codes: Vec<String> = value["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).collect();
+    for list in ["opaque", "ungrounded", "inexpressible"] {
+        for d in value[list].as_array().into_iter().flatten() {
+            let code = d["code"].as_str().unwrap().to_string();
+            if !codes.contains(&code) {
+                codes.push(code);
+            }
+        }
+    }
+    codes
+}
+
+/// The codes of what keeps a report from being a success: the blockers of
+/// its outcome, from every gate. Empty exactly when the package is verified.
+pub fn unverified(value: &serde_json::Value) -> Vec<String> {
+    value["outcome"]["blockers"].as_array().unwrap().iter().map(|b| b["code"].as_str().unwrap().to_string()).collect()
+}
+
+/// Asserts that a report is a success in each of its parts: the outcome, the
+/// gates, the claims, the meaning obligations and every list of findings. A
+/// test that means `the package is verified` asserts this, and not that the
+/// diagnostics of the analysis are empty.
+pub fn assert_verified(value: &serde_json::Value) {
+    assert_eq!(value["outcome"]["verified"], true, "{value}");
+    assert!(unverified(value).is_empty(), "{value}");
+    for gate in value["gates"].as_array().unwrap() {
+        assert_ne!(gate["state"], "failed", "the gate {} failed: {value}", gate["name"]);
+    }
+    // The gates that every verification runs are run: a skip of one is no pass.
+    for name in ["check", "meaning", "claims", "sources", "prover"] {
+        assert!(value["gates"].as_array().unwrap().iter().any(|gate| gate["name"] == name && gate["state"] == "passed"), "the gate {name} did not pass: {value}");
+    }
+    for list in ["opaque", "ungrounded", "inexpressible", "obligations", "prover", "properties", "stability"] {
+        assert!(value[list].as_array().unwrap().is_empty(), "`{list}` is not empty: {value}");
+    }
+    assert!(value["diagnostics"].as_array().unwrap().iter().all(|d| d["severity"] != "error"), "{value}");
+    assert!(value["sources"]["diagnostics"].as_array().unwrap().iter().all(|d| d["severity"] != "error"), "{value}");
+    for claim in value["claims"].as_array().unwrap() {
+        if claim["required"] == true {
+            assert!(claim["verdict"] == "proved" && claim["vacuous"] == false, "the claim {} is not proved: {value}", claim["claim"]);
+        }
+    }
+    assert_eq!(value["consistency"]["verdict"], "consistent", "{value}");
 }
 
 pub const MANIFEST: &str = "[package]\nname = \"p\"\n";

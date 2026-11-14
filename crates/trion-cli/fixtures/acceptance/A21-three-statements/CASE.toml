@@ -1,0 +1,17 @@
+id = "A21"
+title = "Three statements that fit two by two and not together"
+work = "W05"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+[A] and [B] are kept by logging and notifying, [A] and [C] by logging without notifying, [B] and [C]
+by never logging. Together [A] makes the API log, [B] then makes it notify, and [C] forbids that: no
+behaviour keeps the three. A comparison of pairs finds nothing.
+"""
+
+[expect]
+verified = false
+blockers = ["contradiction"]
+
+[expect.claims]
+contract_sat = "refuted"

@@ -1,0 +1,6 @@
+namespace p
+individuals user, message
+primitive system
+
+[A]
+When a user sends a message, the system shall store the message within 500 ms.

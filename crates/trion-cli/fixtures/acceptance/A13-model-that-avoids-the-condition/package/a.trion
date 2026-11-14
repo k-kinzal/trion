@@ -1,0 +1,10 @@
+namespace x
+primitive API
+primitive user
+primitive message
+
+[A]
+When a user sends a message, the API shall store the message.
+
+[B]
+When a user sends a message, the API shall not store the message.

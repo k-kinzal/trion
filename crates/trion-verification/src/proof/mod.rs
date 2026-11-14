@@ -7,7 +7,7 @@
 
 pub(crate) mod smt;
 
-pub use trion_solver::{Answer, Certificate, Justification, LinearDerivation, LinearSource, Literal, Quantity, Refutation, Side, Step, Witness, WitnessPart};
+pub use trion_solver::{Answer, Certificate, Connective, Definition, Justification, Operand, LinearDerivation, LinearSource, Literal, Quantity, Refutation, Side, Step, Witness, WitnessPart};
 pub use trion_language::reading::ReaderQuery;
 pub use smt::{Query, QueryGroup};
 

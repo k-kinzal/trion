@@ -1,0 +1,13 @@
+namespace x
+primitive API
+primitive request
+primitive admin
+
+[A]
+The API shall log the request.
+
+[B]
+When the API logs the request, the API shall notify the admin.
+
+[C]
+The API shall not notify the admin.

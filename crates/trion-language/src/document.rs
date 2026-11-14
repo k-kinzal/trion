@@ -313,6 +313,11 @@ pub struct Check {
     pub relation: String,
     pub left: Vec<String>,
     pub right: Vec<String>,
+    /// `true` when the block states no question that this edition decides:
+    /// a field is missing or unknown, or the relation is not `equivalent`.
+    /// The block is reported where it is read, and nothing is proved of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub malformed: bool,
     pub file: String,
     pub line: usize,
 }
@@ -331,6 +336,30 @@ pub struct Example {
     pub line: usize,
 }
 
+/// `scenario NAME:`: one concrete behaviour with the judgement that the
+/// author expects of it. The individuals of a scenario are named by
+/// variables; what it does not state does not exist, does not hold and does
+/// not happen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Scenario {
+    pub name: String,
+    /// Each individual with the noun of its type, in the order of the
+    /// declarations: `given a user U1, a room R1`.
+    pub individuals: Vec<(String, String)>,
+    /// The facts of the domain, each a sentence: `given U1 is a member of R1.`
+    pub facts: Vec<(usize, String)>,
+    /// What holds or happens at a time in milliseconds: `at 0 ms: U1 posts M1 to R1.`
+    pub at: Vec<(usize, i64, String)>,
+    /// `allowed`, `forbidden`, or `undefined` for a behaviour in which a
+    /// share that a statement bounds has no value.
+    pub expect: String,
+    /// `true` when a field of the block was not read: the block states no
+    /// behaviour, and nothing is judged of it.
+    pub malformed: bool,
+    pub file: String,
+    pub line: usize,
+}
+
 /// One namespace block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct Document {
@@ -345,6 +374,11 @@ pub struct Document {
     /// `measure NAME`: the population whose shares the statements may bound,
     /// as in `for at least 99.9 percent of requests`.
     pub measures: Vec<PrimitiveDecl>,
+    /// `individuals NAME, NAME`: the types whose individuals the statements
+    /// tell apart. A statement about such a type speaks about each
+    /// individual of the type, and one noun names one individual throughout
+    /// the statement. Each name is a primitive term as well.
+    pub individuals: Vec<PrimitiveDecl>,
     pub controls: Vec<ControlDecl>,
     pub diagram_kinds: Vec<DiagramKind>,
     pub compatibility: Vec<CompatibilityClaim>,
@@ -355,6 +389,7 @@ pub struct Document {
     pub sources: Vec<SourceDecl>,
     pub checks: Vec<Check>,
     pub examples: Vec<Example>,
+    pub scenarios: Vec<Scenario>,
     /// Identifiers displayed by `ref`, with their lines.
     pub references: Vec<(String, usize)>,
 }
@@ -1750,7 +1785,7 @@ impl<'a> Parser<'a> {
     }
 
     fn check_block(&mut self, doc: &mut Document, name: &str, line: usize) {
-        let mut check = Check { name: name.to_string(), relation: String::new(), left: vec![], right: vec![], file: self.file.to_string(), line };
+        let mut check = Check { name: name.to_string(), relation: String::new(), left: vec![], right: vec![], malformed: false, file: self.file.to_string(), line };
         let mut using = false;
         for (no, raw) in self.fields() {
             if let Some(rest) = keyword(&raw, "relation") {
@@ -1762,13 +1797,16 @@ impl<'a> Parser<'a> {
             } else if raw == "using definitions" {
                 using = true;
             } else {
+                check.malformed = true;
                 self.error("parse-check", "a check holds relation, left, right and using fields", no, &raw);
             }
         }
         if check.relation != "equivalent" {
+            check.malformed = true;
             self.error("parse-check", "this edition accepts `equivalent` as the relation of a check", line, name);
         }
         if check.left.is_empty() || check.right.is_empty() || !using {
+            check.malformed = true;
             self.error("parse-check", "a check holds relation, left, right and using fields", line, name);
         }
         doc.checks.push(check);
@@ -1833,6 +1871,62 @@ impl<'a> Parser<'a> {
             self.error("parse-example", "the kinds are syntax, comparison, consistency and reading", line, name);
         }
         doc.examples.push(example);
+    }
+
+    fn scenario_block(&mut self, doc: &mut Document, name: &str, line: usize) {
+        let mut scenario = Scenario { name: name.to_string(), individuals: Vec::new(), facts: Vec::new(), at: Vec::new(), expect: String::new(), malformed: false, file: self.file.to_string(), line };
+        let mut expects = 0;
+        for (no, raw) in self.fields() {
+            if let Some(rest) = keyword(&raw, "given") {
+                if last_significant(rest) == Some('.') {
+                    scenario.facts.push((no, rest.to_string()));
+                    continue;
+                }
+                // `given a user U1, a room R1`: each individual with its type.
+                for item in rest.split(',').map(str::trim) {
+                    let words: Vec<&str> = item.split_whitespace().collect();
+                    match words.as_slice() {
+                        [article, noun @ .., variable] if ["a", "an"].contains(article) && !noun.is_empty() && is_variable(variable) && !scenario.individuals.iter().any(|(known, _)| known == variable) => scenario.individuals.push((variable.to_string(), noun.join(" "))),
+                        _ => {
+                            scenario.malformed = true;
+                            self.error("parse-scenario", "an individual of a scenario is declared once with its type and a variable, as in `given a user U1, a room R1`", no, &raw)
+                        }
+                    }
+                }
+            } else if let Some(rest) = keyword(&raw, "at") {
+                let parsed = rest.split_once(':').and_then(|(time, clause)| {
+                    let (number, unit) = time.trim().split_once(char::is_whitespace)?;
+                    let factor = match unit.trim() {
+                        "ms" | "millisecond" | "milliseconds" => 1,
+                        "s" | "second" | "seconds" => 1000,
+                        "minute" | "minutes" => 60_000,
+                        _ => return None,
+                    };
+                    let clause = clause.trim();
+                    (last_significant(clause) == Some('.')).then_some(())?;
+                    Some((number.parse::<i64>().ok()?.checked_mul(factor)?, clause.to_string()))
+                });
+                match parsed {
+                    Some((time, clause)) => scenario.at.push((no, time, clause)),
+                    None => {
+                        scenario.malformed = true;
+                        self.error("parse-scenario", "a moment of a scenario is written as `at <whole number> <ms|seconds|minutes>: <clause>.`", no, &raw)
+                    }
+                }
+            } else if let Some(rest) = keyword(&raw, "expect") {
+                scenario.expect = rest.to_string();
+                expects += 1;
+            } else {
+                scenario.malformed = true;
+                self.error("parse-scenario", "a scenario holds `given`, `at` and `expect` fields", no, &raw);
+            }
+        }
+        if expects != 1 || !["allowed", "forbidden", "undefined"].contains(&scenario.expect.as_str()) {
+            self.error("parse-scenario", "a scenario holds exactly one `expect allowed`, `expect forbidden` or `expect undefined`", line, name);
+            scenario.expect.clear();
+            scenario.malformed = true;
+        }
+        doc.scenarios.push(scenario);
     }
 
     fn source_block(&mut self, doc: &mut Document, name: &str, line: usize) {
@@ -2066,7 +2160,7 @@ impl<'a> Parser<'a> {
             self.compatibility_block(doc, name, line, &text);
             return;
         }
-        for (kw, placement) in [("source", in_namespace), ("check", !ctx.shared), ("example", !ctx.shared)] {
+        for (kw, placement) in [("source", in_namespace), ("check", !ctx.shared), ("example", !ctx.shared), ("scenario", !ctx.shared)] {
             let Some(name) = keyword(&text, kw).and_then(|r| r.strip_suffix(':')).map(str::trim) else { continue };
             if name.contains(char::is_whitespace) {
                 continue;
@@ -2080,6 +2174,7 @@ impl<'a> Parser<'a> {
             match kw {
                 "source" => self.source_block(doc, name, line),
                 "check" => self.check_block(doc, name, line),
+                "scenario" => self.scenario_block(doc, name, line),
                 _ => self.example_block(doc, name, line),
             }
             return;
@@ -2111,6 +2206,14 @@ impl<'a> Parser<'a> {
         }
         if let Some(name) = keyword(&text, "measure").map(str::trim).filter(|n| !n.is_empty() && last_significant(n) != Some('.') && !n.contains(':') && n.split_whitespace().count() <= 4) {
             doc.measures.push(PrimitiveDecl { name: name.to_string(), file, line });
+            return;
+        }
+        if let Some(name) = keyword(&text, "individuals").map(str::trim).filter(|n| !n.is_empty() && last_significant(n) != Some('.') && !n.contains(':')) {
+            // `individuals A, B` declares each listed type, and each is a primitive term.
+            for term in name.split(',').map(str::trim).filter(|term| !term.is_empty()) {
+                doc.individuals.push(PrimitiveDecl { name: term.to_string(), file: file.clone(), line });
+                doc.primitives.push(PrimitiveDecl { name: term.to_string(), file: file.clone(), line });
+            }
             return;
         }
         if let Some(name) = keyword(&text, "primitive").map(str::trim).filter(|n| !n.is_empty() && last_significant(n) != Some('.') && !n.contains(':')) {

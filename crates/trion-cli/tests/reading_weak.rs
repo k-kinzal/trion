@@ -95,8 +95,14 @@ fn a_controlled_clause_is_permitted_or_required() {
 #[test]
 fn a_description_of_a_named_subject_is_a_fact() {
     contradicts("[A]\nThe checker reports the diagnostic.\n\n[B]\nThe checker shall not report the diagnostic.\n");
-    // A universal subject asserts no instance.
-    consistent("[A]\nEach checker reports the diagnostic.\n\n[B]\nThe checker shall not report the diagnostic.\n");
+    // A universal subject asserts no instance: a behaviour without a checker
+    // keeps both statements. Nothing says that no checker exists, and where
+    // one exists the two statements cannot both be kept.
+    let universal = "[A]\nEach checker reports the diagnostic.\n\n[B]\nThe checker shall not report the diagnostic.\n";
+    contradicts(universal);
+    let report = check(universal);
+    assert_eq!(report["consistency"]["status"], "satisfiable", "{report}");
+    assert_eq!(report["consistency"]["verdict"], "inconsistent", "{report}");
 }
 
 #[test]

@@ -155,7 +155,7 @@ namespace trion:
             form contract
             input "The door is open or closed."
             expect "assume: ⊤"
-            expect "guarantee: (Dom(door, open) ∧ Dom(door, closed))"
+            expect "guarantee: (Dom(door, open) ∧ Dom(door, closed) ∧ (Val(door, open) ∨ Val(door, closed)))"
 
         example DEFINITION:
             kind reading
@@ -173,3 +173,22 @@ namespace trion:
 [A] The door shall be ajar.
 """
             expect inconsistent
+
+        An enumeration assigns a listed value to the attribute.
+
+        example VALUE-MISSING:
+            kind consistency
+            input """
+[D] The door is open or closed.
+[A] While the alarm is active, the door shall not be open.
+[B] While the alarm is active, the door shall not be closed.
+"""
+            expect inconsistent
+
+        example VALUE-LEFT:
+            kind consistency
+            input """
+[D] The door is open or closed.
+[A] While the alarm is active, the door shall not be open.
+"""
+            expect consistent

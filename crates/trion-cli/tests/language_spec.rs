@@ -48,7 +48,7 @@ fn a_shared_context_applies_its_condition_to_each_statement() {
 #[test]
 fn a_shared_context_holds_at_most_one_trigger() {
     let text = "When the API receives a call:\n    When the bell rings, the API shall stop.\n";
-    assert_eq!(codes(text), ["context-second-trigger"]);
+    assert_eq!(codes_of_the_analysis(text), ["context-second-trigger"]);
 }
 
 #[test]
@@ -60,14 +60,14 @@ fn a_bound_subject_is_replaced_by_its_description() {
 
 #[test]
 fn a_reference_names_an_existing_statement() {
-    assert!(codes("[A] The API shall stop.\nref [A]\n").is_empty());
-    assert_eq!(codes("[A] The API shall stop.\nref [B]\n"), ["UNRESOLVED_REFERENCE"]);
+    assert!(codes_of_the_analysis("[A] The API shall stop.\nref [A]\n").is_empty());
+    assert_eq!(codes_of_the_analysis("[A] The API shall stop.\nref [B]\n"), ["UNRESOLVED_REFERENCE"]);
 }
 
 #[test]
 fn identifiers_are_unique_in_a_package() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "[A] The API shall stop.\n"), ("b.trion", "namespace p.other:\n    [A] The bell shall ring.\n")]);
-    assert_eq!(report_codes(&f.trion(&["verify", "--json"]).json()), ["DUPLICATE_ID"]);
+    assert_eq!(analysis_codes(&f.trion(&["verify", "--json"]).json()), ["DUPLICATE_ID"]);
 }
 
 // Response composition.
@@ -75,8 +75,8 @@ fn identifiers_are_unique_in_a_package() {
 #[test]
 fn an_all_list_requires_each_action() {
     let list = "[A] The API shall perform all of the following actions:\n    stop;\n    log the stop;\n";
-    assert_eq!(codes(&format!("{list}[B] The API shall not stop.\n")), ["contradiction"]);
-    assert!(codes(list).is_empty());
+    assert_eq!(codes_of_the_analysis(&format!("{list}[B] The API shall not stop.\n")), ["contradiction"]);
+    assert!(codes_of_the_analysis(list).is_empty());
 }
 
 #[test]
@@ -120,15 +120,20 @@ fn mixed_operators_need_grouping() {
 
 #[test]
 fn a_necessary_condition_constrains_only_its_claim() {
+    // Old behaviour: `(Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop)) → Val(status, Closed)`.
+    // A completion that is marked forbidden satisfied that contract without
+    // the condition. The condition now forbids the action where it fails
+    // (`tests/closed_routes.rs` gives the behaviours).
     let model = view(&["model"], "[A] The API shall stop only when status is Closed.\n");
-    assert!(model.contains("(Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop)) → Val(status, Closed)"), "{model}");
+    assert!(model.contains("Val(status, Closed) ∨ (¬Act(API|stop) ∧ Forbid(API|stop))"), "{model}");
 }
 
 #[test]
 fn an_exact_condition_is_both_sufficient_and_necessary() {
     let model = view(&["model"], "[B] The API shall start exactly when the bell rings.\n");
     assert!(model.contains("(Event(bell ring) → (Act(API|start)"), "{model}");
-    assert!(model.contains("¬Discouraged(API|start)) → Event(bell ring))"), "{model}");
+    // Old behaviour: `… ¬Discouraged(API|start)) → Event(bell ring))`; see the test above.
+    assert!(model.contains("Event(bell ring) ∨ (¬Act(API|start) ∧ Forbid(API|start))"), "{model}");
 }
 
 #[test]
@@ -248,6 +253,21 @@ fn example(kind: &str, fields: &str) -> String {
 fn example_outcome(kind: &str, fields: &str) -> (Vec<String>, Value) {
     let report = check(&example(kind, fields));
     (report_codes(&report), report["examples"][0].clone())
+}
+
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&check(text))
+}
+
+/// As `example_outcome`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn example_outcome_of_the_analysis(kind: &str, fields: &str) -> (Vec<String>, Value) {
+    let report = check(&example(kind, fields));
+    (analysis_codes(&report), report["examples"][0].clone())
 }
 
 #[test]

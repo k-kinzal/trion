@@ -1,0 +1,18 @@
+namespace x
+individuals user, message
+primitive system
+
+[A]
+When a user sends a message, the system shall store the message.
+
+scenario NEVER:
+    given a user U1, a message M1
+    at 0 ms: U1 sends M1.
+    at 10 minutes: U1 sends M1.
+    expect forbidden
+
+scenario LATER:
+    given a user U1, a message M1
+    at 0 ms: U1 sends M1.
+    at 10 minutes: the system stores M1.
+    expect allowed

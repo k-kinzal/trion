@@ -90,7 +90,7 @@ fn owner_order_does_not_change_identity() {
 fn a_conflict_under_one_condition_is_found() {
     let analysis = run("When the user leaves, the API shall return foo.\nWhen the user leaves, the API shall not return foo.\n");
     assert_eq!(codes(&analysis), ["contradiction"]);
-    assert!(analysis.diagnostics[0].message.contains("condition"));
+    assert!(analysis.diagnostics[0].message.contains("in a situation that can occur"));
 }
 
 #[test]

@@ -1,0 +1,28 @@
+id = "A03b"
+title = "A defined quality means what its definition says"
+work = "W03"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+With the definition, an API that is secure encrypts the message. [G1] requires the API to be secure and
+[G2] forbids it to encrypt the message: the two statements cannot both be kept. The quality is examined
+as its definition says, and it is no longer unresolved. A definition that only keeps the word from
+being reported, and from which nothing follows for the statement that uses the word, lets the
+requirement pass unexamined.
+"""
+
+[expect]
+verified = false
+blockers = ["contradiction"]
+gates_passed = ["meaning"]
+
+[baseline]
+commit = "24cab2aa"
+verified = true
+note = """
+Found while writing this case. The mirror image was refuted: `A secure API means an API that encrypts no
+messages.` with `The API shall encrypt messages.` is a contradiction. A definition by an action that is
+done, against a prohibition of that action, was not: the state stood for a disposition to the action,
+an action required the disposition, and nothing denied it. Closed in W03 by the rule that a holder
+that is forbidden an action is not disposed to it (reading/meaning.rs::definition).
+"""

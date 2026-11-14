@@ -1,0 +1,17 @@
+id = "A23"
+title = "A property that follows from premises without a model is not proved"
+work = "W02"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+The premises of the check say that each guest is a member, that no guest is one and that some guest
+is one: they have no model, and every property follows from them. Reporting the check as proved would
+say that a specification that can be kept has the property.
+"""
+
+[expect]
+verified = false
+blockers = ["check-environment-inconsistent"]
+
+[expect.claims]
+"property_entails:check SAME" = "unknown"

@@ -816,6 +816,17 @@ fn at(atom: Atom, moment: usize) -> Atom {
     }
 }
 
+/// The copy of an atom at one moment of a trace, as [`unroll`] names it.
+/// An atom without a moment (a relation of the domain, a feature) is itself.
+pub fn moment_atom(atom: &Atom, moment: usize) -> Atom {
+    at(atom.clone(), moment)
+}
+
+/// The quantity that holds the time of a moment of a trace, in milliseconds.
+pub fn moment_time(moment: usize) -> String {
+    time_of(moment)
+}
+
 /// The `until` condition of each action that has one, by the key of the action.
 type Untils = BTreeMap<String, Formula>;
 
@@ -882,8 +893,11 @@ fn place(formula: &Formula, state: usize, completions: &[usize], untils: &Untils
 
 /// The time of a moment, in milliseconds. A later moment is never earlier.
 fn time_of(moment: usize) -> String {
-    format!("time@{moment}")
+    format!("{TIME}{moment}")
 }
+
+/// What the name of the time of a moment begins with.
+const TIME: &str = "time@";
 
 /// Replaces each atom that `with` answers for, and keeps the others.
 fn replace(formula: Formula, with: &dyn Fn(&Atom) -> Option<Formula>) -> Formula {
@@ -902,6 +916,32 @@ fn replace(formula: Formula, with: &dyn Fn(&Atom) -> Option<Formula>) -> Formula
 /// moments of it.
 fn first_completion_in_rest(key: &str) -> String {
     format!("first completion time in the rest of {key}")
+}
+
+/// The time of the first occurrence of an event in the rest of the trace,
+/// when the event is one occurrence that the model names: the completion of
+/// an action, whose first time in the rest is that of the action, or an
+/// event. An occurrence that a clause of several parts states has no such
+/// time, and the rest does not order it.
+fn first_occurrence_in_rest(event: &Formula) -> Option<String> {
+    match event {
+        Formula::Atom(Atom::Act { key }) => Some(first_completion_in_rest(key)),
+        Formula::Atom(Atom::Event { key }) => Some(format!("first occurrence time in the rest of {key}")),
+        _ => None,
+    }
+}
+
+/// A completion and an occurrence that both lie in the rest of the trace,
+/// in the order that a statement requires: the first of the two is strictly
+/// earlier. The rest stands for the later moments, and each of the two has
+/// a first time there. A completion before each occurrence is one before
+/// the first occurrence, and an occurrence before each completion is one
+/// before the first completion, so the order of the first times is the
+/// order that the statement requires. Without it the rest would order
+/// nothing, and two actions could each complete before the other there.
+///
+fn ordered_in_rest(earlier: &str, later: &str) -> Formula {
+    Formula::Atom(Atom::difference(later, earlier, "ms", Cmp::Gt, 0))
 }
 
 /// States the bound on the time that an action takes as a relation between
@@ -995,6 +1035,21 @@ fn between_moments(placed: Formula, activation: usize, completions: &[usize], or
     })
 }
 
+/// The first moment at which an occurrence of `event` belongs to an
+/// activation at `activation`. The occurrence that opens the activation
+/// belongs to it; every other event belongs to it from the next moment on:
+/// what happens at the moment of the trigger happened beside it and answers
+/// nothing that the trigger opens. Without an activation the whole trace counts.
+fn of_the_activation(shape: &Obligation, event: &Formula, activation: Option<usize>) -> usize {
+    let Some(moment) = activation else { return 0 };
+    let opens = matches!(&shape.activation, Activation::Occurrence { event: trigger, .. } if *trigger == event.to_string());
+    if opens {
+        moment
+    } else {
+        moment + 1
+    }
+}
+
 /// What the adverbs, the counted runs and the order phrases of a statement
 /// require of the completions after an activation at `activation`, or with
 /// `None` of the completions of the whole trace.
@@ -1011,7 +1066,7 @@ fn orders_after(shape: &Obligation, activation: Option<usize>, rest: usize) -> V
         let ResponseKind::Action { key, .. } = &response.kind else { continue };
         let done = |moment: usize| Formula::Atom(Atom::Act { key: format!("{key}@{moment}") });
         if response.restricted {
-            out.extend(forbidden_after(response, key, activation, rest));
+            out.extend(forbidden_after(shape, response, key, activation, rest));
             continue;
         }
         match response.timing {
@@ -1054,7 +1109,11 @@ fn orders_after(shape: &Obligation, activation: Option<usize>, rest: usize) -> V
                     for position in from..=rest {
                         let mut earlier: Vec<Formula> = (low..position.min(rest)).map(done).collect();
                         if position == rest && is_event {
-                            earlier.push(done(rest));
+                            // Both lie in the rest: the first completion there is before the first occurrence there.
+                            earlier.push(match first_occurrence_in_rest(event) {
+                                Some(occurrence) => Formula::And(vec![done(rest), ordered_in_rest(&first_completion_in_rest(key), &occurrence)]),
+                                None => done(rest),
+                            });
                         }
                         out.push(Formula::implies(occurs(position), Formula::Or(earlier)));
                     }
@@ -1064,7 +1123,7 @@ fn orders_after(shape: &Obligation, activation: Option<usize>, rest: usize) -> V
                 "after" => {
                     let from = match reference.pick {
                         Some(Pick::First | Pick::Last) => 0,
-                        _ => activation.unwrap_or(0),
+                        _ => of_the_activation(shape, event, activation),
                     };
                     for position in low.max(1)..=rest {
                         if position == rest && !is_event {
@@ -1073,7 +1132,11 @@ fn orders_after(shape: &Obligation, activation: Option<usize>, rest: usize) -> V
                         }
                         let mut earlier: Vec<Formula> = (from..position.min(rest)).map(occurs).collect();
                         if position == rest {
-                            earlier.push(occurs(rest));
+                            // Both lie in the rest: the first occurrence there is before the first completion there.
+                            earlier.push(match first_occurrence_in_rest(event) {
+                                Some(occurrence) => Formula::And(vec![occurs(rest), ordered_in_rest(&occurrence, &first_completion_in_rest(key))]),
+                                None => occurs(rest),
+                            });
                         }
                         out.push(Formula::implies(done(position), Formula::Or(earlier)));
                     }
@@ -1093,7 +1156,7 @@ fn orders_after(shape: &Obligation, activation: Option<usize>, rest: usize) -> V
 /// only where the statement forbids it at every moment of the rest: a
 /// completion and an occurrence that both lie in the rest are not ordered,
 /// and a state of the rest that does not hold throughout it tells nothing.
-fn forbidden_after(response: &Response, key: &str, activation: Option<usize>, rest: usize) -> Vec<Formula> {
+fn forbidden_after(shape_of: &Obligation, response: &Response, key: &str, activation: Option<usize>, rest: usize) -> Vec<Formula> {
     let none = Untils::new();
     let low = activation.map_or(0, |moment| moment + 1);
     let done = |moment: usize| Formula::Atom(Atom::Act { key: format!("{key}@{moment}") });
@@ -1116,7 +1179,7 @@ fn forbidden_after(response: &Response, key: &str, activation: Option<usize>, re
         // whole trace, the others from the activation on.
         let from = match reference.pick {
             Some(Pick::First | Pick::Last) => 0,
-            _ => activation.unwrap_or(0),
+            _ => of_the_activation(shape_of, event, activation),
         };
         match reference.relation.as_str() {
             // Forbidden until the occurrence: a completion at the moment of
@@ -1168,6 +1231,30 @@ fn without_restricted(response: Formula, shape: &Obligation) -> Formula {
         // The action stands under a negation in a prohibition.
         Atom::Act { key } if named(key) => Some(Formula::not(Formula::True)),
         Atom::Forbid { key } if named(key) => Some(Formula::True),
+        _ => None,
+    })
+}
+
+/// The guarantee of a contract as it holds of one situation. Two things
+/// are left out, because they speak of moments of a trace and the trace
+/// states them: what a prohibition forbids only at named moments, and the
+/// bound of a deadline that is measured from an event that the sentence
+/// names, which is another origin than the situation of the statement.
+pub fn situation_guarantee(model: &Model, c: &crate::reading::model::Constraint) -> Formula {
+    let Some(shape) = c.refs.first().and_then(|r| model.temporal.iter().find(|o| o.statement.id == r.id)) else { return c.guarantee.clone() };
+    let elsewhere: Vec<&str> = shape
+        .responses
+        .iter()
+        .filter(|r| r.deadline.as_ref().is_some_and(|d| d.event.is_some()))
+        .filter_map(|r| match &r.kind {
+            ResponseKind::Action { key, .. } => Some(key.as_str()),
+            ResponseKind::State { .. } => None,
+        })
+        .collect();
+    let measures = |attr: &str| elsewhere.iter().any(|key| attr.strip_prefix(key).is_some_and(|rest| rest.starts_with(' ')));
+    replace(without_restricted(c.guarantee.clone(), shape), &|atom| match atom {
+        Atom::Num { attr, .. } if measures(attr) => Some(Formula::True),
+        Atom::Lin { terms, .. } if terms.iter().any(|(attr, _)| measures(attr)) => Some(Formula::True),
         _ => None,
     })
 }
@@ -1252,6 +1339,15 @@ pub fn unroll_background(model: &Model, length: usize) -> Vec<Formula> {
     for moment in 0..rest {
         background.push(Formula::Atom(Atom::difference(&time_of(moment + 1), &time_of(moment), "ms", Cmp::Ge, 0)));
     }
+    // An event is the occurrence of its action: where the action completes
+    // in the rest of the trace, the event has occurred there by the time of
+    // the first completion.
+    for axiom in &model.background {
+        let Formula::Implies(action, event) = axiom else { continue };
+        let (Formula::Atom(Atom::Act { key }), Some(occurrence)) = (&**action, first_occurrence_in_rest(event)) else { continue };
+        let completes = Formula::Atom(Atom::Act { key: format!("{key}@{rest}") });
+        background.push(Formula::implies(completes, Formula::Atom(Atom::difference(&first_completion_in_rest(key), &occurrence, "ms", Cmp::Ge, 0))));
+    }
     background
 }
 
@@ -1282,6 +1378,13 @@ pub fn at_first_moment(formula: &Formula) -> Formula {
 /// condition is the one that the statement states: a relation to another
 /// statement narrows the formula only.
 pub(super) fn unroll_contract(model: &Model, c: &crate::reading::model::Constraint, length: usize) -> (Formula, Option<Formula>) {
+    contract_over(model, c, length, false, None)
+}
+
+/// The contract over a trace. `complete` asks for the reading of a
+/// behaviour that ends with the trace: the count of a share binds only
+/// there, so only there do the formulas hold the counters.
+fn contract_over(model: &Model, c: &crate::reading::model::Constraint, length: usize, complete: bool, known: Known) -> (Formula, Option<Formula>) {
     // A refinement relates statements that all stand in the trace already.
     if c.kind == crate::reading::model::ConstraintKind::Refinement {
         return (Formula::True, None);
@@ -1290,8 +1393,11 @@ pub(super) fn unroll_contract(model: &Model, c: &crate::reading::model::Constrai
     if c.kind.is_vocabulary() {
         return (unroll_axiom(&c.guarantee, length), None);
     }
+    if let Some(counted) = share_contract(model, c, length, complete, known) {
+        return counted;
+    }
     let mut parts: Vec<Formula> = Vec::new();
-    for (condition, response) in activations_of(model, c, length) {
+    for (_, condition, response) in activations_of(model, c, length, known) {
         let part = match condition {
             Some(condition) => Formula::implies(condition, response),
             None => response,
@@ -1305,11 +1411,55 @@ pub(super) fn unroll_contract(model: &Model, c: &crate::reading::model::Constrai
     (formula, (condition != Formula::True).then(|| place(&condition, 0, &[0], &Untils::new())))
 }
 
+/// What is known of the atoms of a behaviour, when the contracts are stated
+/// for one behaviour: the truth of an atom that the behaviour fixes.
+type Known<'a> = Option<&'a dyn Fn(&Atom) -> Option<bool>>;
+
+/// The truth of a formula as far as the known atoms decide it.
+fn settled(formula: &Formula, known: &dyn Fn(&Atom) -> Option<bool>) -> Option<bool> {
+    match formula {
+        Formula::True => Some(true),
+        Formula::Atom(atom) => known(atom),
+        Formula::Not(inner) => settled(inner, known).map(|value| !value),
+        Formula::And(items) => {
+            let mut all = Some(true);
+            for item in items {
+                match settled(item, known) {
+                    Some(false) => return Some(false),
+                    Some(true) => {}
+                    None => all = None,
+                }
+            }
+            all
+        }
+        Formula::Or(items) => {
+            let mut none = Some(false);
+            for item in items {
+                match settled(item, known) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => none = None,
+                }
+            }
+            none
+        }
+        Formula::Implies(condition, consequence) => match (settled(condition, known), settled(consequence, known)) {
+            (Some(false), _) | (_, Some(true)) => Some(true),
+            (Some(true), Some(false)) => Some(false),
+            _ => None,
+        },
+    }
+}
+
 /// The activations of one contract over a trace of `length` moments: for
 /// each moment at which the contract can apply, its condition there, when
 /// it has one, and the response that the condition opens. The contract
 /// holds on the trace exactly when each condition implies its response.
-fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: usize) -> Vec<(Option<Formula>, Formula)> {
+///
+/// Where the atoms of one behaviour are known, a moment at which the
+/// condition fails in that behaviour is left out: the contract requires
+/// nothing there, and no count holds such a moment.
+fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: usize, known: Known) -> Vec<(usize, Option<Formula>, Formula)> {
     let rest = length.max(2);
     let all: Vec<usize> = (0..=rest).collect();
     let shape = c.refs.first().and_then(|r| model.temporal.iter().find(|o| o.statement.id == r.id));
@@ -1351,6 +1501,12 @@ fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: 
     };
     let mut parts = Vec::new();
     for &moment in &all {
+        let condition = guarded.then(|| place(&c.assume, moment, &[moment], &none));
+        if let (Some(condition), Some(known)) = (&condition, known) {
+            if settled(condition, known) == Some(false) {
+                continue;
+            }
+        }
         let response = match reading {
             // An event of the rest is an occurrence at one of its moments. A
             // response to it completes later in the rest; what the response
@@ -1376,9 +1532,245 @@ fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: 
             Reading::Now => place(&c.guarantee, moment, &[moment], &untils),
             Reading::Sometime => ordered(place(&c.guarantee, moment, &all, &untils), None),
         };
-        parts.push((guarded.then(|| place(&c.assume, moment, &[moment], &none)), response));
+        parts.push((moment, condition, response));
     }
     parts
+}
+
+/// The atom of a count that the reading makes: at least `j` of the first
+/// `i` activations of a statement are of the named kind.
+fn count_atom(tag: &str, statement: &str, i: usize, j: usize) -> Atom {
+    Atom::Rel { name: format!("{COUNT} of {tag} of [{statement}]"), args: vec![i.to_string(), j.to_string()] }
+}
+
+const COUNT: &str = "count";
+
+/// The proposition that a behaviour goes on after the moments of the
+/// trace. A complete behaviour of those moments does not.
+pub fn continues() -> Atom {
+    Atom::Config { key: "the behaviour goes on after the trace".to_string() }
+}
+
+/// `true` for an atom that counts activations: the reading makes it, and
+/// no fact of a behaviour stands for it.
+pub fn is_count(atom: &Atom) -> bool {
+    matches!(atom, Atom::Rel { name, .. } if name.starts_with("count of "))
+}
+
+/// The atoms `at least j of the first i formulas hold`, for each j up to
+/// `most`, with the formulas that define them: a sequential counter. The
+/// result holds, for each j from 0 to `most`, the formula `at least j of
+/// all the formulas hold`.
+fn at_least(tag: &str, statement: &str, formulas: &[Formula], most: usize, definitions: &mut Vec<Formula>) -> Vec<Formula> {
+    let never = || Formula::not(Formula::True);
+    let most = most.min(formulas.len());
+    // Before the first formula: at least 0 hold, and no more.
+    let mut row: Vec<Formula> = std::iter::once(Formula::True).chain((1..=most).map(|_| never())).collect();
+    for (i, formula) in formulas.iter().enumerate() {
+        let mut next = vec![Formula::True];
+        for j in 1..=most {
+            // More than i + 1 formulas cannot hold among the first i + 1.
+            if j > i + 1 {
+                next.push(never());
+                continue;
+            }
+            let atom = Formula::atom(count_atom(tag, statement, i + 1, j));
+            let meaning = Formula::Or(vec![row[j].clone(), Formula::And(vec![formula.clone(), row[j - 1].clone()])]);
+            definitions.push(Formula::implies(atom.clone(), meaning.clone()));
+            definitions.push(Formula::implies(meaning, atom.clone()));
+            next.push(atom);
+        }
+        row = next;
+    }
+    row
+}
+
+/// The contract of a statement that bounds a share, over a trace.
+///
+/// The population of the share is the set of the activations of the
+/// statement: each instance at each moment at which its condition holds.
+/// An activation is answered when the response of its instance meets it.
+/// Over the moments of the trace both are counted, and the bound is
+/// compared in whole numbers: `answered · 100 000` against `thousandths of
+/// a percent · population`. A population of none has no share and meets
+/// every bound.
+///
+/// The rest of the trace stands for moments without number. Where the
+/// behaviour goes on after the trace ([`continues`]), its counts are not
+/// those of the trace, and a share that the trace fails may hold of the
+/// behaviour: the count then requires nothing, apart from a bound that
+/// leaves no activation out (all of them, or none of them). A bound on the
+/// quantity of the share holds where the population is not empty, and the
+/// axioms about the shares of one population relate those quantities.
+fn share_contract(model: &Model, c: &crate::reading::model::Constraint, length: usize, complete: bool, known: Known) -> Option<(Formula, Option<Formula>)> {
+    let id = &c.refs.first()?.id;
+    if !model.individuals.as_ref()?.shares.iter().any(|share| &share.statement == id) {
+        return None;
+    }
+    let rest = length.max(2);
+    // Each activation as its condition and its response: within the trace, and in the rest.
+    let mut within: Vec<(Formula, Formula)> = Vec::new();
+    let mut later: Vec<(Formula, Formula)> = Vec::new();
+    let mut first: Vec<Formula> = Vec::new();
+    for counted in model.counted.iter().filter(|counted| &counted.statement == id) {
+        let mut seen: Vec<(Formula, Formula)> = Vec::new();
+        for (moment, condition, response) in activations_of(model, &counted.constraint, length, known) {
+            let pair = (condition.unwrap_or(Formula::True), response);
+            // A statement without a moment has one activation for each instance.
+            if seen.contains(&pair) {
+                continue;
+            }
+            seen.push(pair.clone());
+            if moment == 0 && !first.contains(&pair.0) {
+                first.push(pair.0.clone());
+            }
+            if moment == rest {
+                later.push(pair);
+            } else {
+                within.push(pair);
+            }
+        }
+    }
+    let full = 100 * i128::from(trion_solver::NUMERIC_SCALE);
+    let mut bounds: Vec<(Cmp, i128)> = Vec::new();
+    c.guarantee.atoms(true, &mut |atom, positive| {
+        if let Atom::Num { cmp, n, .. } = atom {
+            let cmp = match (cmp, positive) {
+                (cmp, true) => *cmp,
+                (Cmp::Ge, false) => Cmp::Lt,
+                (Cmp::Gt, false) => Cmp::Le,
+                (Cmp::Le, false) => Cmp::Gt,
+                (Cmp::Lt, false) => Cmp::Ge,
+                // What is not equal is bounded by nothing that a count reads.
+                (Cmp::Eq, false) => return,
+            };
+            bounds.push((cmp, i128::from(*n)));
+        }
+    });
+    let any = |formulas: Vec<Formula>| match formulas.len() {
+        0 => Formula::not(Formula::True),
+        1 => formulas.into_iter().next().unwrap_or(Formula::True),
+        _ => Formula::Or(formulas),
+    };
+    let size = within.len();
+    let mut parts: Vec<Formula> = Vec::new();
+    // The counts of the trace: the population, the answered and the unanswered activations.
+    let population: Vec<Formula> = within.iter().map(|(condition, _)| condition.clone()).collect();
+    // An upper bound counts each activation whose action completes as the
+    // statement says, whatever forbids it or advises against it: what the
+    // formulas add to a behaviour could otherwise mark a completion and
+    // take it out of the count. A lower bound counts the activations that
+    // the response meets as a requirement.
+    // What the reading adds beside the status is left out in the same way:
+    // a quantity that is no time of a moment (the time that an action
+    // takes, the time of a completion in the rest) is no part of the
+    // behaviour, and a bound on it could be failed at will.
+    let of_a_moment = |attr: &String| attr.strip_prefix(TIME).is_some_and(|moment| moment.parse::<usize>().is_ok());
+    let completed = |response: &Formula| {
+        replace(response.clone(), &|atom| match atom {
+            Atom::Forbid { .. } | Atom::Discouraged { .. } => Some(Formula::not(Formula::True)),
+            Atom::Num { attr, .. } if !of_a_moment(attr) => Some(Formula::True),
+            Atom::Lin { terms, .. } if !terms.iter().all(|(attr, _)| of_a_moment(attr)) => Some(Formula::True),
+            _ => None,
+        })
+    };
+    let answered: Vec<Formula> = within.iter().map(|(condition, response)| Formula::And(vec![condition.clone(), completed(response)])).collect();
+    let unanswered: Vec<Formula> = within.iter().map(|(condition, response)| Formula::And(vec![condition.clone(), Formula::not(response.clone())])).collect();
+    // For a population of k, the least and the greatest count of answered activations that each bound allows.
+    let allowed = |k: usize| -> (i128, i128) {
+        let k = k as i128;
+        let (mut least, mut most) = (0, k);
+        for (cmp, thousandths) in &bounds {
+            let product = thousandths * k;
+            let (floor, ceiling) = (product.div_euclid(full), (product + full - 1).div_euclid(full));
+            match cmp {
+                Cmp::Ge => least = least.max(ceiling),
+                Cmp::Gt => least = least.max(floor + 1),
+                Cmp::Le => most = most.min(floor),
+                Cmp::Lt => most = most.min(ceiling - 1),
+                Cmp::Eq => {
+                    least = least.max(ceiling);
+                    most = most.min(floor);
+                }
+            }
+        }
+        (least, most)
+    };
+    // What a population of k allows: so many unanswered activations, and
+    // so many completed ones. Neither falls as k grows, so a count of u is
+    // allowed exactly from the least population that allows it on:
+    // `count ≥ u → population ≥ least(u)`, and no population of the trace
+    // allows a count without such a population.
+    let unanswered_allowed = |k: usize| k as i128 - allowed(k).0;
+    let completed_allowed = |k: usize| allowed(k).1;
+    let mut needed: Vec<(bool, usize, Option<usize>)> = Vec::new();
+    for (of_answered, limit) in [(false, &unanswered_allowed as &dyn Fn(usize) -> i128), (true, &completed_allowed)] {
+        // A trace without an activation has no count to bound.
+        if size == 0 {
+            break;
+        }
+        for u in 0..=size {
+            match (1..=size).find(|&k| limit(k) >= u as i128) {
+                // A count is never greater than the population.
+                Some(k) if k <= u.max(1) => {}
+                Some(k) => needed.push((of_answered, u, Some(k))),
+                None => {
+                    needed.push((of_answered, u, None));
+                    break;
+                }
+            }
+        }
+    }
+    let most = |of_answered: bool| needed.iter().filter(|(which, _, _)| *which == of_answered).map(|(_, u, _)| *u).max().unwrap_or(0);
+    let most_population = needed.iter().map(|(_, u, k)| k.unwrap_or(0).max(usize::from(*u == 0))).max().unwrap_or(0);
+    let mut definitions: Vec<Formula> = Vec::new();
+    let of_population = at_least("population", id, &population, most_population, &mut definitions);
+    let of_unanswered = at_least("unanswered", id, &unanswered, most(false), &mut definitions);
+    let of_answered = at_least("answered", id, &answered, most(true), &mut definitions);
+    let mut count: Vec<Formula> = Vec::new();
+    for (which, u, least) in &needed {
+        // A count of none stands for a population that is not empty.
+        let counted = match (*u, *which) {
+            (0, _) => of_population[1].clone(),
+            (u, false) => of_unanswered[u].clone(),
+            (u, true) => of_answered[u].clone(),
+        };
+        count.push(match least {
+            Some(k) => Formula::implies(counted, of_population[*k].clone()),
+            None => Formula::not(counted),
+        });
+    }
+    // The counts of the trace are the counts of the behaviour only where
+    // the behaviour ends with the trace.
+    // Where a behaviour may go on, `the behaviour goes on` satisfies the
+    // implication and the counters define their atoms freely: the formulas
+    // with the count are satisfiable exactly when those without it are. So
+    // the count is stated only for a behaviour that ends with the trace.
+    let goes_on = Formula::atom(continues());
+    if complete && !count.is_empty() {
+        parts.extend(definitions);
+        parts.push(Formula::implies(Formula::not(goes_on.clone()), Formula::And(count)));
+    }
+    if !later.is_empty() {
+        parts.push(Formula::implies(any(later.iter().map(|(condition, _)| condition.clone()).collect()), goes_on));
+    }
+    // A bound that leaves no activation out holds of each activation, in the rest as well.
+    // Such a bound allows nothing else of a population of any size.
+    let many = 1_000_000_000;
+    let (all, none) = (allowed(many).0 == many as i128, allowed(many).1 == 0);
+    for (condition, response) in within.iter().chain(&later) {
+        if all {
+            parts.push(Formula::implies(condition.clone(), response.clone()));
+        }
+        if none {
+            parts.push(Formula::implies(condition.clone(), Formula::not(completed(response))));
+        }
+    }
+    // The quantity of the share has its bounds where the population is not empty.
+    let not_empty = any(within.iter().chain(&later).map(|(condition, _)| condition.clone()).collect());
+    parts.push(Formula::implies(not_empty, c.guarantee.clone()));
+    let formula = if parts.len() == 1 { parts.remove(0) } else { Formula::And(parts) };
+    Some((formula, (!first.is_empty() && !first.contains(&Formula::True)).then(|| any(first))))
 }
 
 /// Reads the contracts of a model over a trace of `length` moments.
@@ -1404,6 +1796,31 @@ pub fn unroll(model: &Model, length: usize) -> Trace {
     let length = length.max(2);
     let groups = model.constraints.iter().map(|c| unroll_contract(model, c, length)).collect();
     Trace { background: unroll_background(model, length), groups }
+}
+
+/// The contracts of a model over a behaviour that ends with the trace:
+/// nothing happens after its last moment. Beside what [`unroll`] gives, the
+/// formulas count the activations of each share and say that the
+/// behaviour does not go on.
+pub fn unroll_complete(model: &Model, length: usize) -> Trace {
+    let length = length.max(2);
+    let groups = model.constraints.iter().map(|c| contract_over(model, c, length, true, None)).collect();
+    let mut background = unroll_background(model, length);
+    background.push(Formula::not(Formula::atom(continues())));
+    Trace { background, groups }
+}
+
+/// The contracts of a model over one complete behaviour of `length`
+/// moments, of which `known` tells the atoms that the behaviour fixes. The
+/// formulas are those of [`unroll_complete`] without the activations whose
+/// condition fails in the behaviour: each of them holds there whatever the
+/// rest of the formula says, and no share counts it.
+pub fn unroll_complete_in(model: &Model, length: usize, known: &dyn Fn(&Atom) -> Option<bool>) -> Trace {
+    let length = length.max(2);
+    let groups = model.constraints.iter().map(|c| contract_over(model, c, length, true, Some(known))).collect();
+    let mut background = unroll_background(model, length);
+    background.push(Formula::not(Formula::atom(continues())));
+    Trace { background, groups }
 }
 
 /// An axiom about events and actions, stated at every moment of a trace.
@@ -1738,7 +2155,14 @@ mod moments {
         let after = ordered(&shape(None, None, vec![reference("after", None)]), Some(1), 3);
         // The retry and the completion at one moment: the completion is not after it.
         assert_eq!(status(vec![Formula::not(occurs(1)), occurs(2), done(2)], after.clone(), 3), Status::Unsatisfiable);
-        assert_eq!(status(vec![occurs(1), done(2)], after.clone(), 3), Status::Satisfiable);
+        // A retry at the moment of the activation happened beside the trigger
+        // and belongs to no activation that the trigger opens. Until work
+        // item W06 it counted (`an occurrence at or after the activation`),
+        // and this line asserted `Satisfiable`: with it, two actions of one
+        // activation could each come after the other.
+        assert_eq!(status(vec![occurs(1), Formula::not(occurs(2)), done(2)], after.clone(), 3), Status::Unsatisfiable);
+        let early = ordered(&shape(None, None, vec![reference("after", None)]), Some(0), 3);
+        assert_eq!(status(vec![occurs(1), done(2)], early, 3), Status::Satisfiable);
         // A retry before the activation is no retry after it; the last retry may lie before it.
         assert_eq!(status(vec![occurs(0), Formula::not(occurs(1)), done(2)], after, 3), Status::Unsatisfiable);
         let last = ordered(&shape(None, None, vec![reference("after", Some(Pick::Last))]), Some(1), 3);

@@ -1,0 +1,11 @@
+namespace p
+individuals user, message
+primitive system
+
+[A]
+When a user sends a message, the system shall store the message within 2 seconds.
+
+scenario BAD:
+    given a user U1
+    at soon: U1 sends a message.
+    expect allowed

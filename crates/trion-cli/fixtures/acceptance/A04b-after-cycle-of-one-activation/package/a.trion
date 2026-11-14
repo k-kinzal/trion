@@ -1,0 +1,11 @@
+namespace x
+primitive API
+primitive request
+primitive timer
+primitive report
+
+[A]
+When the timer expires, the API shall log the request after the API sends the report.
+
+[B]
+When the timer expires, the API shall send the report after the API logs the request.

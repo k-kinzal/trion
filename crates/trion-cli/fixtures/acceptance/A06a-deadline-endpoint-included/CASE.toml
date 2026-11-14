@@ -1,0 +1,12 @@
+id = "A06a"
+title = "`within 5 seconds` includes the fifth second"
+work = "W06"
+status = "closed"
+args = ["verify", "--json"]
+reason = """
+`within 5 seconds` bounds the delay by 5 seconds inclusive, and `at least 5 seconds after` bounds it
+from below inclusive: a response exactly 5 seconds after the expiry keeps both.
+"""
+
+[expect]
+verified = true

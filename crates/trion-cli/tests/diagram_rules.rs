@@ -17,6 +17,13 @@ fn codes(text: &str) -> Vec<String> {
     report_codes(&package(text).trion(&["verify", "--json"]).json())
 }
 
+/// As `codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn codes_of_the_analysis(text: &str) -> Vec<String> {
+    analysis_codes(&package(text).trion(&["verify", "--json"]).json())
+}
+
 /// The expressions that `expand --json` gives for one statement.
 fn expressions(f: &Fixture, id: &str) -> Vec<Value> {
     let items = f.inspect(&["expand", "--json"]).json();
@@ -78,7 +85,7 @@ fn a_flow_with_choices_expands_to_sentences_that_the_parser_reads() {
     ];
     assert!(expansion.contains(&format!("[F]\n{}\n", expected.join("\n"))), "{expansion}");
     // The expansion is controlled English: written as statements, it passes the check.
-    assert!(codes(&format!("{}\n", expected.join("\n"))).is_empty());
+    assert!(codes_of_the_analysis(&format!("{}\n", expected.join("\n"))).is_empty());
     // A verbal guard is denied with `does not`, and a step keeps its exception.
     let verbal = CHOICE.replace("when the request is valid -> accept", "when the request passes the filter -> accept").replace("discard the request;", "discard the request, unless the request is a retry;");
     let expansion = package(&verbal).inspect(&["expand"]).stdout;
@@ -98,7 +105,7 @@ fn a_generated_view_says_what_its_statements_say() {
     assert!(flow.starts_with("[SEQ] When the checker completes an analysis, the checker shall follow this flow:\n    step s1: create an analysis report R for the analysis;\n"), "{flow}");
     // The views are diagrams of the language: read back, they give the contracts of the statements.
     let view = package(&format!("{flow}{concept}"));
-    assert!(report_codes(&view.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&view.trion(&["verify", "--json"]).json()).is_empty());
     let original = contracts(&f);
     let generated = contracts(&view);
     for id in ["PKG", "SEQ"] {
@@ -175,8 +182,8 @@ fn a_compatibility_claim_names_a_revision_and_its_sentence_forms() {
     let claim = "compatibility BASE-SENTENCES:\n    source ORACLE\n    revision \"abc123\"\n    form Definition\n    form Event-driven\n[A] The API shall stop.\n    unsourced \"A fixture.\"\n";
     let check = |text: &str| {
         let f = package(text);
-        let mut found = report_codes(&f.trion(&["verify", "--json"]).json());
-        found.extend(report_codes(&f.trion(&["verify", "--json"]).json()["sources"].clone()).into_iter().filter(|c| c.starts_with("compatibility")));
+        let mut found = analysis_codes(&f.trion(&["verify", "--json"]).json());
+        found.extend(analysis_codes(&f.trion(&["verify", "--json"]).json()["sources"].clone()).into_iter().filter(|c| c.starts_with("compatibility")));
         found
     };
     assert!(check(&format!("{}{claim}", source("abc123"))).is_empty());
@@ -188,4 +195,29 @@ fn a_compatibility_claim_names_a_revision_and_its_sentence_forms() {
     assert_eq!(check(&format!("{}{}", source("abc123"), claim.replace("    form Definition\n    form Event-driven\n", ""))), ["parse-compatibility"]);
     // The forms are the sentence forms of the language.
     assert_eq!(check(&format!("{}{}", source("abc123"), claim.replace("form Definition", "form Haiku"))), ["parse-compatibility"]);
+}
+
+#[test]
+fn what_a_package_declares_and_nothing_checks_is_named_in_the_result() {
+    // The reason why a diagram kind keeps the meaning of its elements, and
+    // the agreement of sentence forms with another grammar, are stated by
+    // the package. Old behaviour: both had to be present, were never read
+    // again, and a verified result said nothing of them. A result now
+    // names each as declared and not checked, in every view.
+    let diagram = "[T] diagram transition:\n    [T/pay] closed -> rung -> red;\n    open -> rung -> green;\n";
+    let source = "source ORACLE:\n    title \"The base grammar\"\n    kind citation\n    locator \"https://example.test/grammar\"\n    revision \"abc123\"\n";
+    let claim = "compatibility BASE-SENTENCES:\n    source ORACLE\n    revision \"abc123\"\n    form Definition\n    form Event-driven\n";
+    let f = package(&format!("{source}{claim}{KIND}{diagram}"));
+    let report = f.trion(&["verify", "--json"]).json();
+    let declared: Vec<&str> = report["outcome"]["declared"].as_array().unwrap().iter().map(|d| d.as_str().unwrap()).collect();
+    assert_eq!(declared.len(), 2, "{declared:?}");
+    assert!(declared[0].starts_with("diagram kind transition: ") && declared[0].contains("is not checked"), "{declared:?}");
+    assert!(declared[1].starts_with("compatibility BASE-SENTENCES: ") && declared[1].contains("Definition, Event-driven") && declared[1].contains("is not checked"), "{declared:?}");
+    let text = f.trion(&["verify"]).stdout;
+    assert_eq!(text.lines().filter(|line| line.starts_with("declared, not checked: ")).count(), 2, "{text}");
+    let html = f.trion(&["doc"]).stdout;
+    assert_eq!(html.matches("<li>declared, not checked: ").count(), 2, "no status line in the document");
+    // A package that declares neither has no such line.
+    let plain = package("[A] The API shall stop.\n").trion(&["verify", "--json"]).json();
+    assert!(plain["outcome"]["declared"].as_array().unwrap().is_empty());
 }

@@ -12,6 +12,14 @@ fn ears_codes(spec: &str) -> Vec<String> {
     report_codes(&Fixture::new(&[("trion.toml", &manifest), ("a.trion", spec)]).trion(&["verify", "--json"]).json())
 }
 
+/// As `ears_codes`, reading the diagnostics of the analysis alone: no finding of
+/// another list of the report is read, so an empty result is no success.
+#[allow(dead_code)]
+fn ears_codes_of_the_analysis(spec: &str) -> Vec<String> {
+    let manifest = manifest();
+    analysis_codes(&Fixture::new(&[("trion.toml", &manifest), ("a.trion", spec)]).trion(&["verify", "--json"]).json())
+}
+
 fn forms(text: &str) -> Vec<&'static str> {
     syntax_forms(&parse_sentence(text).unwrap())
 }
@@ -46,7 +54,7 @@ fn the_ears_package_closes_the_syntax() {
 
 #[test]
 fn the_generic_syntax_is_accepted() {
-    assert!(ears_codes("use ears\nWhile the door is open, when the bell rings, the API shall stop.\n").is_empty());
+    assert!(ears_codes_of_the_analysis("use ears\nWhile the door is open, when the bell rings, the API shall stop.\n").is_empty());
 }
 
 #[test]
@@ -57,13 +65,13 @@ fn a_second_trigger_is_rejected() {
 #[test]
 fn unsupported_syntax_is_rejected() {
     for spec in ["The API shall not stop.", "The API may stop.", "The API should stop.", "The API must stop.", "The API shall stop, unless the door is open.", "A room means a shared channel."] {
-        assert_eq!(ears_codes(&format!("use ears\n{spec}\n")), ["syntax-not-allowed"], "{spec}");
+        assert_eq!(ears_codes_of_the_analysis(&format!("use ears\n{spec}\n")), ["syntax-not-allowed"], "{spec}");
     }
 }
 
 #[test]
 fn an_extension_allows_a_form() {
-    assert!(ears_codes("use ears\nextend ears::syntax with Prohibition.\nThe API shall not stop.\n").is_empty());
+    assert!(ears_codes_of_the_analysis("use ears\nextend ears::syntax with Prohibition.\nThe API shall not stop.\n").is_empty());
 }
 
 #[test]
@@ -76,7 +84,7 @@ fn an_extension_is_scoped_to_its_namespace() {
         ("z.trion", "namespace p.z:\n    The door shall not open.\n"),
     ]);
     let r = f.trion(&["verify", "--json"]).json();
-    assert_eq!(report_codes(&r), ["syntax-not-allowed"]);
+    assert_eq!(analysis_codes(&r), ["syntax-not-allowed"]);
     assert_eq!(r["diagnostics"][0]["refs"][0]["file"], "y.trion");
 }
 

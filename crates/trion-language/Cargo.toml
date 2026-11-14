@@ -13,3 +13,6 @@ trion-solver.workspace = true
 serde.workspace = true
 regex.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

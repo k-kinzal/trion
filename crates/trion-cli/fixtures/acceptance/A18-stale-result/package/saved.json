@@ -1,0 +1,20 @@
+{
+ "outcome": {
+  "subject": {
+   "checker": "0.1.0",
+   "decisions": null,
+   "key": "d4fb7c1cc6d5b2e3927b906c64405537c7808f63247397646d9cbd5292fb043d",
+   "properties": false,
+   "prover": [
+    "z3",
+    "-in"
+   ],
+   "revision": "0000000000000000000000000000000000000000000000000000000000000000",
+   "scope": 3,
+   "semantics": "0.1.0",
+   "stability": false,
+   "tool": "0.1.0",
+   "trace_length": 3
+  }
+ }
+}

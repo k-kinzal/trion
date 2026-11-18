@@ -11,7 +11,7 @@ use serde_json::Value;
 const HEAD: &str = "primitive API\nprimitive door\nprimitive alarm\n\n";
 
 fn verify(text: &str) -> Value {
-    Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json"]).json()
+    Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json"]).json()
 }
 
 fn contradicts(report: &Value) -> bool {

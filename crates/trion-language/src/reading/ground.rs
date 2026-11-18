@@ -11,7 +11,7 @@
 //! store the message.` over two individuals of each type is eight
 //! instances, among them `When user#1 posts message#2 to room#1, the system
 //! shall store message#2.` under the condition `member(room#1, member#1)`.
-//! An instance is a short sentence: the reading of sentences reads it as it
+//! An instance is a simple sentence: the reading of sentences reads it as it
 //! reads any other, so that one binding names one individual in the
 //! condition, in the response and in every statement.
 //!

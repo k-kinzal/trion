@@ -37,10 +37,10 @@ text (`result-stale`).
    it to one that is named (`the author of the message`).
 4. State the facts of the domain that the representative reading left
    implicit. The verification names them as conflicts: one message posted by
-   two users, one message posted to two rooms (`docs/practical/W12-results.md`).
+   two users, one message posted to two rooms.
 5. Write a scenario for each behaviour that the package must allow or forbid.
 
 A statement that the reading over individuals rejects keeps its
 representative reading only in a package without declared individuals.
-Narrowing is not counted as an improvement: `docs/practical/W13-release.md`
-lists what the reading over individuals does not read.
+Narrowing is not counted as an improvement: `spec/patterns/ledger.toml`
+records for each pattern whether it is read, and what is left open.

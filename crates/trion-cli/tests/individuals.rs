@@ -3,9 +3,8 @@
 //! a statement, and a scenario is one concrete behaviour that the reference
 //! evaluator and the formulas of the reading judge alike.
 //!
-//! The expectations are written from `spec/semantics/core.md` and from
-//! `docs/practical/W12-requirements.md`, which fixes the behaviours of the
-//! rooms example before any result was seen.
+//! The expectations are written from `spec/semantics/core.md`. Each test
+//! holds the package that it reads.
 
 mod common;
 use common::*;
@@ -21,92 +20,141 @@ primitive system
 When a user sends a message, the system shall store the message within 2 seconds.
 "#;
 
-fn scenario<'a>(report: &'a Value, name: &str) -> &'a Value {
-    report["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}: {}", report["scenarios"]))
+/// What the formulas of the reading say of a behaviour that a judgement
+/// does not take: the other word.
+fn other(word: &str) -> &'static str {
+    if word == "forbidden" { "allowed" } else { "forbidden" }
 }
 
+/// The finding of the checker that the reference evaluator and the
+/// formulas of the reading judge the scenario `name` differently.
+fn differs<'a>(report: &'a Value, name: &str) -> Option<&'a Value> {
+    let at = format!("scenario {name}");
+    // A variation of the scenario is reported as a behaviour next to it ("on the behaviour of …").
+    report["checker"].as_array().unwrap().iter().find(|d| d["code"] == "scenario-differs" && d["message"].as_str().unwrap().starts_with("the reference evaluator finds") && d["refs"].as_array().unwrap().iter().any(|r| r["id"] == at))
+}
+
+/// The two words of a difference on the scenario `name`: what the
+/// reference evaluator finds of the behaviour, and what the formulas find.
+fn difference(report: &Value, name: &str) -> (String, String) {
+    let found = differs(report, name).unwrap_or_else(|| panic!("no difference on {name}: {}", report["checker"]));
+    let message = found["message"].as_str().unwrap();
+    let word = |cue: &str| message.split(cue).nth(1).and_then(|rest| rest.split([' ', ':']).next()).unwrap().to_string();
+    (word("finds the behaviour "), word("find it "))
+}
+
+/// How the scenario `name` is judged: by the reference evaluator, by the
+/// formulas of the reading, and the verdict of its obligation, which asks
+/// the formulas for what the scenario expects. A scenario that is not read
+/// has no obligation and is `invalid`.
+///
+/// The formulas say what the scenario expects where its obligation is
+/// proved, and the other word where it is refuted; the reference evaluator
+/// says the same, unless the checker finds that it differs and names both.
 fn judged(report: &Value, name: &str) -> (String, String, String) {
-    let s = scenario(report, name);
-    (s["reference"].as_str().unwrap().to_string(), s["generated"].as_str().unwrap().to_string(), s["verdict"].as_str().unwrap().to_string())
+    let obligation = format!("scenario/{name}");
+    let Some(stated) = report["obligations"].as_array().unwrap().iter().find(|o| o["name"] == obligation) else {
+        let at = format!("scenario {name}");
+        let invalid = report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "scenario-invalid" && d["refs"].as_array().unwrap().iter().any(|r| r["id"] == at));
+        let verdict = if invalid { "invalid" } else { "absent" };
+        return (verdict.to_string(), verdict.to_string(), verdict.to_string());
+    };
+    let expected = if stated["proposition"].as_str().unwrap().ends_with("breaks a statement") { "forbidden" } else { "allowed" };
+    let verdict = verdicts(report).get(&obligation).cloned().unwrap_or_else(|| "absent".to_string());
+    let generated = match verdict.as_str() {
+        "proved" => expected,
+        "refuted" => other(expected),
+        _ => "undecided",
+    };
+    let reference = match differs(report, name) {
+        // "the reference evaluator finds the behaviour W and the formulas …"
+        Some(d) => d["message"].as_str().unwrap().split("finds the behaviour ").nth(1).and_then(|rest| rest.split(' ').next()).unwrap().to_string(),
+        None => generated.to_string(),
+    };
+    (reference, generated.to_string(), verdict)
 }
 
-fn both(word: &str, verdict: &str) -> (String, String, String) {
-    (word.to_string(), word.to_string(), verdict.to_string())
+/// Both judges say `word`, and the obligation of the scenario, which asks
+/// for `word`, is proved.
+fn both(word: &str) -> (String, String, String) {
+    (word.to_string(), word.to_string(), "proved".to_string())
 }
 
-#[test]
-fn the_rooms_example_is_verified_and_each_scenario_is_judged_as_its_requirement_expects() {
-    let result = trion_in(&repo_root().join("examples/rooms"), &["verify", "--json"]);
-    let report = result.json();
-    assert_eq!(result.code, 0, "{}", report["outcome"]);
-    assert_verified(&report);
-    // The behaviours of docs/practical/W12-requirements.md, section 2.
-    // M1 and M2 are the scenarios of a hundred postings (`measurements.trion`).
-    let allowed = ["S1", "S4", "T1", "T5", "T8", "T10", "T13-OWNER", "T13-ADMINISTRATOR", "T14", "M1-SMALL", "M4", "M1"];
-    let forbidden = ["S2", "S3", "T2", "T3", "T4", "T6", "T7", "T9", "T11", "T12", "T13", "T15", "M2-SMALL", "M2"];
-    for name in allowed {
-        assert_eq!(judged(&report, name), both("allowed", "proved"), "{name}");
-    }
-    for name in forbidden {
-        assert_eq!(judged(&report, name), both("forbidden", "refuted"), "{name}");
-    }
-    assert_eq!(report["scenarios"].as_array().unwrap().len(), allowed.len() + forbidden.len());
-    // A forbidden behaviour names the requirement that it fails.
-    let fails = |name: &str| -> Vec<String> { scenario(&report, name)["violations"].as_array().unwrap().iter().map(|v| v["statement"].as_str().unwrap().to_string()).collect() };
-    assert_eq!(fails("S2"), ["R01"]);
-    assert_eq!(fails("S3"), ["R02"]);
-    assert_eq!(fails("T3")[0], "R05", "the storing of another message answers no posting");
-    assert_eq!(fails("T7"), ["R05", "R14"], "three seconds are within five and not within two");
-    assert_eq!(fails("T9"), ["R10"]);
-    assert_eq!(fails("T11"), ["R05", "R14", "R15"]);
-    // M4: no posting. The shares of R14 and R15 have no value, and they are not counted as met.
-    let without_a_value: Vec<&str> = scenario(&report, "M4")["undefined"].as_array().unwrap().iter().map(|u| u[0].as_str().unwrap()).collect();
-    assert_eq!(without_a_value, ["R14", "R15"]);
-    assert_eq!(scenario(&report, "M1-SMALL")["undefined"], json!([]));
-    assert!(fails("M2-SMALL").contains(&"R14".to_string()));
-    assert_eq!(fails("T13"), ["R12-OTHERS"]);
-    assert!(fails("T15").contains(&"R07".to_string()), "the exception of R05 does not lift the prohibition of R07");
-    // The range of each claim names the individuals and the moments.
-    for claim in report["claims"].as_array().unwrap().iter().filter(|c| c["subject"].is_null() && c["verdict"] == "proved") {
-        assert_eq!(claim["range"]["individuals"], 3, "{claim}");
-        assert_eq!(claim["lifted"], false, "{claim}");
-    }
-}
+/// Statements whose faulty readings differ on a behaviour: a response
+/// to a posting, a prohibition, and a share of the postings.
+const FAULTED: &str = r#"
+individuals user, message
+primitive system
+measure postings
+
+[STORE]
+When a user sends a message, the system shall store the message within 2 seconds.
+
+[KEEP]
+The system shall not delete a message.
+
+[MOST]
+When a user posts a message, the system shall store the message within 2 seconds for at least 75 percent of postings.
+
+scenario STORED:
+    given a user U1, a message M1
+    at 0 ms: U1 sends M1.
+    at 1 seconds: the system stores M1.
+    expect allowed
+
+scenario DELETED:
+    given a message M1
+    at 0 ms: the system deletes M1.
+    expect forbidden
+
+scenario SECOND:
+    given a user U1, a message M1, a message M2
+    at 0 ms: U1 sends M2.
+    expect forbidden
+
+scenario LATE:
+    given a user U1, a message M1
+    at 0 ms: U1 sends M1.
+    at 3 seconds: the system stores M1.
+    expect forbidden
+
+scenario UNANSWERED:
+    given a user U1, a message M1, a message M2
+    at 0 ms: U1 posts M1.
+    at 0 ms: U1 posts M2.
+    at 1 seconds: the system stores M1.
+    expect forbidden
+"#;
 
 /// A translation that is broken on purpose is found: the formulas of the
 /// broken reading and the reference evaluator differ on a behaviour.
+/// Written from the faults before the run: a response that speaks of
+/// another message is not met by the storing of the sent one; a prohibition
+/// that forbids nothing allows the deleting; a deadline that ends a second
+/// later admits the storing after three seconds; a statement that holds for
+/// one message says nothing of the second; and half of 75 percent is met by
+/// one of two postings.
 #[test]
 fn a_seeded_fault_of_the_reading_is_found_by_a_scenario() {
-    let rooms = repo_root().join("examples/rooms");
-    // The deadline of one statement is also tried in a package of its own.
-    // In the rooms example a share bounds the same deadline. The formulas
-    // count the share for themselves, and the fault is seeded in the
-    // counted instances too, so the late storing of M2-SMALL tells the
-    // faulty reading from the meaning there as well. (While the count was
-    // taken from the reference evaluator, the share hid this fault in the
-    // rooms example.) A loosened bound of a share is found by a scenario
-    // in which the share alone is failed: one of two postings answered,
-    // where 75 percent are required.
-    let late = repo_root().join("crates/trion-cli/fixtures/codes/scenario-differs/package");
-    let share = repo_root().join("crates/trion-cli/fixtures/acceptance/A10-empty-population-and-unanswered/package");
-    for (fault, differs_on) in [("reading-binds-another", "T1"), ("reading-drops-negation", "T13"), ("reading-moves-boundary", "LATE"), ("reading-moves-boundary", "M2-SMALL"), ("reading-swaps-quantifier", "T13"), ("reading-loosens-share", "UNANSWERED")] {
-        let package = match differs_on {
-            "LATE" => &late,
-            "UNANSWERED" => &share,
-            _ => &rooms,
-        };
-        let result = trion_with(package, &["verify", "--json"], &[("TRION_FAULT", fault)]);
+    let f = Fixture::new(&[MANIFEST, ("a.trion", FAULTED)]);
+    let sound = f.verify(&["--json"]).json();
+    assert_verified(&sound);
+    for (name, word) in [("STORED", "allowed"), ("DELETED", "forbidden"), ("SECOND", "forbidden"), ("LATE", "forbidden"), ("UNANSWERED", "forbidden")] {
+        assert_eq!(judged(&sound, name), both(word), "{name}");
+    }
+    for (fault, differs_on) in [("reading-binds-another", "STORED"), ("reading-drops-negation", "DELETED"), ("reading-moves-boundary", "LATE"), ("reading-swaps-quantifier", "SECOND"), ("reading-loosens-share", "UNANSWERED")] {
+        let result = verify_with(f.path(), &["--json"], &[("TRION_FAULT", fault)]);
         let report = result.json();
         assert_ne!(result.code, 0, "{fault}");
-        assert_eq!(report["outcome"]["verified"], false, "{fault}");
+        // The difference is an error of the conversion: the package is not
+        // converted, and no obligation of it is shown as decided.
         assert!(unverified(&report).contains(&"scenario-differs".to_string()), "{fault}: {:?}", unverified(&report));
-        let s = scenario(&report, differs_on);
-        assert_eq!(s["verdict"], "error", "{fault}: {s}");
-        assert_ne!(s["reference"], s["generated"], "{fault}: {s}");
-        // The claim of the scenario is an error, and it is not shown as decided.
-        let claim = report["claims"].as_array().unwrap().iter().find(|c| c["subject"] == format!("scenario {differs_on}")).unwrap();
-        assert_eq!(claim["verdict"], "error", "{fault}");
-        assert_eq!(claim["reason"], "reading_differs_from_meaning", "{fault}");
+        assert_eq!(report["conforms"], false, "{fault}");
+        assert!(report["proof"].is_null(), "{fault}: {}", report["proof"]);
+        let found = differs(&report, differs_on).unwrap_or_else(|| panic!("{fault}: no difference on {differs_on}: {}", report["checker"]));
+        let message = found["message"].as_str().unwrap();
+        let words: Vec<&str> = ["finds the behaviour ", "find it "].iter().map(|cue| message.split(cue).nth(1).and_then(|rest| rest.split([' ', ':']).next()).unwrap()).collect();
+        assert_ne!(words[0], words[1], "{fault}: {message}");
     }
 }
 
@@ -156,19 +204,18 @@ scenario AGAIN:
 "
         ),
     )]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert_verified(&report);
-    assert_eq!(judged(&report, "SAME"), both("allowed", "proved"));
-    assert_eq!(judged(&report, "OTHER"), both("forbidden", "refuted"));
-    assert_eq!(judged(&report, "EACH"), both("forbidden", "refuted"));
-    assert_eq!(judged(&report, "ON-TIME"), both("allowed", "proved"), "the end of a deadline is included");
-    assert_eq!(judged(&report, "LATE"), both("forbidden", "refuted"));
-    assert_eq!(judged(&report, "AGAIN"), both("forbidden", "refuted"), "a completion before an occurrence does not answer it");
-    // The failing instance is named with its binding and its moment.
-    let violation = &scenario(&report, "OTHER")["violations"][0];
-    assert_eq!(violation["statement"], "A");
-    assert_eq!(violation["moment"], 0);
-    assert_eq!(violation["binding"], json!([["user", "user#1"], ["message", "message#1"]]));
+    assert_eq!(judged(&report, "SAME"), both("allowed"));
+    assert_eq!(judged(&report, "OTHER"), both("forbidden"));
+    assert_eq!(judged(&report, "EACH"), both("forbidden"));
+    assert_eq!(judged(&report, "ON-TIME"), both("allowed"), "the end of a deadline is included");
+    assert_eq!(judged(&report, "LATE"), both("forbidden"));
+    assert_eq!(judged(&report, "AGAIN"), both("forbidden"), "a completion before an occurrence does not answer it");
+    // Retired: the failing instance of a scenario, with its binding and its
+    // moment (`violations`). The conversion reports of the reference
+    // evaluator only where it differs from the formulas, and the proof of
+    // the scenario names no instance.
     // The reading states the same binding as instances of the statement.
     let individuals = &report["individuals"];
     assert_eq!(individuals["version"], "0.1.0");
@@ -198,7 +245,7 @@ A room is open or archived.
 While a room is open, when a member of the room posts a message to the room, the system shall store the message within 2 seconds, unless the user is not a member of the room.
 "#,
     )]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     let meanings = report["individuals"]["meanings"].as_array().unwrap();
     let r = meanings.iter().find(|m| m["statement"] == "R").unwrap_or_else(|| panic!("{}", report["individuals"]));
     let variables: Vec<(String, String, String)> = r["variables"].as_array().unwrap().iter().map(|v| (v["key"].as_str().unwrap().to_string(), v["carrier"].as_str().unwrap().to_string(), v["site"].as_str().unwrap().to_string())).collect();
@@ -248,10 +295,10 @@ fn a_statement_that_names_a_type_outside_the_typed_fragment_is_rejected() {
         ("When a user sends a message, the system shall store the message, even when the room is full.", "a concession"),
     ] {
         let f = Fixture::new(&[MANIFEST, ("a.trion", &format!("individuals user, message\nprimitive system, room\n\n[A]\n{sentence}\n"))]);
-        let result = f.trion(&["verify", "--json"]);
+        let result = f.verify(&["--json"]);
         let report = result.json();
         assert_ne!(result.code, 0, "{sentence}");
-        assert_eq!(report["outcome"]["verified"], false, "{sentence}");
+        assert_eq!(report["conforms"], false, "{sentence}");
         let unread: Vec<&str> = report["opaque"].as_array().unwrap().iter().chain(report["diagnostics"].as_array().unwrap()).filter(|d| d["code"] == "UNSUPPORTED_SEMANTICS").filter_map(|d| d["message"].as_str()).collect();
         assert!(unread.iter().any(|m| m.contains(part)), "{sentence}: {unread:?}");
     }
@@ -262,21 +309,25 @@ fn a_statement_that_names_a_type_outside_the_typed_fragment_is_rejected() {
 #[test]
 fn a_package_that_declares_no_individuals_keeps_its_reading() {
     let f = Fixture::new(&[MANIFEST, ("a.trion", "primitive system, user, message\n\n[A]\nWhen a user sends a message, the system shall store the message.\n")]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert!(report["individuals"].is_null(), "{}", report["individuals"]);
-    assert_eq!(report["scenarios"], json!([]));
-    let gate = report["gates"].as_array().unwrap().iter().find(|g| g["name"] == "checker").unwrap();
-    assert_eq!(gate["state"], "skipped");
-    assert!(report["outcome"]["not_examined"].as_array().unwrap().iter().any(|n| n == "gate checker"), "{}", report["outcome"]);
+    // No scenario is an obligation, and the checker reads nothing: no record
+    // is derived again and no behaviour is judged by the reference evaluator.
+    assert!(report["obligations"].as_array().unwrap().iter().all(|o| o["property"] != "scenario"), "{}", report["obligations"]);
+    let checked = &report["checked"];
+    assert_eq!((&checked["derivations"]["statements"], &checked["witness"], &checked["scenarios"]), (&json!(0), &Value::Null, &json!(0)), "{checked}");
 }
 
 #[test]
 fn a_scenario_that_is_not_read_is_judged_of_nothing() {
     let f = Fixture::new(&[MANIFEST, ("a.trion", &format!("{SEND}\nscenario BAD:\n    given a user U1, a message M1\n    at soon: U1 sends M1.\n    expect allowed\n"))]);
-    let result = f.trion(&["verify", "--json"]);
+    let result = f.verify(&["--json"]);
     let report = result.json();
     assert_ne!(result.code, 0);
-    assert_eq!(judged(&report, "BAD").2, "invalid");
+    // The scenario is no obligation, and the package is not converted.
+    assert!(report["obligations"].as_array().unwrap().iter().all(|o| o["name"] != "scenario/BAD"), "{}", report["obligations"]);
+    assert_eq!(report["conforms"], false);
+    assert!(report["proof"].is_null(), "{}", report["proof"]);
     assert!(report_codes(&report).contains(&"parse-scenario".to_string()), "{:?}", report_codes(&report));
 }
 
@@ -320,11 +371,11 @@ scenario ELSEWHERE:
     expect forbidden
 "#,
     )]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert_verified(&report);
-    assert_eq!(judged(&report, "MEMBER"), both("allowed", "proved"));
-    assert_eq!(judged(&report, "STRANGER"), both("forbidden", "refuted"));
-    assert_eq!(judged(&report, "ELSEWHERE"), both("forbidden", "refuted"), "the membership of another room is no membership of this one");
+    assert_eq!(judged(&report, "MEMBER"), both("allowed"));
+    assert_eq!(judged(&report, "STRANGER"), both("forbidden"));
+    assert_eq!(judged(&report, "ELSEWHERE"), both("forbidden"), "the membership of another room is no membership of this one");
 }
 
 /// The check of the reading derives the meaning of each statement again
@@ -336,12 +387,13 @@ scenario ELSEWHERE:
 fn a_record_or_a_contract_that_differs_from_the_statement_is_refused() {
     let package = format!("{SEND}\nscenario STORED:\n    given a user U1, a message M1\n    at 0 ms: U1 sends M1.\n    at 1 seconds: the system stores M1.\n    expect allowed\n");
     let f = Fixture::new(&[MANIFEST, ("a.trion", &package)]);
-    let sound = f.trion(&["verify", "--json"]).json();
+    let sound = f.verify(&["--json"]).json();
     assert_verified(&sound);
-    assert_eq!(sound["derivations"]["statements"], 1);
-    assert_eq!(sound["derivations"]["contracts"], 9);
-    assert_eq!(sound["derivations"]["of_instances"], 9);
-    assert_eq!(sound["derivations"]["not_derived"], json!([]));
+    let derivations = &sound["checked"]["derivations"];
+    assert_eq!(derivations["statements"], 1);
+    assert_eq!(derivations["contracts"], 9);
+    assert_eq!(derivations["of_instances"], 9);
+    assert_eq!(derivations["not_derived"], json!([]));
     for (fault, part) in [
         ("record-binds-another", "the responses of the record"),
         ("record-changes-unit", "the responses of the record"),
@@ -352,14 +404,13 @@ fn a_record_or_a_contract_that_differs_from_the_statement_is_refused() {
         ("reading-moves-boundary", "the bounds of the contract"),
         ("reading-swaps-quantifier", "0 contracts stand for the instance"),
     ] {
-        let result = trion_with(f.path(), &["verify", "--json"], &[("TRION_FAULT", fault)]);
+        let result = verify_with(f.path(), &["--json"], &[("TRION_FAULT", fault)]);
         let report = result.json();
         assert_ne!(result.code, 0, "{fault}");
-        assert_eq!(report["outcome"]["verified"], false, "{fault}");
+        // A refusal is an error of the conversion: nothing is converted or proved.
+        assert_eq!(report["conforms"], false, "{fault}");
         let refusals: Vec<&str> = report["checker"].as_array().unwrap().iter().filter(|d| d["code"] == "derivation-refused").filter_map(|d| d["message"].as_str()).collect();
         assert!(refusals.iter().any(|m| m.contains(part)), "{fault}: {refusals:?}");
-        let gate = report["gates"].as_array().unwrap().iter().find(|g| g["name"] == "checker").unwrap();
-        assert_eq!(gate["state"], "failed", "{fault}");
     }
 }
 
@@ -413,27 +464,24 @@ scenario EMPTY:
 "
         ),
     )]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert_verified(&report);
     // One of two within two seconds is half; both within five is all.
-    assert_eq!(judged(&report, "ONE-OF-TWO"), both("allowed", "proved"));
+    assert_eq!(judged(&report, "ONE-OF-TWO"), both("allowed"));
     // None within two seconds: the bound of [HALF] fails.
-    assert_eq!(judged(&report, "NONE-IN-TIME"), both("forbidden", "refuted"));
-    assert_eq!(scenario(&report, "NONE-IN-TIME")["violations"][0]["statement"], "HALF");
+    assert_eq!(judged(&report, "NONE-IN-TIME"), both("forbidden"));
     // A posting without a response stays in the population: one of two is no 75 percent.
-    assert_eq!(judged(&report, "UNANSWERED"), both("forbidden", "refuted"));
-    assert_eq!(scenario(&report, "UNANSWERED")["violations"][0]["statement"], "SLOW");
-    assert!(scenario(&report, "UNANSWERED")["violations"][0]["what"].as_str().unwrap().contains("1 of 2"));
+    assert_eq!(judged(&report, "UNANSWERED"), both("forbidden"));
     // No posting: the behaviour fails nothing, and the share has no value
-    // in it. The statements are listed as neither met nor failed: an empty
-    // population is no share of 100 percent.
-    assert_eq!(judged(&report, "EMPTY"), both("allowed", "proved"));
-    let without_a_value: Vec<&str> = scenario(&report, "EMPTY")["undefined"].as_array().unwrap().iter().map(|u| u[0].as_str().unwrap()).collect();
-    assert_eq!(without_a_value, ["HALF", "SLOW"]);
-    assert!(scenario(&report, "EMPTY")["undefined"][0][1].as_str().unwrap().contains("a share of an empty population"));
-    assert_eq!(scenario(&report, "ONE-OF-TWO")["undefined"], json!([]));
-    let claim = report["claims"].as_array().unwrap().iter().find(|c| c["subject"] == "scenario EMPTY").unwrap();
-    assert!(claim["evidence"][0].as_str().unwrap().contains("not counted as met: the share of [HALF], [SLOW]"), "{claim}");
+    // in it: an empty population is no share of 100 percent. `expect
+    // undefined` is an obligation only where the reference evaluator finds
+    // a share without a value; elsewhere it is `scenario-failed`
+    // (`the_shares_of_one_population_within_two_deadlines_are_ordered`).
+    assert_eq!(judged(&report, "EMPTY"), both("allowed"));
+    // Retired: which statement a scenario fails (`violations`, `1 of 2`),
+    // and which shares have no value in it (`undefined`, the evidence of
+    // the claim). The conversion reports of the reference evaluator only
+    // where it differs from the formulas, and the proof names no statement.
     // Old behaviour: a statement that bounds a share had no instance, and
     // the formulas took the value of the share from the count of the
     // reference evaluator: `assert_eq!(report["individuals"]["instances"],
@@ -444,8 +492,8 @@ scenario EMPTY:
     let instances = report["individuals"]["instances"].as_array().unwrap();
     assert_eq!(instances.len(), 18, "two statements over three users and three messages");
     assert!(instances.iter().all(|i| i["statement"] == "HALF" || i["statement"] == "SLOW"), "{instances:?}");
-    assert_eq!(report["derivations"]["contracts"], 18);
-    assert_eq!(report["derivations"]["not_derived"], json!([]));
+    assert_eq!(report["checked"]["derivations"]["contracts"], 18);
+    assert_eq!(report["checked"]["derivations"]["not_derived"], json!([]));
     let shares: Vec<&str> = report["individuals"]["shares"].as_array().unwrap().iter().map(|s| s["statement"].as_str().unwrap()).collect();
     assert_eq!(shares, ["HALF", "SLOW"]);
     let half = report["individuals"]["meanings"].as_array().unwrap().iter().find(|m| m["statement"] == "HALF").unwrap();
@@ -459,18 +507,18 @@ scenario EMPTY:
 fn the_shares_of_one_population_within_two_deadlines_are_ordered() {
     let narrow = format!("{SHARES}\n[FEW]\nWhen a user posts a message, the system shall store the message within 5 seconds for at most 40 percent of postings.\n");
     let f = Fixture::new(&[MANIFEST, ("a.trion", &narrow)]);
-    let result = f.trion(&["verify", "--json"]);
+    let result = f.verify(&["--json"]);
     let report = result.json();
     assert_ne!(result.code, 0);
     assert!(unverified(&report).contains(&"contradiction".to_string()), "{:?}", unverified(&report));
     // The same bound on another population says nothing about this one.
     let other = format!("measure uploads\n{SHARES}\n[FEW]\nWhen a user posts a message, the system shall store the message within 5 seconds for at most 40 percent of uploads.\n");
     let f = Fixture::new(&[MANIFEST, ("a.trion", &other)]);
-    assert_verified(&f.trion(&["verify", "--json"]).json());
+    assert_verified(&f.verify(&["--json"]).json());
     // `expect undefined` says that a share has no value: a behaviour in which each share has one fails it.
     let valued = format!("{SHARES}\nscenario VALUED:\n    given a user U1, a message M1\n    at 0 ms: U1 posts M1.\n    at 1 seconds: the system stores M1.\n    expect undefined\n");
     let f = Fixture::new(&[MANIFEST, ("a.trion", &valued)]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert!(unverified(&report).contains(&"scenario-failed".to_string()), "{:?}", unverified(&report));
 }
 
@@ -479,39 +527,45 @@ fn the_shares_of_one_population_within_two_deadlines_are_ordered() {
 /// made from the same record, and each names the domain and the semantic version.
 #[test]
 fn the_reading_of_a_statement_is_shown_in_each_view() {
-    let rooms = repo_root().join("examples/rooms");
-    let text = trion_in(&rooms, &["verify"]).stdout;
-    assert!(text.contains("individuals: semantic version 0.1.0; domains of 3 individuals of each declared type (message, room, user)"), "{text}");
+    let f = Fixture::new(&[MANIFEST, ("a.trion", FAULTED)]);
     let expected = [
-        "reading [R05]:",
-        "  about: each room; each member (an individual of `user`) that is a member of the room; each message",
-        "  applies at each moment at which: the room is `open`",
-        "  applies at each occurrence at which: [the member post the message to the room] occurs",
-        "  does not apply where: the mode of the room is `maintenance`",
+        "reading [STORE]:",
+        "  about: each user; each message",
+        "  applies at each occurrence at which: [the user send the message] occurs",
         "  requires: [the system store the message], completed at most 2000 ms after the occurrence (the end included)",
     ];
-    assert!(text.contains(&expected.join("\n")), "{text}");
-    assert!(text.contains("reading [R01]: a statement about the domain (related)"), "{text}");
-    assert!(text.contains("  of: at least 99.000 percent of the activations of this statement in one behaviour (`postings`)"), "{text}");
-    assert!(text.contains("scenario T3: forbidden for the reference evaluator, forbidden for the formulas of the reading (expected: forbidden)"), "{text}");
-    assert!(text.contains("scenario M4: allowed for the reference evaluator, allowed for the formulas of the reading (expected: undefined); the share of [R14], [R15] has no value in it and is not counted as met"), "{text}");
-    assert!(text.contains("the record of 17 of 17 typed statements and the contract of 321 of 321 instances were derived again and agree"), "{text}");
-    // What `verified` covers: the bounds, and the scenarios apart from the bounded claims.
-    assert!(text.contains("covers: within traces of 3 moments, domains of 3 individuals:"), "{text}");
-    assert!(text.contains("no result is lifted beyond these bounds; 26 scenarios are judged as expected"), "{text}");
-    assert!(text.trim_end().ends_with("verified"), "{text}");
-    // The JSON report holds the same lines.
-    let report = trion_in(&rooms, &["verify", "--json"]).json();
-    let r05 = report["readings"].as_array().unwrap().iter().find(|r| r["statement"] == "R05").unwrap();
-    let lines: Vec<&str> = r05["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+    // The JSON report holds the lines of each reading.
+    let report = f.verify(&["--json"]).json();
+    assert_verified(&report);
+    let store = report["readings"].as_array().unwrap().iter().find(|r| r["statement"] == "STORE").unwrap();
+    let lines: Vec<&str> = store["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
     assert_eq!(lines, expected[1..].iter().map(|l| l.trim_start()).collect::<Vec<_>>());
-    assert_eq!(r05["version"], "0.1.0");
-    // The document shows the readings and the scenarios in its status.
-    let html = trion_in(&rooms, &["doc"]).stdout;
+    assert_eq!(store["version"], "0.1.0");
+    // Three statements; three users and three messages give nine instances
+    // of STORE and of MOST, and three messages three of KEEP: each record
+    // and each contract is derived again and agrees.
+    let derivations = &report["checked"]["derivations"];
+    assert_eq!((&derivations["statements"], &derivations["of_statements"], &derivations["contracts"], &derivations["of_instances"]), (&json!(3), &json!(3), &json!(21), &json!(21)), "{derivations}");
+    // The document shows the readings in its status; the judgements of the
+    // scenarios are results of the proof, and the document claims none.
+    let html = f.document(&[]).stdout;
     assert!(html.contains("readings over individuals"), "the document holds no readings");
-    assert!(html.contains("[R05] While a room is open, when a member of the room posts a message to the room"), "the document does not set the sentence beside its reading");
-    assert!(html.contains("scenario T3: forbidden for the reference evaluator, forbidden for the formulas of the reading"));
+    assert!(html.contains("[STORE] When a user sends a message, the system shall store the message within 2 seconds."), "the document does not set the sentence beside its reading");
+    assert!(!html.contains("scenario LATE: forbidden for the reference evaluator"));
     assert!(html.contains("individuals: semantic version 0.1.0; domains of 3 individuals of each declared type"));
+    // The text states the bound of every result, and that none holds beyond it.
+    let text = f.verify(&[]).stdout;
+    assert!(text.contains("within traces of 3 moments, domains of 3 individuals:") && text.contains("no result holds beyond its bound"), "{text}");
+    assert!(text.trim_end().ends_with("\nproved"), "{text}");
+    // Retired: the judgement of each scenario by both judges in the text
+    // (`scenario LATE: forbidden for the reference evaluator, …`, with the
+    // shares without a value); a scenario is an obligation, and its result
+    // is the verdict of the proof.
+    // The text of the conversion shows each reading, as the JSON and the document do.
+    assert!(text.contains("individuals: semantic version 0.1.0; domains of 3 individuals of each declared type (message, user)"), "{text}");
+    assert!(text.contains(&expected.join("\n")), "{text}");
+    assert!(text.contains("reading [KEEP]:\n  about: each message\n  applies: to the behaviour as a whole\n  forbids: [the system delete the message]"), "{text}");
+    assert!(text.contains("  of: at least 75.000 percent of the activations of this statement in one behaviour (`postings`)"), "{text}");
 }
 
 /// The formulas count a share for themselves. Written from the rule before
@@ -532,33 +586,30 @@ fn the_formulas_count_the_activations_of_a_share() {
             expect[2]
         )
     };
-    let agree = |report: &Value, name: &str, word: &str| {
-        let s = scenario(report, name);
-        assert_eq!((s["reference"].as_str().unwrap(), s["generated"].as_str().unwrap()), (word, word), "{name}: {s}");
-    };
+    let agree = |report: &Value, name: &str, word: &str| assert_eq!(judged(report, name), both(word), "{name}");
     // At least 75 percent: three of four meet it, two of four and none of four do not.
     let lower = Fixture::new(&[MANIFEST, ("a.trion", &package("[MOST]\nWhen a user posts a message, the system shall store the message within 2 seconds for at least 75 percent of postings.", ["allowed", "forbidden", "forbidden"]))]);
-    let report = lower.trion(&["verify", "--json"]).json();
+    let report = lower.verify(&["--json"]).json();
     assert_verified(&report);
     agree(&report, "THREE", "allowed");
     agree(&report, "TWO", "forbidden");
     agree(&report, "NONE", "forbidden");
     // At most 50 percent: three of four exceed it, two of four and none of four do not.
     let upper = Fixture::new(&[MANIFEST, ("a.trion", &package("[FEW]\nWhen a user posts a message, the system shall store the message within 2 seconds for at most 50 percent of postings.", ["forbidden", "allowed", "allowed"]))]);
-    let report = upper.trion(&["verify", "--json"]).json();
+    let report = upper.verify(&["--json"]).json();
     assert_verified(&report);
     agree(&report, "THREE", "forbidden");
     agree(&report, "TWO", "allowed");
     agree(&report, "NONE", "allowed");
     // A bound that is half of what the statement says is refused by the
     // check of the reading, and a scenario tells it from the meaning.
-    let result = trion_with(lower.path(), &["verify", "--json"], &[("TRION_FAULT", "reading-loosens-share")]);
+    let result = verify_with(lower.path(), &["--json"], &[("TRION_FAULT", "reading-loosens-share")]);
     let report = result.json();
     assert_ne!(result.code, 0);
     let refusals: Vec<&str> = report["checker"].as_array().unwrap().iter().filter(|d| d["code"] == "derivation-refused").filter_map(|d| d["message"].as_str()).collect();
     assert!(refusals.iter().any(|m| m.contains("the bound of the contract")), "{refusals:?}");
-    let two = scenario(&report, "TWO");
-    assert_eq!((two["reference"].as_str().unwrap(), two["generated"].as_str().unwrap(), two["verdict"].as_str().unwrap()), ("forbidden", "allowed", "error"), "{two}");
+    assert_eq!(difference(&report, "TWO"), ("forbidden".to_string(), "allowed".to_string()));
+    assert_eq!(report["conforms"], false);
 }
 
 /// A share of a hundred postings. Written from the rule before the run:
@@ -593,19 +644,18 @@ fn a_share_of_a_hundred_postings_is_counted() {
         behaviour(2)
     );
     let f = Fixture::new(&[MANIFEST, ("a.trion", &package)]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert_verified(&report);
     for (name, word) in [("NINETY-NINE", "allowed"), ("NINETY-EIGHT", "forbidden")] {
-        let s = scenario(&report, name);
-        assert_eq!((s["reference"].as_str().unwrap(), s["generated"].as_str().unwrap()), (word, word), "{name}: {s}");
+        assert_eq!(judged(&report, name), both(word), "{name}");
     }
-    let said: Vec<&str> = scenario(&report, "NINETY-EIGHT")["violations"].as_array().unwrap().iter().filter_map(|v| v["what"].as_str()).collect();
-    assert!(said.iter().any(|what| what.contains("98 of 100 `postings` are answered")), "{said:?}");
+    // Retired: the count that the reference evaluator gives for a failed
+    // share (`98 of 100 `postings` are answered`); the conversion reports of
+    // the reference evaluator only where it differs from the formulas.
     // A reading with half the bound takes ninety-eight of a hundred for enough: the scenario tells it from the meaning.
-    let result = trion_with(f.path(), &["verify", "--json"], &[("TRION_FAULT", "reading-loosens-share")]);
+    let result = verify_with(f.path(), &["--json"], &[("TRION_FAULT", "reading-loosens-share")]);
     assert_ne!(result.code, 0);
-    let fewer = scenario(&result.json(), "NINETY-EIGHT").clone();
-    assert_eq!((fewer["reference"].as_str().unwrap(), fewer["generated"].as_str().unwrap(), fewer["verdict"].as_str().unwrap()), ("forbidden", "allowed", "error"), "{fewer}");
+    assert_eq!(difference(&result.json(), "NINETY-EIGHT"), ("forbidden".to_string(), "allowed".to_string()));
 }
 
 /// A measure names one population. Two statements that apply under other
@@ -616,14 +666,14 @@ fn one_measure_names_the_activations_of_one_condition() {
     const HEAD: &str = "individuals user, message\nprimitive system\nmeasure postings\nmeasure deletions\n";
     let posting = "[A]\nWhen a user posts a message, the system shall store the message within 2 seconds for at least 50 percent of postings.\n";
     let other = Fixture::new(&[MANIFEST, ("a.trion", &format!("{HEAD}\n{posting}\n[B]\nWhen a user deletes a message, the system shall store the message within 5 seconds for at most 40 percent of postings.\n"))]);
-    let result = other.trion(&["verify", "--json"]);
+    let result = other.verify(&["--json"]);
     let report = result.json();
     assert_ne!(result.code, 0);
     let named = report["opaque"].as_array().unwrap().iter().any(|d| d["code"] == "UNSUPPORTED_SEMANTICS" && d["message"].as_str().unwrap().contains("the measure `postings` names the activations of [A]"));
     assert!(named, "{}", report["opaque"]);
     // With a measure of its own the second statement counts its own population, and both bounds hold.
     let apart = Fixture::new(&[MANIFEST, ("a.trion", &format!("{HEAD}\n{posting}\n[B]\nWhen a user deletes a message, the system shall store the message within 5 seconds for at most 40 percent of deletions.\n"))]);
-    assert_verified(&apart.trion(&["verify", "--json"]).json());
+    assert_verified(&apart.verify(&["--json"]).json());
 }
 
 /// The claim that a behaviour keeps every contract rests on a model of
@@ -632,37 +682,29 @@ fn one_measure_names_the_activations_of_one_condition() {
 #[test]
 fn the_behaviour_behind_contract_sat_is_judged_by_the_reference_evaluator() {
     let f = Fixture::new(&[MANIFEST, ("a.trion", SEND)]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert_verified(&report);
-    let witness = &report["witness"];
-    assert_eq!(witness["state"], "accepted", "{witness}");
-    // A statement applies in it: a user sends a message at the first
-    // moment, and the system stores that message at a later one. Nothing
-    // else happens: what no statement needs is left out.
-    let moments = witness["behaviour"]["moments"].as_array().unwrap();
-    let sent = moments[0]["occurrences"].as_array().unwrap();
-    assert_eq!(sent.len(), 1, "{witness}");
-    assert_eq!(sent[0]["verb"], "send");
-    let stored: Vec<&Value> = moments[1..].iter().flat_map(|m| m["occurrences"].as_array().unwrap()).collect();
-    assert_eq!(stored.len(), 1, "{witness}");
-    assert_eq!((stored[0]["verb"].as_str().unwrap(), &stored[0]["object"]), ("store", &sent[0]["object"]), "{witness}");
-    let claim = report["claims"].as_array().unwrap().iter().find(|c| c["claim"] == "contract_sat").unwrap();
-    assert!(claim["evidence"].as_array().unwrap().iter().any(|e| e.as_str().unwrap().starts_with("as a concrete behaviour (accepted): ")), "{claim}");
+    assert_eq!(report["checked"]["witness"], "accepted", "{}", report["checked"]);
+    // Retired: the behaviour of the witness itself (a sending at the first
+    // moment and the storing of that message at a later one, and nothing
+    // else) and the claim `contract_sat` that cited it. The conversion
+    // states only how the reference evaluator judges the witness.
     // A reading that takes a later completion for one in time accepts a
     // behaviour that the statement refuses: the claim is an error, and the
     // package is not verified.
     let late = repo_root().join("crates/trion-cli/fixtures/codes/witness-refused/package");
-    let result = trion_with(&late, &["verify", "--json"], &[("TRION_FAULT", "reading-moves-boundary")]);
+    let result = verify_with(&late, &["--json"], &[("TRION_FAULT", "reading-moves-boundary")]);
     let report = result.json();
     assert_ne!(result.code, 0);
     assert!(unverified(&report).contains(&"witness-refused".to_string()), "{:?}", unverified(&report));
-    assert_eq!(report["witness"]["state"], "refused");
-    let claim = report["claims"].as_array().unwrap().iter().find(|c| c["claim"] == "contract_sat").unwrap();
-    assert_eq!((claim["verdict"].as_str().unwrap(), claim["reason"].as_str().unwrap()), ("error", "reading_differs_from_meaning"), "{claim}");
+    assert_eq!(report["checked"]["witness"], "refused");
+    // The refusal is an error of the conversion: nothing is proved.
+    assert_eq!(report["conforms"], false);
+    assert!(report["proof"].is_null(), "{}", report["proof"]);
     // Without the fault the same package is verified, with moments that the deadline admits.
-    let sound = trion_in(&late, &["verify", "--json"]).json();
+    let sound = verify_in(&late, &["--json"]).json();
     assert_verified(&sound);
-    assert_eq!(sound["witness"]["state"], "accepted");
+    assert_eq!(sound["checked"]["witness"], "accepted");
 }
 
 /// A reading that differs from the meaning only on a behaviour that no
@@ -671,9 +713,9 @@ fn the_behaviour_behind_contract_sat_is_judged_by_the_reference_evaluator() {
 fn the_reading_and_the_meaning_agree_next_to_the_scenarios() {
     let package = format!("{SEND}\nscenario STORED:\n    given a user U1, a message M1, a message M2\n    at 0 ms: U1 sends M1.\n    at 1 seconds: the system stores M1.\n    expect allowed\n");
     let f = Fixture::new(&[MANIFEST, ("a.trion", &package)]);
-    let report = f.trion(&["verify", "--json", "--properties"]).json();
+    let report = f.verify(&["--json", "--properties"]).json();
     assert_verified(&report);
-    let variations = &report["variations"];
+    let variations = &report["checked"]["variations"];
     let made = variations["behaviours"].as_u64().unwrap();
     // The storing left out, moved, about the other message; a later moment.
     assert!(made >= 6, "{variations}");
@@ -684,22 +726,22 @@ fn the_reading_and_the_meaning_agree_next_to_the_scenarios() {
     // accepts the behaviour with that response.
     assert_eq!((variations["situations"].as_u64(), variations["answered"].as_u64()), (Some(1), Some(1)), "{variations}");
     assert_eq!((&variations["unanswered"], &variations["open"]), (&json!([]), &json!([])), "{variations}");
-    // Without `--properties` the variations are not made, and the gate says so.
-    let plain = f.trion(&["verify", "--json"]).json();
-    assert_eq!(plain["variations"], Value::Null);
-    assert!(plain["outcome"]["not_examined"].as_array().unwrap().iter().any(|what| what == "gate properties"));
+    // Without `--properties` the variations are not made, and the report says so.
+    let plain = f.verify(&["--json"]).json();
+    assert_eq!(plain["checked"]["variations"], Value::Null);
     // The stated scenario stores the message after one second, which a
     // deadline of two seconds and one of three both admit: the scenario
     // does not tell a moved deadline from the stated one. The variation
     // with the storing later by a deadline does.
-    let result = trion_with(f.path(), &["verify", "--json", "--properties"], &[("TRION_FAULT", "reading-moves-boundary")]);
+    let result = verify_with(f.path(), &["--json", "--properties"], &[("TRION_FAULT", "reading-moves-boundary")]);
     let report = result.json();
     assert_ne!(result.code, 0);
-    assert_eq!(scenario(&report, "STORED")["verdict"], "proved");
-    let found: Vec<&str> = report["properties"].as_array().unwrap().iter().filter(|d| d["code"] == "scenario-differs").filter_map(|d| d["message"].as_str()).collect();
+    // The stated scenario is judged alike by both.
+    assert!(differs(&report, "STORED").is_none(), "{}", report["checker"]);
+    let found: Vec<&str> = report["checker"].as_array().unwrap().iter().filter(|d| d["code"] == "scenario-differs").filter_map(|d| d["message"].as_str()).collect();
     assert!(found.iter().any(|m| m.contains("each later moment 2000 ms later") && m.contains("finds the behaviour forbidden and the formulas of the reading find it allowed")), "{found:?}");
-    let gate = report["gates"].as_array().unwrap().iter().find(|g| g["name"] == "properties").unwrap();
-    assert_eq!(gate["state"], "failed");
+    // The difference is an error of the conversion.
+    assert_eq!(report["conforms"], false);
 }
 
 /// `a` or `an` that first names an individual in what an obligation
@@ -748,13 +790,15 @@ scenario ONE-FOR-TWO:
     expect allowed
 ";
     let f = Fixture::new(&[MANIFEST, ("a.trion", &format!("{TICKETS}{scenarios}"))]);
-    let report = f.trion(&["verify", "--json", "--properties"]).json();
+    let report = f.verify(&["--json", "--properties"]).json();
     assert_verified(&report);
-    for (name, word, verdict) in [("MADE", "allowed", "proved"), ("NONE", "forbidden", "refuted"), ("LATE", "forbidden", "refuted"), ("ANY", "allowed", "proved"), ("ONE-FOR-TWO", "allowed", "proved")] {
-        assert_eq!(judged(&report, name), both(word, verdict), "{name}");
+    for (name, word) in [("MADE", "allowed"), ("NONE", "forbidden"), ("LATE", "forbidden"), ("ANY", "allowed"), ("ONE-FOR-TWO", "allowed")] {
+        assert_eq!(judged(&report, name), both(word), "{name}");
     }
     // The reading and the meaning agree next to these scenarios as well.
-    assert_eq!(report["variations"]["agreed"], report["variations"]["behaviours"], "{}", report["variations"]);
+    let variations = &report["checked"]["variations"];
+    assert!(variations["behaviours"].as_u64().is_some(), "the variations were not made: {}", report["checked"]);
+    assert_eq!(variations["agreed"], variations["behaviours"], "{variations}");
     // The record: the ticket is chosen, and an instance binds the user and the message.
     let record = report["individuals"]["meanings"].as_array().unwrap().iter().find(|m| m["statement"] == "T").unwrap();
     let sites: Vec<(&str, &str)> = record["variables"].as_array().unwrap().iter().map(|v| (v["key"].as_str().unwrap(), v["site"].as_str().unwrap())).collect();
@@ -771,7 +815,7 @@ scenario ONE-FOR-TWO:
     // permission is about"). Advice now chooses its individual as an
     // obligation does, and a permission permits each individual
     // (`individual_forms.rs`).
-    let other = Fixture::new(&[MANIFEST, ("a.trion", "individuals user, message, ticket\nprimitive system\n\n[T]\nWhen a user reports a message, the system shall create the ticket.\n")]).trion(&["verify", "--json"]).json();
+    let other = Fixture::new(&[MANIFEST, ("a.trion", "individuals user, message, ticket\nprimitive system\n\n[T]\nWhen a user reports a message, the system shall create the ticket.\n")]).verify(&["--json"]).json();
     assert!(unverified(&other).contains(&"UNSUPPORTED_SEMANTICS".to_string()), "{:?}", unverified(&other));
 }
 
@@ -813,25 +857,25 @@ scenario BOTH:
     // ([HAS] says that a room has a member: without it, a room without
     // members is a situation in which no member can be notified. Old
     // behaviour: the package was verified without it.)
-    let some = Fixture::new(&[MANIFEST, ("a.trion", &package("a", ["allowed", "forbidden", "allowed"]))]).trion(&["verify", "--json"]).json();
+    let some = Fixture::new(&[MANIFEST, ("a.trion", &package("a", ["allowed", "forbidden", "allowed"]))]).verify(&["--json"]).json();
     assert_verified(&some);
-    assert_eq!(judged(&some, "ONE-OF-TWO"), both("allowed", "proved"));
-    assert_eq!(judged(&some, "OUTSIDER"), both("forbidden", "refuted"));
-    assert_eq!(judged(&some, "BOTH"), both("allowed", "proved"));
+    assert_eq!(judged(&some, "ONE-OF-TWO"), both("allowed"));
+    assert_eq!(judged(&some, "OUTSIDER"), both("forbidden"));
+    assert_eq!(judged(&some, "BOTH"), both("allowed"));
     // Each member: one of the two is not enough.
     // A reading that lets the response choose any user accepts the
     // notifying of one who is no member: the scenario OUTSIDER tells it
     // from the meaning.
     let f = Fixture::new(&[MANIFEST, ("a.trion", &package("a", ["allowed", "forbidden", "allowed"]))]);
-    let result = trion_with(f.path(), &["verify", "--json"], &[("TRION_FAULT", "reading-chooses-any")]);
+    let result = verify_with(f.path(), &["--json"], &[("TRION_FAULT", "reading-chooses-any")]);
     let faulty = result.json();
     assert_ne!(result.code, 0);
-    let outsider = scenario(&faulty, "OUTSIDER");
-    assert_eq!((outsider["reference"].as_str().unwrap(), outsider["generated"].as_str().unwrap(), outsider["verdict"].as_str().unwrap()), ("forbidden", "allowed", "error"), "{outsider}");
+    assert_eq!(difference(&faulty, "OUTSIDER"), ("forbidden".to_string(), "allowed".to_string()));
+    assert_eq!(faulty["conforms"], false);
     // In OUTSIDER the one member is not notified, so that fails as well.
-    let each = Fixture::new(&[MANIFEST, ("a.trion", &package("each", ["forbidden", "forbidden", "allowed"]))]).trion(&["verify", "--json"]).json();
+    let each = Fixture::new(&[MANIFEST, ("a.trion", &package("each", ["forbidden", "forbidden", "allowed"]))]).verify(&["--json"]).json();
     assert_verified(&each);
-    assert_eq!(judged(&each, "ONE-OF-TWO"), both("forbidden", "refuted"));
-    assert_eq!(judged(&each, "OUTSIDER"), both("forbidden", "refuted"));
-    assert_eq!(judged(&each, "BOTH"), both("allowed", "proved"));
+    assert_eq!(judged(&each, "ONE-OF-TWO"), both("forbidden"));
+    assert_eq!(judged(&each, "OUTSIDER"), both("forbidden"));
+    assert_eq!(judged(&each, "BOTH"), both("allowed"));
 }

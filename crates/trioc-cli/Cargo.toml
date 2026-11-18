@@ -1,0 +1,29 @@
+[package]
+name = "trioc-cli"
+version.workspace = true
+edition.workspace = true
+description = "The library of the trioc command: proves the obligations of the MMT form that trion writes, verifies a package in one process, and verifies a proof certificate."
+
+[lib]
+name = "trioc_cli"
+path = "src/lib.rs"
+
+[dependencies]
+trion-language.workspace = true
+trion-solver.workspace = true
+trion-verification.workspace = true
+trion-checker.workspace = true
+mmt.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+toml.workspace = true
+sha2.workspace = true
+smtlib.workspace = true
+moxi.workspace = true
+alethe.workspace = true
+cpc.workspace = true
+eunoia.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -3,29 +3,67 @@ namespace trion:
 
     primitive behavior, moment
 
-    section "The short sentence is the unit of meaning":
-        A short sentence means a statement that has exactly one reading.
-        The reading of a short sentence is exactly one contract.
-        A specification is a set of short sentences.
-        The formal meaning of a specification is the conjunction of the contracts of the short sentences of the specification.
+    section "A sentence is read as a contract":
+        Composite vocabulary means the words of the trion language that join requirements in exactly one sentence.
+        A simple sentence means a statement that holds no composite vocabulary.
+        A composite sentence means a statement that holds composite vocabulary.
+        The reading of a simple sentence is exactly one contract.
+        The formal meaning of a specification is the conjunction of the contracts of the statements of the specification.
 
-        [SENTENCE-ONE-READING]
-        The trion processor shall read each short sentence as exactly one contract.
+        [SENTENCE-ONE-CONTRACT]
+        The trion processor shall read each simple sentence as exactly one contract.
 
-        [SENTENCE-ONLY-UNIT]
-        Each statement that the trion processor verifies shall be a short sentence.
+        [SENTENCE-VERIFIABLE]
+        The trion processor shall transform each contract into formulas.
+
+        example SIMPLE-SENTENCE:
+            kind reading
+            form contract
+            input "the API shall store the message."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|store message) ∧ ¬Forbid(API|store message) ∧ ¬Discouraged(API|store message))"
+
+    section "Responsibility decides the assumption":
+        An actor means a thing that a statement names as the subject of an action.
+        A system declaration means a declaration that names an actor of a system.
+        An environment declaration means a declaration that names an actor of the environment of a system.
+        The system of a specification means the actors that the system declarations of the specification name.
+        The environment of a specification means the actors of the specification outside the system of the specification.
+
+        [SENTENCE-RESPONSIBILITY]
+        The trion processor shall read each phrase that constrains the environment of a specification as a part of an assumption.
+
+        [SENTENCE-GUARANTEE]
+        The trion processor shall read each phrase that constrains the system of a specification as a part of a guarantee.
+
+        An assumption sentence means a simple sentence that constrains only the environment of a specification.
+        A guarantee sentence means a simple sentence that constrains the system of a specification.
+        A descriptive sentence follows the responsibility of a normative sentence.
 
     section "Satisfiable is less than consistent":
         A behavior satisfies a contract exactly when the assumption of the contract does not hold in the behavior or the guarantee of the contract holds in the behavior.
         A specification is satisfiable exactly when at least one behavior satisfies each contract of the specification.
 
-        A normative sentence means a short sentence that obliges, forbids, recommends, or permits.
-        A descriptive sentence means a short sentence that has no normative force.
-        A possible situation means a situation that satisfies each descriptive sentence of a specification.
-        A specification is consistent exactly when each possible situation satisfies the guarantee of each contract whose assumption holds in the situation.
+        A normative sentence means a simple sentence that obliges, forbids, recommends, or permits.
+        A descriptive sentence means a simple sentence that has no normative force.
+        An input means a behavior of the environment of a specification.
+        A response means a behavior of the system of a specification.
+        A specification is consistent exactly when each input has a response that satisfies each contract of the specification.
+        A specification is compatible exactly when at least one input satisfies the assumption of a contract of the specification.
 
-        [SENTENCE-VACUOUS]
-        The trion processor shall accept a specification as consistent only if each possible situation satisfies the guarantee of each contract whose assumption holds in the situation.
+        [SENTENCE-INPUT-ENABLED]
+        The proof obligation of the consistency of each specification shall require a response to each input.
+
+        A sentence that requires the trigger of a contract excludes each response that avoids the trigger.
+
+        example REQUIRED-TRIGGER:
+            kind consistency
+            input """
+[A] When the API stores a message, the API shall notify the author.
+[B] When the API stores a message, the API shall not notify the author.
+[C] The API shall store a message.
+"""
+            expect inconsistent
 
     section "What a contract is made of":
         A contract atom means an atom of the assumption or of the guarantee of a contract.
@@ -83,7 +121,7 @@ namespace trion:
             expect "assume: ⊤"
             expect "guarantee: ¬Forbid(API|stop)"
 
-        No behavior satisfies an obligation and a prohibition of the same action.
+        An obligation of an action conflicts with a prohibition of the same action.
 
         example OBLIGATION-AGAINST-PROHIBITION:
             kind consistency
@@ -93,12 +131,15 @@ namespace trion:
 """
             expect inconsistent
 
-    section "A condition is the assumption":
-        A condition means a clause that restricts the situations of a short sentence.
-        Each phrase of a short sentence belongs to the assumption or to the guarantee of the contract of the short sentence.
-        Each condition of a short sentence belongs to the assumption of the contract of the short sentence.
+    section "An environment condition is the assumption":
+        A condition means a clause that restricts the situations of a simple sentence.
+        Each phrase of a simple sentence belongs to the assumption or to the guarantee of the contract of the simple sentence.
+        An environment condition means a condition that constrains only the environment of a specification.
+        A system condition means a condition that constrains the system of a specification.
+        Each environment condition belongs to the assumption of the contract of the simple sentence.
+        Each system condition belongs to the guarantee of the contract of the simple sentence.
 
-        A "When" clause names an event, and the assumption holds at each occurrence of the event.
+        The assumption holds at each occurrence of the event that a "When" clause names.
 
         example WHEN:
             kind reading
@@ -107,7 +148,7 @@ namespace trion:
             expect "assume: Event(door open)"
             expect "guarantee: (Act(bell|ring) ∧ ¬Forbid(bell|ring) ∧ ¬Discouraged(bell|ring))"
 
-        A "While" clause names a state, and the assumption holds throughout the state.
+        The assumption holds at each moment of the state that a "While" clause names.
 
         example WHILE:
             kind reading
@@ -126,6 +167,7 @@ namespace trion:
             expect "guarantee: (Act(alarm|sound) ∧ ¬Forbid(alarm|sound) ∧ ¬Discouraged(alarm|sound))"
 
         A "Where" clause names a feature that a system includes.
+        Each "Where" clause is an environment condition.
 
         example WHERE:
             kind reading
@@ -146,7 +188,7 @@ namespace trion:
 
     section "A descriptive sentence and its contract":
         A descriptive sentence has no modal verb.
-        The contract of a descriptive sentence holds in each possible situation.
+        Each descriptive sentence is an assumption sentence or a guarantee sentence.
         A definition means a descriptive sentence that gives a meaning to a term.
         An enumeration means a descriptive sentence that lists the values of an attribute.
 

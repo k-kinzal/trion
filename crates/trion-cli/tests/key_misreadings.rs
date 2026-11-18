@@ -7,7 +7,7 @@ use common::*;
 const HEAD: &str = "primitive parser\nprimitive source file\nprimitive checker\nprimitive diagnostic\nprimitive room\nprimitive user\nprimitive report\nprimitive timeout\nprimitive limit\n\n";
 
 fn check(text: &str) -> serde_json::Value {
-    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json", "a.trion"]).json()
 }
 
 fn model(text: &str) -> String {
@@ -33,8 +33,12 @@ fn a_comma_and_a_whole_statement_join_two_statements() {
 fn a_repeated_copula_states_two_predicates_of_one_subject() {
     let view = model("[A]\nThe room is archived and is locked.\n");
     assert!(view.contains("Dom(room, archived)") && view.contains("Dom(room, locked)"), "{view}");
+    // Both statements describe the room, which no requirement gives to the
+    // system: they are assumptions, and two assumptions that cannot both hold
+    // leave no environment.
     let report = check("[A]\nThe room is archived and is locked.\n[B]\nThe room is not locked.\n");
-    assert!(report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "contradiction"), "{report}");
+    assert!(report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "incompatible"), "{report}");
+    assert_eq!(verdicts(&report)["compatibility"], "refuted", "{report}");
 }
 
 #[test]

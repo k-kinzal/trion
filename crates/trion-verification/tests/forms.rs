@@ -1,7 +1,7 @@
 mod common;
 use common::*;
 use trion_language::VocabularyMode;
-use trion_verification::{analyze, Options};
+use trion_verification::{Options};
 
 const LIBRARY: &str = r"package grpc
 role service:
@@ -13,7 +13,7 @@ role service:
 const USES_GRPC: &str = "The API shall use gRPC communication.\nThe API shall define status codes.\n";
 
 fn with_library(src: &str) -> trion_verification::Analysis {
-    analyze(&set_of(&[("main", true, src), ("grpc", false, LIBRARY)], VocabularyMode::Inferred), &Options::default())
+    proved(&set_of(&[("main", true, src), ("grpc", false, LIBRARY)], VocabularyMode::Inferred), &Options::default())
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn an_imported_form_rejects_a_foreign_operation() {
 #[test]
 fn a_shape_violation_is_not_called_a_contradiction() {
     let analysis = with_library(&format!("{USES_GRPC}The API GET /foo shall return foo.\n"));
-    assert!(analysis.diagnostics[0].message.contains("no such thing exists"));
+    assert!(analysis.diagnostics[0].message.contains("the form that"), "{}", analysis.diagnostics[0].message);
     assert!(!codes(&analysis).contains(&"contradiction".to_string()));
 }
 
@@ -94,7 +94,7 @@ fn a_selector_limits_the_rule() {
 fn a_negated_form_rejects_a_match() {
     let library = "package lib\nrole r:\n    activate: The $subject shall use x.\n    form NO-TMP: The $subject $name shall $action. where $name does not match /^tmp/\n";
     let main = "The API shall use x.\nThe API tmp1 shall stop.\nThe API real shall stop.\n";
-    let analysis = analyze(&set_of(&[("main", true, main), ("lib", false, library)], VocabularyMode::Inferred), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, main), ("lib", false, library)], VocabularyMode::Inferred), &Options::default());
     assert_eq!(codes(&analysis), ["shape-violation"]);
     assert!(analysis.diagnostics[0].refs.iter().any(|r| r.text == "The API tmp1 shall stop."));
 }
@@ -108,13 +108,13 @@ fn a_role_required_form_is_a_definite_omission() {
 
 #[test]
 fn imported_specifications_compose_with_local_ones() {
-    let analysis = analyze(&set_of(&[("main", true, "use lib\nThe API shall not stop.\n"), ("lib", false, "term API: entity\n[L-1] The API shall stop.\n")], VocabularyMode::Inferred), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, "use lib\nThe API shall not stop.\n"), ("lib", false, "term API: entity\n[L-1] The API shall stop.\n")], VocabularyMode::Inferred), &Options::default());
     assert_eq!(codes(&analysis), ["contradiction"]);
     assert!(analysis.diagnostics[0].refs.iter().any(|r| r.id == "lib::L-1"));
 }
 
 #[test]
 fn specifications_of_an_unused_namespace_do_not_meet_local_terms() {
-    let analysis = analyze(&set_of(&[("main", true, "The API shall not stop.\n"), ("lib", false, "[L-1] The API shall stop.\n")], VocabularyMode::Inferred), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, "The API shall not stop.\n"), ("lib", false, "[L-1] The API shall stop.\n")], VocabularyMode::Inferred), &Options::default());
     assert!(codes(&analysis).is_empty(), "{:?}", analysis.diagnostics);
 }

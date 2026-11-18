@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1aa1fd5d744e6c37cd0d4f8ec1e82fc87580fc357940bf0dcee0f056e9219272 # shrinks to s = Script { commands: [GetValue(NonEmpty([Application(QualIdentifier { identifier: Identifier { symbol: Symbol("A"), indices: [] }, sort: None }, NonEmpty([Constant(String(StringLiteral("\r")))]))])), DefineConst(Symbol("A"), Sort { identifier: Identifier { symbol: Symbol("*"), indices: [] }, arguments: [] }, Annotated(Forall(NonEmpty([SortedVar { variable: Symbol("a"), sort: Sort { identifier: Identifier { symbol: Symbol("$"), indices: [Numeral(Numeral("55832412000811484"))] }, arguments: [Sort { identifier: Identifier { symbol: Symbol("j"), indices: [] }, arguments: [] }, Sort { identifier: Identifier { symbol: Symbol("x'"), indices: [] }, arguments: [] }, Sort { identifier: Identifier { symbol: Symbol("x''"), indices: [] }, arguments: [] }] } }]), Identifier(QualIdentifier { identifier: Identifier { symbol: Symbol("λλé"), indices: [] }, sort: None })), NonEmpty([Attribute { keyword: Keyword("NB49"), value: Some(List([])) }, Attribute { keyword: Keyword("L^5FR"), value: None }])))] }

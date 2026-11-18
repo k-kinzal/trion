@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 08881235612b6a45b5281bf216daf216af2c12d7286c021eb93da4ccb9ae9b6f # shrinks to formulas = [Not(Atom(Event { key: "b" })), Not(Atom(Event { key: "b" }))]

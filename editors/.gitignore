@@ -1,0 +1,10 @@
+node_modules/
+out/
+build/
+.gradle/
+.intellijPlatform/
+.kotlin/
+*.vsix
+
+# Copied from editors/grammar/ by the VS Code build step.
+vscode/syntaxes/

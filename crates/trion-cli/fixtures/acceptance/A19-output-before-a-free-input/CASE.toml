@@ -2,7 +2,7 @@ id = "A19"
 title = "An output that must come before a free input is not realizable"
 work = "W09"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 The user is part of the environment: nothing says when the user requests the report. [OPEN] requires
 the door to be open before that request. For each complete behaviour there is a response: where the
@@ -15,13 +15,10 @@ as realizability: `reactive_realizable` is refuted, it blocks the result, and no
 
 [expect]
 verified = false
-blockers = ["reactive_realizable"]
+diagnostics = ["unrealizable"]
 
-[expect.claims]
-background_sat = "proved"
-contract_sat = "proved"
-situation_total = "proved"
-reactive_realizable = "refuted"
+[expect.obligations]
+consistency = "proved"
 
 [baseline]
 commit = "24cab2aa"

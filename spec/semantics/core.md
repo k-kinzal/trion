@@ -2,8 +2,7 @@
 
 This
 file states the rules that give a statement its meaning over concrete
-behaviours. The rules are the contract of work items W03 to W08 of
-`docs/practical/plan.md`: the reading that produces formulas
+behaviours. The reading that produces formulas
 (`crates/trion-language/src/reading/typed.rs`, `ground.rs`) and the reference
 evaluator (`crates/trion-checker/src/eval.rs`) are two implementations of
 them, and neither is the definition.
@@ -245,7 +244,7 @@ stands for one *instance* for each assignment of its universal variables: the se
 variable replaced by the name of its individual, under the condition that
 the individuals are of the named kinds and stand in the named relations. A
 relation and a kind are taken out of the sentence into that condition. An
-instance is a short sentence, and the reading of sentences reads it
+instance is a simple sentence, and the reading of sentences reads it
 (`reading/ground.rs`). Where the response chooses an individual, the
 instance requires one of its alternatives, one for each individual of the
 domain, each under the condition that the individual is one that may be
@@ -262,6 +261,15 @@ evaluated on a behaviour without reading the name of an atom, and
 is tested behaviour by behaviour (`crates/trion-checker/src/compare.rs`): τ
 fixes the atoms of the table, and η is the status of each action, the times
 and counts that the reading adds, and the states of the rest of the trace.
+
+The obligation of consistency asks, for every behaviour of the
+environment, for a behaviour of the system (`trion-solver::for_all_exists`).
+The response chooses the actions of the system and their status, the states
+that the system holds, and what no term names: the times and counts that the
+reading adds and its auxiliary atoms. The environment chooses its own
+occurrences and the states that it holds. The time between two moments is
+therefore chosen with the response: a deadline is kept or missed by the
+system, and no statement lets the environment make a response late.
 
 The analysed range is the domain of `scope` individuals of each carrier and
 the trace of the stated number of moments. A result names both, and nothing
@@ -304,14 +312,15 @@ they differ. It says nothing about whether the behaviour can be reached.
 
 Beside the scenarios, three kinds of behaviours are judged by both sides.
 
-- *The behaviour behind `contract_sat`.* The claim that a behaviour keeps
-  every contract rests on a model of the formulas. The model is asked for
-  as a complete behaviour (nothing happens after the last moment), with as
-  few occurrences as the contracts allow and with a statement that applies
-  at the first moment, and it is written down with the table of atoms
-  (`crates/trion-checker/src/witness.rs`). The reference evaluator judges
-  it. A behaviour that the formulas accept and the meaning refuses is an
-  error (`witness-refused`), and the claim is not shown as proved.
+- *The witness of the reading.* `trion` asks for a behaviour that the
+  formulas of the reading accept, as a complete behaviour (nothing happens
+  after the last moment), with as few occurrences as the contracts allow
+  and with a statement that applies at the first moment, and writes it down
+  with the table of atoms (`crates/trion-checker/src/witness.rs`). The
+  reference evaluator judges it. A behaviour that the formulas accept and
+  the meaning refuses is an error of the conversion (`witness-refused`).
+  The witness shows the conversion and proves nothing: no obligation rests
+  on it, and consistency is the obligation that `trioc` proves.
 - *The variations of a scenario* (`verify --properties`). Each differs from
   the scenario in one fact: an occurrence left out, moved by a moment or
   about another individual, a relation left out, another listed state, a
@@ -337,7 +346,7 @@ Beside the scenarios, three kinds of behaviours are judged by both sides.
   found by the formulas of the statements without normative force, so two
   statements that these formulas wrongly keep apart are not examined
   together; three or more statements are examined together only through
-  the claim itself and the external prover.
+  the claim itself.
 
 ## 9 The order of the reading
 

@@ -14,7 +14,7 @@ fn package(body: &str) -> Fixture {
 }
 
 fn check(body: &str) -> (i32, Value) {
-    let result = package(body).trion(&["verify", "--json"]);
+    let result = package(body).verify(&["--json"]);
     (result.code, result.json())
 }
 
@@ -132,8 +132,11 @@ fn a_nominal_predicate_is_named_as_its_noun_phrases_are() {
     assert!(model.contains("Dom(x::report, checker result)"), "{model}");
     assert!(model.contains("(Dom(x::item, statement) ∨ Dom(x::item, token))"), "{model}");
     // The choice is a real one: denying both alternatives contradicts it.
+    // The three statements describe and none requires: they are assumptions,
+    // and assumptions that cannot all hold leave no environment.
     let report = read("[B] Each item is a statement or a token.\n[C] No item is a statement.\n[D] No item is a token.\n");
-    assert_eq!(conflicts(&report), 1, "{report}");
+    assert_eq!(verdicts(&report)["compatibility"], "refuted", "{report}");
+    assert!(report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "incompatible"), "{report}");
 }
 
 #[test]
@@ -152,7 +155,8 @@ fn a_reading_example_compares_the_observed_entry_with_the_expected_one() {
     // The entry that the reader gives.
     let (code, report) = check(&example("¬(Dom(x::room, open) ∧ Dom(x::room, closed))"));
     assert_eq!(code, 0, "{}", report["diagnostics"]);
-    assert_eq!(report["examples"][0]["kind"], "reading");
+    // A reading example demonstrates the conversion: its outcome is listed with the demonstrations.
+    assert_eq!(report["demonstrations"][0]["kind"], "reading");
     // The reading that the reader gave before the denial of `both` was read: the example fails.
     let (code, report) = check(&example("(¬Dom(x::room, open) ∧ ¬Dom(x::room, closed))"));
     assert_ne!(code, 0);
@@ -168,7 +172,7 @@ fn a_reading_example_of_the_contract_form_states_the_assumption_and_the_guarante
     // The contract that the reader gives: the temporal shape and the axioms are no part of this form.
     let (code, report) = check(&example("(Act(x::bell|ring) ∧ ¬Forbid(x::bell|ring) ∧ ¬Discouraged(x::bell|ring))"));
     assert_eq!(code, 0, "{}", report["diagnostics"]);
-    assert_eq!(report["examples"][0]["observed"].as_str().unwrap().lines().count(), 2, "{}", report["examples"][0]);
+    assert_eq!(report["demonstrations"][0]["observed"].as_str().unwrap().lines().count(), 2, "{}", report["demonstrations"][0]);
     // Another guarantee is not the contract of the sentence: the example fails.
     let (code, report) = check(&example("Act(x::bell|ring)"));
     assert_ne!(code, 0);

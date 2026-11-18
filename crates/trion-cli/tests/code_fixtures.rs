@@ -12,7 +12,11 @@ use std::path::Path;
 /// solver, of the writer or of the reader cannot be written into a package:
 /// the fixture of such a code names a seeded fault in its `ENV` file, which
 /// the command reads from `TRION_FAULT`.
-const WITHOUT_FIXTURE: &[(&str, &str)] = &[];
+const WITHOUT_FIXTURE: &[(&str, &str)] = &[
+    // The language server reports this where `trioc prove` cannot run the
+    // proof of a package that conforms; no package seeds it.
+    ("prover-failed", "the proof of the language server could not run"),
+];
 
 fn fixtures() -> std::path::PathBuf {
     repo_root().join("crates/trion-cli/fixtures/codes")
@@ -72,6 +76,7 @@ fn each_diagnostic_code_has_a_fixture_with_a_seeded_defect_that_reports_it() {
     for name in &present {
         assert!(codes.contains(name), "the fixture `{name}` is for a code that trion does not report");
     }
+    let mut silent = Vec::new();
     for code in present {
         let dir = fixtures().join(&code);
         let work = tempfile::tempdir().unwrap();
@@ -81,8 +86,11 @@ fn each_diagnostic_code_has_a_fixture_with_a_seeded_defect_that_reports_it() {
         // `ENV` holds `NAME=VALUE` lines: the seeded fault of the run.
         let environment = fs::read_to_string(dir.join("ENV")).unwrap_or_default();
         let variables: Vec<(&str, &str)> = environment.lines().filter_map(|line| line.split_once('=')).collect();
-        let result = trion_with(work.path(), &arguments, &variables);
+        let result = verify_with(work.path(), &arguments, &variables);
         let reported = result.stdout.contains(&format!("\"code\": \"{code}\"")) || result.stdout.contains(&format!("[{code}]"));
-        assert!(reported, "the fixture of `{code}` does not report it:\n{}{}", result.stdout, result.stderr);
+        if !reported {
+            silent.push(format!("the fixture of `{code}` does not report it:\n{}{}", result.stdout.lines().filter(|l| l.contains("\"code\"") || l.starts_with("error") || l.starts_with("warning")).collect::<Vec<_>>().join("\n"), result.stderr));
+        }
     }
+    assert!(silent.is_empty(), "{} fixtures report nothing:\n{}", silent.len(), silent.join("\n"));
 }

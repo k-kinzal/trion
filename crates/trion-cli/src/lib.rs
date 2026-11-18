@@ -1,20 +1,20 @@
 //! The library behind the `trion` command.
 //!
-//! [`run`] is the command: `verify` verifies a package, `doc` writes a
-//! verified package as a document, and `lsp` serves editors. The modules
-//! that are public beside it are the parts that tests drive without a
-//! process: the project loader and the language server.
+//! [`run`] is the command: it converts a package into its MMT form, with
+//! the contracts and the proof obligations of the package, and into its
+//! documents. It proves nothing; `trioc prove` proves the obligations of the
+//! MMT form. The project loader is that of `trioc`.
 
 #![warn(unreachable_pub)]
 
 mod checks;
 mod command;
-mod digest;
+mod convert;
 mod doc;
 mod figure;
-pub mod lsp;
-pub mod project;
-mod sources;
-mod verify;
+mod markdown;
 
 pub use command::run;
+pub use convert::{findings, Findings};
+pub use trioc_cli::project;
+pub(crate) use trioc_cli::sources;

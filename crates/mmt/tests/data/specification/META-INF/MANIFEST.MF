@@ -1,0 +1,4 @@
+id: trion/trion
+source-base: http://trion.dev/form/trion
+narration-base: http://trion.dev/form/trion
+dependencies: MMT/urtheories

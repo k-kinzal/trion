@@ -17,7 +17,9 @@ fn the_vscode_extension_starts_the_language_server() {
     let language = &manifest["contributes"]["languages"][0];
     assert_eq!(language["id"], "trion");
     assert_eq!(language["extensions"][0], ".trion");
-    assert!(editor_text("vscode/src/extension.ts").contains("args: ['lsp']"));
+    // The server is the `trion-lsp` command, which takes no argument.
+    let extension = editor_text("vscode/src/extension.ts");
+    assert!(extension.contains("'trion-lsp'") && extension.contains("args: [],"), "{extension}");
 }
 
 #[test]
@@ -36,7 +38,7 @@ fn the_intellij_plugin_starts_the_language_server() {
     // The server is wired in where the LSP4IJ plugin is installed.
     assert!(plugin.contains("config-file=\"trion-lsp.xml\">com.redhat.devtools.lsp4ij"));
     assert!(editor_text("intellij/src/main/resources/META-INF/trion-lsp.xml").contains("languageId=\"trion\""));
-    assert!(editor_text("intellij/src/main/kotlin/dev/trion/intellij/TrionLanguageServerFactory.kt").contains("\"lsp\""));
+    assert!(editor_text("intellij/src/main/kotlin/dev/trion/intellij/TrionLanguageServerFactory.kt").contains("\"trion-lsp\""));
 }
 
 #[test]

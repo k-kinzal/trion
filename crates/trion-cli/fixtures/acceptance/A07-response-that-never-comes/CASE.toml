@@ -2,7 +2,7 @@ id = "A07"
 title = "A response without a deadline that never comes"
 work = "W06"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 [A] requires the storing at some later time and names no deadline. A behaviour is complete: after
 its last moment nothing happens. In NEVER the message is sent and never stored, so the behaviour
@@ -16,10 +16,10 @@ proved within the stated moments and are not lifted, and nothing says that the r
 [expect]
 verified = true
 
-[expect.claims]
-"scenario_satisfiable:scenario NEVER" = "refuted"
-"scenario_satisfiable:scenario LATER" = "proved"
-situation_total = "proved"
+[expect.obligations]
+consistency = "proved"
+"scenario/NEVER" = "proved"
+"scenario/LATER" = "proved"
 
 [baseline]
 commit = "24cab2aa"

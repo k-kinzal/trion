@@ -7,7 +7,7 @@ use common::*;
 const HEAD: &str = "primitive author\nprimitive constraint\nprimitive string\nprimitive quote\nprimitive reader\nprimitive reference\nprimitive user\nprimitive binding\nprimitive variable\nprimitive service\nprimitive namespace\nprimitive term\nprimitive checker\nprimitive gate\nprimitive diagnostic\nprimitive edition\nprimitive request\n\n";
 
 fn check(text: &str) -> serde_json::Value {
-    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json", "a.trion"]).json()
 }
 
 /// The messages of the parts that have no reading, and of the sentences that have no parse.
@@ -100,9 +100,11 @@ fn a_description_of_a_named_subject_is_a_fact() {
     // one exists the two statements cannot both be kept.
     let universal = "[A]\nEach checker reports the diagnostic.\n\n[B]\nThe checker shall not report the diagnostic.\n";
     contradicts(universal);
+    // A behaviour without a checker keeps the contracts, and that is no
+    // consistency: a system that accepts every input cannot keep both. (The
+    // satisfiability of the contracts alone is no obligation of the MMT form.)
     let report = check(universal);
-    assert_eq!(report["consistency"]["status"], "satisfiable", "{report}");
-    assert_eq!(report["consistency"]["verdict"], "inconsistent", "{report}");
+    assert_eq!(verdicts(&report)["consistency"], "refuted", "{report}");
 }
 
 #[test]

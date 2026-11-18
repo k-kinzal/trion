@@ -9,14 +9,14 @@ fn package(text: &str) -> Fixture {
     Fixture::new(&[("trion.toml", "[package]\nname = \"x\"\n"), ("a.trion", text)])
 }
 
-fn check_with(flags: &[&str], text: &str) -> Value {
-    let mut args = vec!["verify", "--json"];
+fn verify_with(flags: &[&str], text: &str) -> Value {
+    let mut args = vec!["--json"];
     args.extend(flags);
-    package(text).trion(&args).json()
+    package(text).verify(&args).json()
 }
 
 fn check(text: &str) -> Value {
-    check_with(&[], text)
+    verify_with(&[], text)
 }
 
 fn codes(text: &str) -> Vec<String> {
@@ -42,16 +42,26 @@ fn an_object_that_a_response_introduces_is_one_thing_of_its_binding() {
     // The mark names the variable and the statement, so the binding is the statement's own.
     assert_eq!(mark, "#R@D/2", "{text}");
     assert!(text.contains(&format!("retain {mark} analysis report")), "{text}");
-    // What is forbidden of every analysis report is forbidden of that one.
-    assert_eq!(codes(&format!("{shared}\n[E]\nThe checker shall not retain an analysis report.\n")), ["contradiction"]);
+    // What is forbidden of every analysis report is forbidden of that one,
+    // where the environment completes the analysis.
+    let given = "environment analyzer\n[D]\nWhen the analyzer completes an analysis A,\nthe checker shall perform the following actions in order:\n    create an analysis report R for A;\n    retain R;\n";
+    assert_eq!(codes(&format!("{given}\n[E]\nThe checker shall not retain an analysis report.\n")), ["contradiction"]);
+    // Where the checker completes it, a checker that never completes an
+    // analysis keeps both: a trigger that the system controls and that no
+    // statement requires leaves the statements vacuous (AGENTS.md, limit 2).
+    let vacuous = check(&format!("{shared}\n[E]\nThe checker shall not retain an analysis report.\n"));
+    assert_eq!(verdicts(&vacuous).get("consistency").map(String::as_str), Some("proved"), "{vacuous}");
     // Two bindings of one type and one letter are two objects; nothing makes them one or keeps them apart.
-    let apart = "[D1]\nWhen the bell rings, the checker shall create a report R and shall retain R.\n\n[D2]\nWhen the bell rings, the checker shall create a report R and shall not retain R.\n";
+    let apart = "[D1]\nWhen the bell rings, the checker shall perform the following actions in order:\n    create a report R;\n    retain R;\n\n[D2]\nWhen the bell rings, the checker shall perform the following actions in order:\n    create a report R;\n    discard R;\n";
     assert!(codes(apart).is_empty(), "{:?}", codes(apart));
+    // Joined by `and`, the two actions would be sentences of their own, and
+    // the report of the one would not be the report of the other: refused.
+    assert_eq!(codes("[D1]\nWhen the bell rings, the checker shall create a report R and shall retain R.\n"), ["composite-not-distributive"]);
     // In one statement the object is one: it cannot be retained and not retained.
     let one = "[D3]\nWhen the bell rings, the checker shall create a report R, shall retain R, and shall not retain R.\n";
     assert!(!codes(one).is_empty());
     // An object of a condition stays every object of its type.
-    assert_eq!(codes("[G1]\nWhen the checker completes an analysis A, the checker shall log A.\n\n[G2]\nWhen the checker completes an analysis B, the checker shall not log B.\n"), ["contradiction"]);
+    assert_eq!(codes("environment analyzer\n[G1]\nWhen the analyzer completes an analysis A, the checker shall log A.\n\n[G2]\nWhen the analyzer completes an analysis B, the checker shall not log B.\n"), ["contradiction"]);
     // An author reads the type, and a generated view writes the variable again.
     let f = package(shared);
     let expansion = f.inspect(&["expand"]).stdout;
@@ -92,15 +102,20 @@ fn a_deadline_is_measured_from_the_occurrence_that_a_noun_names() {
     assert!(model(&first).contains("measured from first retry"));
 }
 
-const THREE: &str = "[K]\nThe mode is fast, slow, or off.\n\n[A]\nWhile the door is open, the mode shall be fast.\n\n[B]\nWhile the alarm is active, the mode shall be slow.\n\n[C]\nWhile the lamp is lit, the API shall log the mode.\n";
+const THREE: &str = "primitive API, lamp, lit\n\n[K]\nThe mode is fast, slow, or off.\n\n[A]\nWhile the door is open, the mode shall be fast.\n\n[B]\nWhile the alarm is active, the mode shall be slow.\n\n[C]\nWhile the lamp is lit, the API shall log the mode.\n";
+
+/// The result of the consistency obligation of a report.
+fn consistency(report: &Value) -> Value {
+    report["proof"]["results"].as_array().into_iter().flatten().find(|r| r["obligation"] == "consistency").cloned().unwrap_or_else(|| panic!("no consistency result: {report}"))
+}
 
 #[test]
 fn the_statements_are_kept_in_each_situation_or_the_situation_is_a_conflict() {
-    let examined = |report: &serde_json::Value| report["consistency"]["situations"].as_str().unwrap_or_default().to_string();
     // The door can be open while the alarm is active, and then the mode cannot be both.
     let met = check(THREE);
-    assert_eq!(met["consistency"]["verdict"], "inconsistent");
-    assert!(examined(&met).contains("the statements cannot all be kept in 1 situation(s)"), "{met}");
+    let result = consistency(&met);
+    assert_eq!(result["verdict"], "refuted", "{met}");
+    assert!(result["reason"].as_str().unwrap().contains("1 situation(s) have no response"), "{result}");
     let conflict = met["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "contradiction").unwrap_or_else(|| panic!("{met}"));
     let named: Vec<&str> = conflict["refs"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
     assert_eq!(named, ["A", "B"], "{met}");
@@ -108,17 +123,15 @@ fn the_statements_are_kept_in_each_situation_or_the_situation_is_a_conflict() {
     let excluded = format!("{THREE}\n[X]\nWhile the door is open, the alarm is never active.\n");
     let settled = check(&excluded);
     assert!(!report_codes(&settled).contains(&"contradiction".to_string()), "{settled}");
-    assert_eq!(settled["consistency"]["verdict"], "consistent");
-    assert!(examined(&settled).contains("the statements can all be kept in each situation"), "{settled}");
+    assert_eq!(consistency(&settled)["verdict"], "proved", "{settled}");
     // The situations are not listed: thirty conditions are decided by one question.
     let many: String = (0..30).map(|i| format!("[M{i}]\nWhile the gate is `s{i}`, the API shall log the gate.\n\n")).collect();
-    let beyond = check(&many);
-    assert!(examined(&beyond).contains("every situation was examined through 1 questions, without listing the situations") && examined(&beyond).contains("the statements can all be kept in each situation"), "{}", examined(&beyond));
+    let beyond = consistency(&check(&many));
+    assert!(beyond["verdict"] == "proved" && beyond["questions"] == 1, "{beyond}");
     // Conditions on states that do not exclude each other have a situation
     // for each combination; statements that share no response are answered apart.
     let apart: String = ["door", "lamp", "valve", "pump", "gate", "fan", "bell", "horn", "lock", "vent", "hatch", "relay"].iter().enumerate().map(|(i, part)| format!("[K{i}]\nThe {part} is open or closed.\n\n[A{i}]\nWhile the {part} is open, the API shall raise the {part} flag.\n\n[B{i}]\nWhile the {part} is closed, the API shall clear the {part} flag.\n\n")).collect();
-    let product = check(&apart);
-    assert_eq!(product["consistency"]["verdict"], "consistent", "{}", examined(&product));
+    assert_eq!(consistency(&check(&apart))["verdict"], "proved");
     // A conflict among many conditions is found all the same.
     let lost = check(&format!("{many}{THREE}"));
     let conflicts: Vec<&serde_json::Value> = lost["diagnostics"].as_array().unwrap().iter().filter(|d| d["code"] == "contradiction").collect();
@@ -126,8 +139,9 @@ fn the_statements_are_kept_in_each_situation_or_the_situation_is_a_conflict() {
     let named: Vec<&str> = conflicts[0]["refs"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
     assert_eq!(named, ["A", "B"], "{lost}");
     // A search that the decision limit ends decides nothing.
-    let cut = check_with(&["--decision-limit", "1"], &many);
-    assert_eq!(cut["consistency"]["verdict"], "unknown", "{cut}");
+    let cut = verify_with(&["--decision-limit", "1"], &many);
+    assert_eq!(consistency(&cut)["verdict"], "unproved", "{cut}");
+    assert!(unverified(&cut).contains(&"consistency".to_string()), "{cut}");
 }
 
 #[test]
@@ -136,8 +150,10 @@ fn the_same_response_for_the_same_request_is_a_function() {
     let report = check(h1);
     assert!(report["inexpressible"].as_array().unwrap().is_empty() && report["opaque"].as_array().unwrap().is_empty(), "{report}");
     let two = format!("{h1}\n[H2]\nThe API shall return two responses for each request.\n");
-    // No request exists, so nothing has two responses.
-    assert!(codes(&two).is_empty());
+    // Nothing keeps the environment from sending a request, and a system
+    // that accepts every input cannot avoid it: the two contradict without
+    // a statement that a request exists, as with one.
+    assert_eq!(codes(&two), ["contradiction"]);
     assert_eq!(codes(&format!("{two}\nThere is a request.\n")), ["contradiction"]);
     assert!(codes(&format!("{h1}\n[H3]\nThe API shall return one response for each request.\n\nThere is a request.\n")).is_empty());
     // A relation between runs that is not this shape is still reported.
@@ -180,8 +196,9 @@ fn a_share_of_a_declared_population_is_a_quantity() {
     assert_eq!(codes_of_the_analysis(&format!("{measured}\n[Q8]\nWhen a request arrives, the API shall respond for at most 90 percent of requests.\n")), ["contradiction"]);
     // The shares of another population are shares of other cases.
     assert!(codes_of_the_analysis(&format!("individuals upload\nmeasure uploads\n\n{measured}\n[Q9]\nWhen an upload arrives, the API shall respond within 500 ms for at most 90 percent of uploads.\n")).is_empty());
-    // A share lies between 0 and 100 percent.
-    assert_eq!(codes_of_the_analysis("individuals request\nmeasure requests\n\n[Q4]\nWhen a request arrives, the API shall respond for at least 120 percent of requests.\n"), ["contradiction"]);
+    // A share lies between 0 and 100 percent. (`API` is a primitive: alone,
+    // the statement shares no term with another one and is ungrounded.)
+    assert_eq!(codes_of_the_analysis("individuals request\nmeasure requests\nprimitive API\n\n[Q4]\nWhen a request arrives, the API shall respond for at least 120 percent of requests.\n"), ["contradiction"]);
     // A time after `for` is still a duration.
     assert!(model("[W]\nWhen a request arrives, the API shall wait for 5 seconds.\n").contains("duration"));
 }

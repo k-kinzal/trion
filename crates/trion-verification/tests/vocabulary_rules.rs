@@ -3,7 +3,7 @@
 mod common;
 use common::*;
 use trion_language::{glossary, VocabularyMode};
-use trion_verification::{analyze, Options};
+use trion_verification::{Options};
 
 #[test]
 fn a_derived_term_keeps_its_interpretation_premises_rule_and_references() {
@@ -49,7 +49,7 @@ fn an_uninterpreted_predicate_has_a_signature_an_identity_and_no_axioms() {
 #[test]
 fn an_unresolved_term_is_reported_with_every_affected_statement() {
     let src = "term API: entity\n[A] The API shall return foo.\n[B] The API shall log foo.\n[C] The API shall stop.\n";
-    let analysis = analyze(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
     let unresolved: Vec<_> = analysis.diagnostics.iter().filter(|d| d.code == "UNRESOLVED_TERM").collect();
     assert_eq!(unresolved.len(), 1, "{:?}", analysis.diagnostics);
     assert!(unresolved[0].message.contains("`foo`"), "{}", unresolved[0].message);
@@ -84,7 +84,7 @@ fn the_glossary_lists_type_namespace_definition_domain_and_occurrences() {
     assert_eq!(api.occurrences_at, ["main.trion:3", "main.trion:4"]);
     assert_eq!(api.derivation.as_ref().unwrap().interpretation, ["entity"]);
     // A term of another namespace names its referenced domain.
-    let two = analyze(&set_of(&[("main", true, "namespace main:\n    use main.base\n    The API shall open the gate.\nnamespace main.base:\n    A gate means a door.\n")], VocabularyMode::Inferred), &Options::default());
+    let two = proved(&set_of(&[("main", true, "namespace main:\n    use main.base\n    The API shall open the gate.\nnamespace main.base:\n    A gate means a door.\n")], VocabularyMode::Inferred), &Options::default());
     let entries = glossary(&two.vocabulary);
     let gate = entries.iter().find(|e| e.term.ends_with("gate")).unwrap();
     assert_eq!(gate.referenced_domain.as_deref(), Some("base"));

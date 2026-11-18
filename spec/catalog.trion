@@ -1,0 +1,667 @@
+namespace trion:
+    use formal
+
+    section "The catalog of simple sentences":
+        The catalog means the set of the forms that the trion language reads.
+
+        [CATALOG-CLOSED]
+        The trion processor shall reject each statement that holds a form outside the catalog.
+
+        Each example of the catalog states a form of the catalog.
+        A one-contract example means an example that reads each simple sentence of the example as exactly one contract.
+
+        [CATALOG-RULE-ONE]
+        The trion processor shall reject each example that is not a one-contract example.
+
+        example ACTION:
+            kind reading
+            form contract
+            input "The API shall stop."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example ACTION-PASSIVE-OR-STATE:
+            kind reading
+            form contract
+            input "The valve shall be closed."
+            expect "assume: ⊤"
+            expect "guarantee: Val(valve, closed)"
+
+        example ACTIONS-EITHER:
+            kind reading
+            form contract
+            input "The API shall either accept the request or reject the request."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|accept request) ∧ ¬Forbid(API|accept request) ∧ ¬Discouraged(API|accept request)) ∨ (Act(API|reject request) ∧ ¬Forbid(API|reject request) ∧ ¬Discouraged(API|reject request)))"
+
+        example CLAUSE-COPULAR:
+            kind reading
+            form contract
+            input "The API shall stop while the door is open."
+            expect "assume: Val(door, open)"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example CLAUSE-VERBAL:
+            kind reading
+            form contract
+            input "The API shall stop if the door opens."
+            expect "assume: Event(door open)"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example CLAUSE-VERBAL-DENIED:
+            kind reading
+            form contract
+            input "When the door does not open, the API shall stop."
+            expect "assume: ¬Event(door open)"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example CLAUSES-AND:
+            kind reading
+            form contract
+            input "When the door closes and the key is present, the API shall stop."
+            expect "assume: (Event(door close) ∧ Val(key, present))"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example CLAUSES-OR:
+            kind reading
+            form contract
+            input "When the door closes or the bell rings, the API shall stop."
+            expect "assume: (Event(door close) ∨ Event(bell ring))"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example COMPOSITION-ALL:
+            kind reading
+            form contract
+            input """
+The API shall perform all of the following actions:
+    stop;
+    log the stop;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop)) ∧ (Act(API|log stop) ∧ ¬Forbid(API|log stop) ∧ ¬Discouraged(API|log stop)))"
+
+        example COMPOSITION-ONE:
+            kind reading
+            form contract
+            input """
+The API shall perform exactly one of the following actions:
+    accept the call;
+    reject the call;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: (((Act(API|accept call) ∧ ¬Forbid(API|accept call) ∧ ¬Discouraged(API|accept call)) ∧ ¬(Act(API|reject call))) ∨ ((Act(API|reject call) ∧ ¬Forbid(API|reject call) ∧ ¬Discouraged(API|reject call)) ∧ ¬(Act(API|accept call))))"
+
+        example COMPOSITION-SEQUENCE:
+            kind reading
+            form contract
+            input """
+The API shall perform the following actions in order:
+    stop;
+    log the stop;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop)) ∧ (Act(API|log stop) ∧ ¬Forbid(API|log stop) ∧ ¬Discouraged(API|log stop)) ∧ Before(API|stop, API|log stop))"
+
+        example COMPOSITION-SOME:
+            kind reading
+            form contract
+            input """
+The API shall perform one or more of the following actions:
+    accept the call;
+    reject the call;
+"""
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|accept call) ∧ ¬Forbid(API|accept call) ∧ ¬Discouraged(API|accept call)) ∨ (Act(API|reject call) ∧ ¬Forbid(API|reject call) ∧ ¬Discouraged(API|reject call)))"
+
+        example CONCESSION-EVEN-WHEN:
+            kind reading
+            form contract
+            input "The system shall close the door, even when the door is open."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(system|close door) ∧ ¬Forbid(system|close door) ∧ ¬Discouraged(system|close door))"
+
+        example CONDITION-IF-AND-ONLY-IF:
+            kind reading
+            form contract
+            input "The API shall start exactly when the bell rings."
+            expect "assume: ⊤"
+            expect "guarantee: ((Event(bell ring) → (Act(API|start) ∧ ¬Forbid(API|start) ∧ ¬Discouraged(API|start))) ∧ (Event(bell ring) ∨ (¬Act(API|start) ∧ Forbid(API|start))))"
+
+        example CONDITION-ONLY-IF:
+            kind reading
+            form contract
+            input "The API shall stop only when status is Closed."
+            expect "assume: ⊤"
+            expect "guarantee: (Val(status, Closed) ∨ (¬Act(API|stop) ∧ Forbid(API|stop)))"
+
+        example CONTENT-ESTABLISHED:
+            kind reading
+            form contract
+            input "The API shall ensure that the token is valid."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|ensure that token is valid) ∧ ¬Forbid(API|ensure that token is valid) ∧ ¬Discouraged(API|ensure that token is valid))"
+
+        example CONTENT-OF-VERB:
+            kind reading
+            form contract
+            input "The checker shall report that the room is locked."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(checker|report that room is locked) ∧ ¬Forbid(checker|report that room is locked) ∧ ¬Discouraged(checker|report that room is locked))"
+
+        example CONTENT-PERMITTED:
+            kind reading
+            form contract
+            input "The checker shall allow the gate to open."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(checker|allow that gate open) ∧ ¬Forbid(checker|allow that gate open) ∧ ¬Discouraged(checker|allow that gate open))"
+
+        example CONTENT-REQUIRED:
+            kind reading
+            form contract
+            input "The checker shall require the gate to close."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(checker|require that gate close) ∧ ¬Forbid(checker|require that gate close) ∧ ¬Discouraged(checker|require that gate close))"
+
+        example DEADLINE-ORIGIN:
+            kind reading
+            form contract
+            input "The API shall respond within 2 seconds of the request."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|respond) ∧ ¬Forbid(API|respond) ∧ ¬Discouraged(API|respond)) ∧ Act(API|respond) ∧ ¬Forbid(API|respond) ∧ API|respond elapsed ≤ 2000 ms)"
+
+        example DESCRIPTION:
+            kind reading
+            form contract
+            input "The door is open."
+            expect "assume: ⊤"
+            expect "guarantee: Dom(door, open)"
+
+        example DESCRIPTION-ADVERB:
+            kind reading
+            form contract
+            input "The pump is never active."
+            expect "assume: ⊤"
+            expect "guarantee: ¬Dom(pump, active)"
+
+        example EXCEPTION-UNLESS:
+            kind reading
+            form contract
+            input "The pump shall stop, unless the override is active."
+            expect "assume: ¬Val(override, active)"
+            expect "guarantee: (Act(pump|stop) ∧ ¬Forbid(pump|stop) ∧ ¬Discouraged(pump|stop))"
+
+        example EXISTENCE:
+            kind reading
+            form contract
+            input "There is a source document."
+            expect "assume: ⊤"
+            expect "guarantee: (Event(exists source document))"
+
+        example FRAME-IF:
+            kind reading
+            form contract
+            input "If the sensor fails, then the alarm shall sound."
+            expect "assume: Event(sensor fail)"
+            expect "guarantee: (Act(alarm|sound) ∧ ¬Forbid(alarm|sound) ∧ ¬Discouraged(alarm|sound))"
+
+        example FRAME-WHEN:
+            kind reading
+            form contract
+            input "The API shall stop when the bell rings."
+            expect "assume: Event(bell ring)"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example FRAME-WHERE:
+            kind reading
+            form contract
+            input "Where the device includes a cache, the device shall flush the cache."
+            expect "assume: Config(device include cache)"
+            expect "guarantee: (Act(device|flush cache) ∧ ¬Forbid(device|flush cache) ∧ ¬Discouraged(device|flush cache))"
+
+        example FRAME-WHILE:
+            kind reading
+            form contract
+            input "While the pump runs, the API shall stop."
+            expect "assume: Event(pump run)"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example MEASURE-BOUNDED:
+            kind reading
+            form contract
+            input "The API shall hold the door for at least 30 seconds."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|hold door) ∧ ¬Forbid(API|hold door) ∧ ¬Discouraged(API|hold door)) ∧ Act(API|hold door) ∧ ¬Forbid(API|hold door) ∧ API|hold door duration ≥ 30000 ms)"
+
+        example MEASURE-NAMED:
+            kind reading
+            form contract
+            input "The timeout is less than the retry interval."
+            expect "assume: ⊤"
+            expect "guarantee: timeout − retry interval < 0"
+
+        example MEASURE-QUANTITY:
+            kind reading
+            form contract
+            input "The size is at most 10 MB."
+            expect "assume: ⊤"
+            expect "guarantee: size ≤ 10000000 byte"
+
+        example NOUN-PHRASE-ARTICLE:
+            kind reading
+            form contract
+            input "The API shall log the call."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|log call) ∧ ¬Forbid(API|log call) ∧ ¬Discouraged(API|log call))"
+
+        example NOUN-PHRASE-BARE:
+            kind reading
+            form contract
+            input "The status shall become Paid."
+            expect "assume: ⊤"
+            expect "guarantee: Val(status, Paid)"
+
+        example NOUN-PHRASE-COUNTED:
+            kind reading
+            form contract
+            input "There are at least two rooms."
+            expect "assume: ⊤"
+            expect "guarantee: (Event(exists room))"
+
+        example NOUN-PHRASE-EXISTENTIAL:
+            kind reading
+            form contract
+            input "Some room has no owner."
+            expect "assume: ⊤"
+            expect "guarantee: (Event(exists room))"
+
+        example NOUN-PHRASE-MODIFIED:
+            kind reading
+            form contract
+            input "The timeout exceeds the retry interval."
+            expect "assume: ⊤"
+            expect "guarantee: timeout − retry interval > 0"
+
+        example NOUN-PHRASE-NONE:
+            kind reading
+            form contract
+            input "No client shall retry."
+            expect "assume: ⊤"
+            expect "guarantee: (¬Act(client|retry) ∧ Forbid(client|retry))"
+
+        example NOUN-PHRASE-OF:
+            kind reading
+            form contract
+            input "The number of members of each room is at most 1."
+            expect "assume: ⊤"
+            expect "guarantee: room member number ≤ 1 "
+
+        example NOUN-PHRASE-UNIVERSAL:
+            kind reading
+            form contract
+            input "Each section has a title."
+            expect "assume: ⊤"
+            expect "guarantee: ((Event(exists section) → (Act(section|has title))))"
+
+        example NOUN-PHRASES-AND:
+            kind reading
+            form contract
+            input "The API shall stop when the door and the window are closed."
+            expect "assume: (Val(door, closed) ∧ Val(window, closed))"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+
+        example NOUN-PHRASES-OR:
+            kind reading
+            form contract
+            input "A notice means a report or a summary."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(report, notice) ∧ Dom(summary, notice) ∧ (Event(exists notice) → (Dom(notice, report) ∨ Dom(notice, summary))))"
+
+        example ORDER-OF-OCCURRENCE:
+            kind reading
+            form contract
+            input "The API shall respond at least 2 seconds after the request."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|respond) ∧ ¬Forbid(API|respond) ∧ ¬Discouraged(API|respond)) ∧ Act(API|respond) ∧ ¬Forbid(API|respond) ∧ API|respond elapsed ≥ 2000 ms)"
+
+        example PREDICATE-COMPARISON:
+            kind reading
+            form contract
+            input "The size is between 3 and 5 MB."
+            expect "assume: ⊤"
+            expect "guarantee: (size ≥ 3000000 byte ∧ size ≤ 5000000 byte)"
+
+        example PREDICATE-ENUMERATION:
+            kind reading
+            form contract
+            input "The mode is fast, slow, or off."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(mode, fast) ∧ Dom(mode, slow) ∧ Dom(mode, off) ∧ (Val(mode, fast) ∨ Val(mode, slow) ∨ Val(mode, off)))"
+
+        example PREDICATE-NOMINAL:
+            kind reading
+            form contract
+            input "No member is the owner."
+            expect "assume: ⊤"
+            expect "guarantee: ¬Dom(member, owner)"
+
+        example PREDICATE-PREPOSITIONAL:
+            kind reading
+            form contract
+            input "The door is in the room."
+            expect "assume: ⊤"
+            expect "guarantee: Dom(door, in room)"
+
+        example PREDICATE-WORDS:
+            kind reading
+            form contract
+            input "The room is not locked."
+            expect "assume: ⊤"
+            expect "guarantee: ¬Dom(room, locked)"
+
+        example RECOMMENDATION-AGAINST:
+            kind reading
+            form contract
+            input "The API should not return 200."
+            expect "assume: ⊤"
+            expect "guarantee: Discouraged(API|return 200)"
+
+        example RELATION:
+            kind reading
+            form contract
+            input "No user sends a message."
+            expect "assume: ⊤"
+            expect "guarantee: ((¬Act(user|send message)))"
+
+        example RELATIVE-COPULAR:
+            kind reading
+            form contract
+            input "When a user that is a member of a room posts a message to the room, the system shall store the message."
+            expect "assume: Event(user that is member of room post message to room)"
+            expect "guarantee: (Act(system|store message) ∧ ¬Forbid(system|store message) ∧ ¬Discouraged(system|store message))"
+
+        example RELATIVE-OBJECT-GAP:
+            kind reading
+            form contract
+            input "The system shall store each message that a member of a room posts to the room."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(system|store message that member of room post to room) ∧ ¬Forbid(system|store message that member of room post to room) ∧ ¬Discouraged(system|store message that member of room post to room))"
+
+        example RELATIVE-VERBAL:
+            kind reading
+            form contract
+            input "A guest means a user that has no account."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(guest, user) ∧ (¬Act(guest|has account) ∧ ¬Act(guest|have account)))"
+
+        example RELATIVE-VERBAL-DENIED:
+            kind reading
+            form contract
+            input "A guest means a user that does not have an account."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(guest, user) ∧ (¬Act(guest|has account) ∧ ¬Act(guest|have account)))"
+
+        example RELATIVE-WHERE:
+            kind reading
+            form contract
+            input "The API shall store the message in a room where the mode is open."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|store message in room where mode is open) ∧ ¬Forbid(API|store message in room where mode is open) ∧ ¬Discouraged(API|store message in room where mode is open)) ∧ Act(API|store message) ∧ ¬Forbid(API|store message))"
+
+        example RELATIVE-WHOSE:
+            kind reading
+            form contract
+            input "When a user posts a message to a room whose mode is maintenance, the system shall reject the message."
+            expect "assume: Event(user post message to room whose mode is maintenance)"
+            expect "guarantee: (Act(system|reject message) ∧ ¬Forbid(system|reject message) ∧ ¬Discouraged(system|reject message))"
+
+        example ROLE-AFTER:
+            kind reading
+            form contract
+            input "The API shall bill the customer after the payment clears."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|bill customer) ∧ ¬Forbid(API|bill customer) ∧ ¬Discouraged(API|bill customer)) ∧ Act(API|bill customer) ∧ ¬Forbid(API|bill customer))"
+
+        example ROLE-AGENT:
+            kind reading
+            form contract
+            input "The report shall be signed by the auditor."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(auditor|sign report) ∧ ¬Forbid(auditor|sign report) ∧ ¬Discouraged(auditor|sign report))"
+
+        example ROLE-BEFORE:
+            kind reading
+            form contract
+            input "When the timer expires, the API may log the request before the API sends the report."
+            expect "assume: Event(timer expire)"
+            expect "guarantee: ¬Forbid(API|log request)"
+
+        example ROLE-DEADLINE:
+            kind reading
+            form contract
+            input "The gateway shall respond within 2 seconds."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(gateway|respond) ∧ ¬Forbid(gateway|respond) ∧ ¬Discouraged(gateway|respond)) ∧ Act(gateway|respond) ∧ ¬Forbid(gateway|respond) ∧ gateway|respond elapsed ≤ 2000 ms)"
+
+        example ROLE-DELAY:
+            kind reading
+            form contract
+            input "The API shall respond at least 10 seconds after the timer expires."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|respond) ∧ ¬Forbid(API|respond) ∧ ¬Discouraged(API|respond)) ∧ Act(API|respond) ∧ ¬Forbid(API|respond) ∧ API|respond elapsed ≥ 10000 ms)"
+
+        example ROLE-DURATION:
+            kind reading
+            form contract
+            input "The API shall hold the door for 5 seconds."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|hold door) ∧ ¬Forbid(API|hold door) ∧ ¬Discouraged(API|hold door)) ∧ Act(API|hold door) ∧ ¬Forbid(API|hold door) ∧ API|hold door duration = 5000 ms)"
+
+        example ROLE-GOAL:
+            kind reading
+            form contract
+            input "The API shall move the file into the archive."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|move file into archive) ∧ ¬Forbid(API|move file into archive) ∧ ¬Discouraged(API|move file into archive)) ∧ Act(API|move file) ∧ ¬Forbid(API|move file))"
+
+        example ROLE-LOCATION:
+            kind reading
+            form contract
+            input "The API shall store the record in the archive."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|store record in archive) ∧ ¬Forbid(API|store record in archive) ∧ ¬Discouraged(API|store record in archive)) ∧ Act(API|store record) ∧ ¬Forbid(API|store record))"
+
+        example ROLE-MEANS:
+            kind reading
+            form contract
+            input "The API shall sign the report using the key."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|sign report using key) ∧ ¬Forbid(API|sign report using key) ∧ ¬Discouraged(API|sign report using key)) ∧ Act(API|sign report) ∧ ¬Forbid(API|sign report))"
+
+        example ROLE-OTHER:
+            kind reading
+            form contract
+            input "A guest means a user without an account."
+            expect "assume: ⊤"
+            expect "guarantee: (Dom(guest, user) ∧ (¬Act(guest|has account) ∧ ¬Act(guest|have account)))"
+
+        example ROLE-RECIPIENT:
+            kind reading
+            form contract
+            input "The server shall send the report to the client."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(server|send report to client) ∧ ¬Forbid(server|send report to client) ∧ ¬Discouraged(server|send report to client)) ∧ Act(server|send report) ∧ ¬Forbid(server|send report))"
+
+        example ROLE-SOURCE:
+            kind reading
+            form contract
+            input "The API shall read the value from the sensor."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|read value from sensor) ∧ ¬Forbid(API|read value from sensor) ∧ ¬Discouraged(API|read value from sensor)) ∧ Act(API|read value) ∧ ¬Forbid(API|read value))"
+
+        example ROLE-TOPIC:
+            kind reading
+            form contract
+            input "The API shall notify the user about the message."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|notify user about message) ∧ ¬Forbid(API|notify user about message) ∧ ¬Discouraged(API|notify user about message)) ∧ Act(API|notify user) ∧ ¬Forbid(API|notify user))"
+
+        example ROLE-UNTIL:
+            kind reading
+            form contract
+            input "The API shall sound the alarm until the operator acknowledges the alarm."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|sound alarm) ∧ ¬Forbid(API|sound alarm) ∧ ¬Discouraged(API|sound alarm)) ∧ Act(API|sound alarm) ∧ ¬Forbid(API|sound alarm))"
+
+        example TIMING-ALWAYS:
+            kind reading
+            form contract
+            input "The API shall always log the request."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|log request) ∧ ¬Forbid(API|log request) ∧ ¬Discouraged(API|log request)) ∧ Act(API|log request) ∧ ¬Forbid(API|log request))"
+
+        example TIMING-EVENTUALLY:
+            kind reading
+            form contract
+            input "The API shall eventually send the report."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|send report) ∧ ¬Forbid(API|send report) ∧ ¬Discouraged(API|send report)) ∧ Act(API|send report) ∧ ¬Forbid(API|send report))"
+
+        example TIMING-IMMEDIATELY:
+            kind reading
+            form contract
+            input "The API shall immediately respond."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|respond) ∧ ¬Forbid(API|respond) ∧ ¬Discouraged(API|respond)) ∧ Act(API|respond) ∧ ¬Forbid(API|respond))"
+
+    section "The catalog of composite vocabulary":
+        The word "and" between clauses, verb phrases, subjects, objects, or the noun phrases of a role is composite vocabulary.
+        The word "or" between denied verb phrases or the objects of a denied verb is composite vocabulary.
+
+        [CATALOG-COMPOSITE-CLOSED]
+        The trion processor shall reject each statement that joins requirements and has no expansion.
+
+        A separate reading means the reading of a simple sentence from the text of the simple sentence in an empty package.
+        An expansion-faithful example means an example that reads each sentence of the expansion of a composite sentence as the separate reading of the sentence.
+
+        [CATALOG-RULE-TWO]
+        The trion processor shall reject each example that is not an expansion-faithful example.
+
+        example COMPOSITE-CLAUSES:
+            kind reading
+            form contract
+            input "The API shall stop, and the gateway shall log the call."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+            expect "assume: ⊤"
+            expect "guarantee: (Act(gateway|log call) ∧ ¬Forbid(gateway|log call) ∧ ¬Discouraged(gateway|log call))"
+
+        example COMPOSITE-VERB-PHRASES:
+            kind reading
+            form contract
+            input "The API shall store the message and log the call."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|store message) ∧ ¬Forbid(API|store message) ∧ ¬Discouraged(API|store message))"
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|log call) ∧ ¬Forbid(API|log call) ∧ ¬Discouraged(API|log call))"
+
+        example COMPOSITE-SUBJECTS:
+            kind reading
+            form contract
+            input "The API and the gateway shall stop."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))"
+            expect "assume: ⊤"
+            expect "guarantee: (Act(gateway|stop) ∧ ¬Forbid(gateway|stop) ∧ ¬Discouraged(gateway|stop))"
+
+        example COMPOSITE-OBJECTS:
+            kind reading
+            form contract
+            input "The API shall store the message and the call."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|store message) ∧ ¬Forbid(API|store message) ∧ ¬Discouraged(API|store message))"
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|store call) ∧ ¬Forbid(API|store call) ∧ ¬Discouraged(API|store call))"
+
+        example COMPOSITE-ROLE-PHRASES:
+            kind reading
+            form contract
+            input "The API shall send the report to the auditor and the owner."
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|send report to auditor) ∧ ¬Forbid(API|send report to auditor) ∧ ¬Discouraged(API|send report to auditor)) ∧ Act(API|send report) ∧ ¬Forbid(API|send report))"
+            expect "assume: ⊤"
+            expect "guarantee: ((Act(API|send report to owner) ∧ ¬Forbid(API|send report to owner) ∧ ¬Discouraged(API|send report to owner)) ∧ Act(API|send report) ∧ ¬Forbid(API|send report))"
+
+        example COMPOSITE-DENIED-VERB-PHRASES:
+            kind reading
+            form contract
+            input "The API shall not store or log the message."
+            expect "assume: ⊤"
+            expect "guarantee: (¬Act(API|store message) ∧ Forbid(API|store message))"
+            expect "assume: ⊤"
+            expect "guarantee: (¬Act(API|log message) ∧ Forbid(API|log message))"
+
+        example COMPOSITE-DENIED-OBJECTS:
+            kind reading
+            form contract
+            input "The API shall not store the message or the call."
+            expect "assume: ⊤"
+            expect "guarantee: (¬Act(API|store message) ∧ Forbid(API|store message))"
+            expect "assume: ⊤"
+            expect "guarantee: (¬Act(API|store call) ∧ Forbid(API|store call))"
+
+        example COMPOSITE-UNDER-A-CONDITION:
+            kind reading
+            form contract
+            input "When the door closes, the API shall store the message and log the call."
+            expect "assume: Event(door close)"
+            expect "guarantee: (Act(API|store message) ∧ ¬Forbid(API|store message) ∧ ¬Discouraged(API|store message))"
+            expect "assume: Event(door close)"
+            expect "guarantee: (Act(API|log call) ∧ ¬Forbid(API|log call) ∧ ¬Discouraged(API|log call))"
+
+        example NOT-COMPOSITE-DENIED-OBJECTS:
+            kind syntax
+            form statement
+            input "The API shall not store the message and the call."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-DENIED-VERB-PHRASES:
+            kind syntax
+            form statement
+            input "The API shall not store the message and log the call."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-COUNTED-SUBJECT:
+            kind syntax
+            form statement
+            input "Some user shall log in and log out."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-DENIED-SUBJECT:
+            kind syntax
+            form statement
+            input "No user shall log in and log out."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-ONLY-WHEN:
+            kind syntax
+            form statement
+            input "The API shall store the message and log the call only when the door is open."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-EXACTLY-WHEN:
+            kind syntax
+            form statement
+            input "The API shall store the message and log the call exactly when the door is open."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-MEASURE:
+            kind syntax
+            form statement
+            input "The API shall validate the request and send the response within 5 seconds."
+            expect rejected "composite-not-distributive"
+
+        example NOT-COMPOSITE-SHARED-THING:
+            kind syntax
+            form statement
+            input "The API shall create a report and send the report."
+            expect rejected "composite-not-distributive"

@@ -1,0 +1,23 @@
+[package]
+name = "trion-lsp"
+version.workspace = true
+edition.workspace = true
+description = "The trion-lsp command: the language server of trion, for editors."
+
+[lib]
+name = "trion_lsp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "trion-lsp"
+path = "src/main.rs"
+
+[dependencies]
+trion-cli.workspace = true
+trioc-cli.workspace = true
+trion-language.workspace = true
+trion-verification.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

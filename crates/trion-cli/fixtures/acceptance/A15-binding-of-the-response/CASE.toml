@@ -2,7 +2,7 @@ id = "A15"
 title = "The response to a message is about that message"
 work = "W05"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 [A] requires the API to store the message that was sent, and [B] forbids it to store any message when
 one is sent: the stored message of [A] is a message, so the situation has no response.
@@ -10,7 +10,7 @@ one is sent: the stored message of [A] is a message, so the situation has no res
 
 [expect]
 verified = false
-blockers = ["contradiction"]
+diagnostics = ["contradiction"]
 
-[expect.claims]
-situation_total = "refuted"
+[expect.obligations]
+consistency = "refuted"

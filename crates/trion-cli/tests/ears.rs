@@ -9,7 +9,7 @@ fn manifest() -> String {
 
 fn ears_codes(spec: &str) -> Vec<String> {
     let manifest = manifest();
-    report_codes(&Fixture::new(&[("trion.toml", &manifest), ("a.trion", spec)]).trion(&["verify", "--json"]).json())
+    report_codes(&Fixture::new(&[("trion.toml", &manifest), ("a.trion", spec)]).verify(&["--json"]).json())
 }
 
 /// As `ears_codes`, reading the diagnostics of the analysis alone: no finding of
@@ -17,7 +17,7 @@ fn ears_codes(spec: &str) -> Vec<String> {
 #[allow(dead_code)]
 fn ears_codes_of_the_analysis(spec: &str) -> Vec<String> {
     let manifest = manifest();
-    analysis_codes(&Fixture::new(&[("trion.toml", &manifest), ("a.trion", spec)]).trion(&["verify", "--json"]).json())
+    analysis_codes(&Fixture::new(&[("trion.toml", &manifest), ("a.trion", spec)]).verify(&["--json"]).json())
 }
 
 fn forms(text: &str) -> Vec<&'static str> {
@@ -83,7 +83,7 @@ fn an_extension_is_scoped_to_its_namespace() {
         ("y.trion", "namespace p.y:\n    use ears\n    The bell shall not ring.\n"),
         ("z.trion", "namespace p.z:\n    The door shall not open.\n"),
     ]);
-    let r = f.trion(&["verify", "--json"]).json();
+    let r = f.verify(&["--json"]).json();
     assert_eq!(analysis_codes(&r), ["syntax-not-allowed"]);
     assert_eq!(r["diagnostics"][0]["refs"][0]["file"], "y.trion");
 }
@@ -91,15 +91,15 @@ fn an_extension_is_scoped_to_its_namespace() {
 #[test]
 fn an_extension_adds_to_a_closed_domain() {
     let f = Fixture::new(&[("a.trion", "kind is A and B.\nextend kind with C.\nkind is C.\n")]);
-    assert_eq!(f.trion(&["verify", "a.trion"]).code, 0);
+    assert_eq!(f.verify(&["a.trion"]).code, 0);
     let f = Fixture::new(&[("a.trion", "kind is A and B.\nkind is C.\n")]);
-    assert_eq!(f.trion(&["verify", "a.trion"]).code, 1);
+    assert_eq!(f.verify(&["a.trion"]).code, 1);
 }
 
 #[test]
 fn only_a_closed_domain_can_be_extended() {
     let f = Fixture::new(&[("a.trion", "kind is A.\nextend kind with C.\n")]);
-    assert_eq!(report_codes(&f.trion(&["verify", "--json", "a.trion"]).json()), ["extend-open-domain"]);
+    assert_eq!(report_codes(&f.verify(&["--json", "a.trion"]).json()), ["extend-open-domain"]);
 }
 
 #[test]

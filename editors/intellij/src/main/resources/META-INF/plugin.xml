@@ -1,0 +1,48 @@
+<idea-plugin>
+    <id>dev.trion.language</id>
+    <name>Trion</name>
+    <vendor>trion</vendor>
+    <description><![CDATA[
+        Language support for the trion specification language: syntax highlighting with its own
+        colour settings, folding, a structure view, diagnostics and the consistency result from
+        <code>trion check</code>, navigation to included files, namespaces, sources, statements
+        and term definitions, documentation for terms and statement identifiers, and a document
+        preview from <code>trion render</code>, and completion of the words that the language
+        fixes. A part of a sentence without a formal reading and a statement that constrains
+        nothing are marked as errors. Where the LSP4IJ plugin is installed, <code>trion lsp</code>
+        adds completion of terms.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="trion-lsp.xml">com.redhat.devtools.lsp4ij</depends>
+    <!-- From 2025 the embedded browser is a plugin of its own; the preview loads its classes from there. -->
+    <depends optional="true" config-file="trion-jcef.xml">com.intellij.modules.jcef</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType name="Trion" language="Trion" extensions="trion" fieldName="INSTANCE"
+                  implementationClass="dev.trion.intellij.TrionFileType"/>
+        <lang.parserDefinition language="Trion"
+                               implementationClass="dev.trion.intellij.TrionParserDefinition"/>
+        <lang.syntaxHighlighterFactory language="Trion"
+                                       implementationClass="dev.trion.intellij.TrionSyntaxHighlighterFactory"/>
+        <colorSettingsPage implementation="dev.trion.intellij.TrionColorSettingsPage"/>
+        <lang.commenter language="Trion" implementationClass="dev.trion.intellij.TrionCommenter"/>
+        <lang.braceMatcher language="Trion" implementationClass="dev.trion.intellij.TrionBraceMatcher"/>
+        <lang.quoteHandler language="Trion" implementationClass="dev.trion.intellij.TrionQuoteHandler"/>
+        <lang.foldingBuilder language="Trion" implementationClass="dev.trion.intellij.TrionFoldingBuilder"/>
+        <lang.psiStructureViewFactory language="Trion"
+                                      implementationClass="dev.trion.intellij.TrionStructureViewFactory"/>
+        <externalAnnotator language="Trion" implementationClass="dev.trion.intellij.TrionExternalAnnotator"/>
+        <gotoDeclarationHandler implementation="dev.trion.intellij.TrionGotoDeclarationHandler"/>
+        <lang.documentationProvider language="Trion"
+                                    implementationClass="dev.trion.intellij.TrionDocumentationProvider"/>
+        <completion.contributor language="Trion"
+                                implementationClass="dev.trion.intellij.TrionCompletionContributor"/>
+        <fileEditorProvider implementation="dev.trion.intellij.TrionSplitEditorProvider"/>
+
+        <applicationService serviceImplementation="dev.trion.intellij.TrionSettings"/>
+        <applicationConfigurable parentId="language" id="dev.trion.intellij.settings" displayName="Trion"
+                                 instance="dev.trion.intellij.TrionConfigurable"/>
+        <notificationGroup id="Trion" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>

@@ -201,7 +201,10 @@ impl Walk {
             }
             Predicate::Words { words } => {
                 self.rules.insert("predicate-words");
-                self.words(words, Place::Predicate);
+                // `is not closed`: a leading `not` or `never` denies the
+                // predicate, as the key reads it (a negation mark).
+                let lead = usize::from(words.first().is_some_and(|w| matches!(w.to_lowercase().as_str(), "not" | "never")));
+                self.words(&words[lead..], Place::Predicate);
             }
             Predicate::Enumeration { .. } => {
                 self.rules.insert("predicate-enumeration");
@@ -575,13 +578,19 @@ pub(super) fn open_words(sentence: &Sentence) -> Vec<Open> {
 }
 
 /// The entry that a reading example compares: the contract and the temporal
-/// shape of each statement of the input, and the background axioms that the
-/// input gives rise to beside those of the package (`baseline`).
+/// shape of each statement of the input, what stands beside the contract,
+/// and the background axioms that the input gives rise to beside those of
+/// the package (`baseline`).
 pub fn entry_lines(model: &crate::reading::model::Model, baseline: &crate::reading::model::Model, ids: &BTreeSet<String>) -> Vec<String> {
     let mut lines = Vec::new();
     for constraint in &model.constraints {
         let Some(at) = constraint.refs.first() else { continue };
         if !ids.contains(&at.id) {
+            continue;
+        }
+        // What stands beside the contract of a statement is no contract of it.
+        if matches!(constraint.kind, crate::reading::model::ConstraintKind::Carried | crate::reading::model::ConstraintKind::Refinement) {
+            lines.push(format!("beside: {} => {}", constraint.assume, constraint.guarantee));
             continue;
         }
         lines.push(format!("assume: {}", constraint.assume));

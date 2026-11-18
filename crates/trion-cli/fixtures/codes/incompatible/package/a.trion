@@ -1,0 +1,12 @@
+namespace x
+primitive API
+primitive door
+
+[K1]
+The door is open.
+
+[K2]
+The door is never open.
+
+[A]
+The API shall stop.

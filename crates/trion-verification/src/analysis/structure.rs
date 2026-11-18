@@ -78,7 +78,10 @@ fn find_missing_cases(model: &Model, out: &mut Vec<Diagnostic>) {
         let Some(guarded) = model.guarded_values.get(attr) else { continue };
         for value in domain.difference(guarded) {
             let refs = model.constraints.iter().filter(|c| c.kind != ConstraintKind::Binding && c.kind != ConstraintKind::Form && mentions_attr(c, attr)).flat_map(|c| c.refs.clone()).collect();
-            out.push(Diagnostic::error("missing-case", format!("no specification covers the case where {attr} is {value}, and the domain of {attr} is closed"), refs));
+            // A missing case is reported (VERIFY-MISSING-CASE) and is no
+            // failure to conform, nor an incomplete specification: that needs
+            // a reference (VERIFY-NO-REFERENCE).
+            out.push(Diagnostic::warning("missing-case", format!("no specification covers the case where {attr} is {value}, and the domain of {attr} is closed"), refs));
         }
     }
 }

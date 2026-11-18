@@ -1,0 +1,13 @@
+unsat
+(
+(assume a0 (! (and (! (=> p q) :named @p_3) (! (=> q r) :named @p_2) p (! (not r) :named @p_1)) :named @p_4))
+(step t0 (cl @p_2) :rule and :premises (a0) :args (1))
+(step t1 (cl (not q) r) :rule implies :premises (t0))
+(step t2 (cl @p_3) :rule and :premises (a0) :args (0))
+(step t3 (cl (not p) q) :rule implies :premises (t2))
+(step t4 (cl p) :rule and :premises (a0) :args (2))
+(step t5 (cl q) :rule resolution :premises (t3 t4))
+(step t6 (cl r) :rule resolution :premises (t1 t5))
+(step t7 (cl @p_1) :rule and :premises (a0) :args (3))
+(step t8 (cl) :rule resolution :premises (t6 t7))
+)

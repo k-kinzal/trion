@@ -61,13 +61,14 @@ correct (plan section 3).
 ## Unresolved patterns and the gate
 
 A pattern without a meaning rule must not pass into a verified result (plan W01,
-W02). Each is connected to the gate in one of three ways.
+W02). The gate is the conversion: a package with an error does not conform to
+the language, `trion` writes no MMT form for it, and so `trioc` has no
+obligation to prove. Each pattern is connected to the gate in one of three ways.
 
 **Stopped by the reading.** The statement is rejected with
 `UNSUPPORTED_SEMANTICS` (`reading/rules.rs::UNRESOLVED`, `grounding.rs::unvisited`),
-so the gates `check`, `meaning` and `claims` fail. These were accepted and
-verified at the baseline; the ledger entry of each records the lost capability
-and the migration.
+so the conversion fails. These were accepted and verified at the baseline;
+the ledger entry of each records the lost capability and the migration.
 
 | id | what was lost in the reading | owner |
 | - | - | - |
@@ -85,8 +86,7 @@ and the migration.
 | `variant-proportion` | a share in a statement about no declared type was a quantity that nothing tied to a behaviour | W07 |
 
 **Stopped as a meaning obligation.** The statement is read, the word is reported
-as `inexpressible-property` (an error since W02), and the gates `meaning` and
-`claims` fail: `variant-quality-without-measure` (`secure`, `quickly`),
+as `inexpressible-property` (an error since W02), and the conversion fails: `variant-quality-without-measure` (`secure`, `quickly`),
 `variant-run-relation` (`deterministically`), `variant-optimum-or-preference`
 (`as fast as possible`), `variant-proportion-word` (`usually`).
 
@@ -157,3 +157,22 @@ rule or the test that it describes. Move a pattern to `rule` only with a test
 that gives one concrete behaviour to two sentences and tells them apart
 (plan section 4.1). Moving a pattern to `rejected` to stop a false success is
 recorded with the lost capability and the migration (plan W01).
+
+## Where the implementation differs from the specification
+
+The specification (`spec/*.trion`, `AGENTS.md`) and the theory behind it
+(`formal/Trion/Merging.lean`, `formal/Trion/Document.lean`) are the
+baseline. Where the implementation differs, the implementation is wrong.
+No difference is known. Each point below was a difference, and each names
+how the implementation meets the specification now and the tests that show it.
+
+| specification | implementation | tests |
+| - | - | - |
+| `trion` converts and proves nothing; `trioc` proves the proof obligations of the MMT form (`TOOL-PROVE`, `PROOF-FROM-MMT`) | `trion --out` writes the MMT archive and the formats that `--format` names; `trioc prove` decides each obligation of the form and gives one result for each. No other search exists: the codes of the former in-process search are gone, and `relation-not-local` is a property of the reader that `--properties` reports | `crates/trion-cli/tests/certificate.rs`, `crates/trion-cli/tests/proof_engine.rs`, `crates/trion-cli/tests/code_fixtures.rs` |
+| Output formats are MMT, Markdown, HTML or an extension format (`TOOL-CONVERT`) | a format that `trion` does not write is the program `trion-format-NAME` next to `trion` or on the path: it reads the report on standard input and writes into the output directory. `trion-format-rust-test` writes one ignored test for each guarantee | `crates/trion-cli/tests/formats.rs`, `crates/trion-format-rust-test` |
+| The consistency of a document is one proposition about whole behaviours within the bound (`Document.lean`, `consistent`) | the obligation `consistency` asks, for every behaviour of the environment that the assumptions allow, for a behaviour of the system that keeps every guarantee over the whole trace. The reactive reading, which `Document.lean` names as an addition, is the obligation `realizability` for a response that must come before an occurrence that the environment decides (`VERIFY-REALIZABILITY`) | `crates/trion-verification/tests/proof_engine.rs`, `crates/trion-cli/tests/temporal_order.rs`, acceptance case A19 |
+| Responsibility decides the assumption; an assumption is distributed to the guarantees of its scope, the document or a shared condition block (`SENTENCE-RESPONSIBILITY`, `COMPOSITE-ASSUMPTION-DISTRIBUTED`) | each contract states its role, and an assumption states its scope (`in_document`, `in_block`); an assumption inside a block is distributed to the guarantees of that block and of the blocks inside it only | `crates/trion-verification/tests/draft_rules.rs`, `crates/trion-cli/tests/contracts.rs` |
+| A simple sentence is exactly one contract, and composite vocabulary has no meaning of its own (rules 1 and 2, `CATALOG-RULE-ONE`, `CATALOG-RULE-TWO`) | each reading example of the catalog is held to both rules on every conversion, and `--properties` holds every statement of a package to them (`sentence-not-one-contract`, `composite-not-its-expansion`). the size of the domains of individuals is a bound and no part of a contract: the contract of a sentence about individuals is one schematic contract over variables named by their nouns at every size. The declaration of types is vocabulary: `of` between two declared types is their relation, and a sentence that relates no two declared types has the same formulas without the declaration | `crates/trion-cli/tests/two_rules.rs`, `crates/trion-verification/tests/schematic_contracts.rs` |
+| A contract is a set of whole behaviours, the time of each response included (the bounded proof obligation of `AGENTS.md`) | each contract of the MMT form carries its time (`timed`): its activation and the time of each response, and the obligations decide them over the moments of the trace | `crates/trion-cli/tests/contracts.rs`, `crates/trion-cli/tests/certificate.rs` |
+| Correctness and completeness are defined against a reference (`VERIFY-CORRECTNESS`, `VERIFY-COMPLETENESS`) | a statement is the reference of the statements that detail it, and a quote of a source that reads as trion sentences is the reference of the statements that cite it: each has an obligation of correctness and one of completeness, in the sense of `Document.lean`. A value of a closed attribute that no statement covers is `missing-case`, a warning and no result about completeness (`VERIFY-MISSING-CASE`, `VERIFY-NO-REFERENCE`) | `crates/trion-cli/tests/sources.rs`, `crates/trion-verification/tests/proof_engine.rs` |
+| A certificate is issued in each requested format that can express the result, and a format that cannot says so (`CERTIFICATE-PROVED`, `CERTIFICATE-INEXPRESSIBLE`) | `smt2` and `moxi` state each question with its expected answer; `alethe` and `cpc` restate the refutations of trion's own solver (`proof::derive`), a satisfiable question by the refutation of its witness check. trioc runs no other program (`PROVER-OWN`); Carcara and Ethos check the proofs in the tests | `crates/trion-cli/tests/certificate.rs`, `crates/trion-verification/tests/proof_formats.rs` |

@@ -1,0 +1,11 @@
+namespace p
+primitive language, parser, formalizer, operator
+[A]
+The language shall support sentence composition.
+    detailed by [C1], [C2]
+
+[C1]
+The parser shall read the action list.
+
+[C2]
+The formalizer shall keep the operator.

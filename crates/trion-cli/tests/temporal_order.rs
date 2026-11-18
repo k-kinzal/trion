@@ -16,7 +16,7 @@ fn package(text: &str) -> Fixture {
 }
 
 fn check(text: &str) -> Value {
-    package(text).trion(&["verify", "--json"]).json()
+    package(text).verify(&["--json"]).json()
 }
 
 fn codes(text: &str) -> Vec<String> {
@@ -116,12 +116,20 @@ fn a_word_of_time_without_a_reading_is_rejected_with_the_reason() {
 fn always_is_a_completion_at_each_moment() {
     let never_after = "[B]\nWhen the door opens, the API shall not log the request.\n";
     // An action that is done at some moment may be done before the door
-    // opens, so a behaviour keeps both statements. In the situation in
-    // which the door opens, both apply, and they cannot both be kept.
+    // opens: [B] forbids the log only at the moments after the opening
+    // (spec/semantics/core.md, section 4). A system that logs at the first
+    // moment keeps both statements whenever the environment opens the door,
+    // so the package is consistent. This test asserted a contradiction while
+    // consistency was read from one situation at one moment, in which both
+    // statements apply and the log of [A] had to come after the opening;
+    // over whole behaviours that reading was wrong.
     let once = check(&format!("[A]\nThe API shall log the request.\n\n{never_after}"));
-    assert_eq!(report_codes(&once), ["contradiction"], "{once}");
-    assert_eq!(once["consistency"]["status"], "satisfiable");
-    assert_eq!(codes(&format!("[A]\nThe API shall always log the request.\n\n{never_after}")), ["contradiction"]);
+    assert!(report_codes(&once).is_empty(), "{once}");
+    assert_eq!(verdicts(&once).get("consistency").map(String::as_str), Some("proved"), "{once}");
+    // `always` requires the log at each moment, the moments after an opening as well.
+    let always = check(&format!("[A]\nThe API shall always log the request.\n\n{never_after}"));
+    assert_eq!(report_codes(&always), ["contradiction"], "{always}");
+    assert_eq!(verdicts(&always).get("consistency").map(String::as_str), Some("refuted"), "{always}");
     let text = model("[A]\nThe API shall always log the request.\n");
     assert!(text.contains("Act(API|log request)") && text.contains("always: completes at every moment after the activation"), "{text}");
     assert!(rules("[A]\nThe API shall always log the request.\n").contains("timing-always"));
@@ -154,9 +162,11 @@ fn two_completions_cannot_each_come_before_the_other_in_the_rest_of_the_trace_ei
     let cycle = "[A]\nWhen the timer expires, the API shall log the request before the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report before the API logs the request.\n";
     let report = check(cycle);
     assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
-    // A behaviour in which the timer never expires keeps both, so the contracts have a model.
-    assert_eq!(report["consistency"]["status"], "satisfiable", "{report}");
-    assert_eq!(report["consistency"]["verdict"], "inconsistent", "{report}");
+    // A behaviour in which the timer never expires keeps both, and the
+    // environment decides whether it expires: a system that accepts every
+    // input cannot avoid the expiry, so the package is inconsistent.
+    assert_eq!(verdicts(&report).get("consistency").map(String::as_str), Some("refuted"), "{report}");
+    assert!(report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "contradiction" && d["message"].as_str().unwrap().contains("Event(timer expire@")), "{report}");
     // `after` asks for an occurrence of the same activation before each
     // completion. Until work item W06 an occurrence at the moment of the
     // activation counted as one, so a report and a log at the moment of the
@@ -175,13 +185,23 @@ fn two_completions_cannot_each_come_before_the_other_in_the_rest_of_the_trace_ei
     assert!(codes_of_the_analysis("[A]\nWhen the timer expires, the API shall log the request after the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report.\n").is_empty());
     // One order alone is kept, in the rest as well.
     assert!(codes_of_the_analysis("[A]\nWhen the timer expires, the API shall log the request before the API sends the report.\n\n[B]\nWhen the timer expires, the API shall send the report.\n").is_empty());
-    // Opposite orders after different triggers are no cycle.
+    // Opposite orders after different triggers are no cycle where the
+    // triggers come at different moments. The environment decides both and
+    // nothing keeps them apart: where they come at one moment, an
+    // occurrence after it belongs to both activations, and the orders form
+    // a cycle (acceptance case A05). This asserted no finding while
+    // consistency let the system avoid that situation.
     let apart = "primitive bell\n\n[A]\nWhen the timer expires, the API shall log the request before the API sends the report.\n\n[B]\nWhen the bell rings, the API shall send the report before the API logs the request.\n";
-    assert!(codes_of_the_analysis(apart).is_empty(), "{:?}", codes_of_the_analysis(apart));
+    let report = check(apart);
+    assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
+    let found = report["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "contradiction").unwrap()["message"].as_str().unwrap().to_string();
+    let moment = |event: &str| found.split(&format!("Event({event}@")).nth(1).and_then(|rest| rest.split(')').next()).map(str::to_string);
+    assert!(moment("bell ring").is_some() && moment("bell ring") == moment("timer expire"), "{found}");
     // An order without an activation says nothing of the first moment: that
     // the environment may act there first is a question of realizability.
-    let report = check("[C1]\nThe API shall lock the room before the user sends a message.\n\n[C0]\nWhen the user sends a message, the API shall store the message.\n");
+    let report = check("primitive room, user, message\n\n[C1]\nThe API shall lock the room before the user sends a message.\n\n[C0]\nWhen the user sends a message, the API shall store the message.\n");
     assert_eq!(analysis_codes(&report), ["unrealizable"], "{report}");
+    assert_eq!(verdicts(&report).get("consistency").map(String::as_str), Some("proved"), "{report}");
 }
 
 #[test]
@@ -240,7 +260,7 @@ fn after_once_upon_and_on_open_the_frame_of_when() {
     // action is none. Until now only a parse test and a form-name test
     // covered these openers.
     const HEAD: &str = "primitive API\nprimitive job\nprimitive startup\nprimitive receipt\nprimitive token\n\n";
-    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json"]).json();
+    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json"]).json();
     for (opener, when) in [
         ("After the job ends,", "When the job ends,"),
         ("Once the job ends,", "When the job ends,"),
@@ -261,7 +281,7 @@ fn an_opener_of_time_takes_one_event_as_when_does() {
     // two events of one moment. The conjunction of two occurrences has no
     // single reading under any opener, so the rule now covers each of them.
     const HEAD: &str = "primitive API\nprimitive job\nprimitive timer\n\n";
-    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json"]);
+    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json"]);
     for opener in ["After", "Once", "When", "If"] {
         let run = verify(&format!("[A]\n{opener} the job ends and the timer expires, the API shall stop.\n"));
         assert_eq!(run.code, 1, "{opener}");

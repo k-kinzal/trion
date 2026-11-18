@@ -7,7 +7,7 @@ use common::*;
 use serde_json::Value;
 
 fn check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn codes(text: &str) -> Vec<String> {
@@ -51,8 +51,10 @@ fn a_definition_that_an_alias_collapses_is_reported() {
 }
 
 /// Many rules about one term, as a specification of a language has them.
+/// The events and the marks are primitives: a statement that shares no
+/// term with another one is ungrounded, and that is not what is tested.
 fn rules(count: usize) -> String {
-    (0..count).map(|i| format!("[R{i}] When the event{i} occurs, each statement shall keep the mark{i}.\n")).collect()
+    (0..count).map(|i| format!("primitive event{i}, mark{i}\n[R{i}] When the event{i} occurs, each statement shall keep the mark{i}.\n")).collect()
 }
 
 #[test]
@@ -63,37 +65,44 @@ fn inclusions_in_a_term_that_every_rule_names_are_decided() {
     let report = check(&text);
     // The prohibition of a rule meets the obligation of every statement.
     assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
-    // The conflict needs the event to occur, so it is an error of its own:
-    // the hard constraints hold wherever the event never occurs.
-    assert_eq!(report["consistency"]["status"], "satisfiable");
-    assert!(report["conflicts"][0]["condition"].as_str().is_some_and(|c| c.contains("event3")), "{report}");
+    // The conflict needs the event to occur, and the environment decides
+    // that it does: the situation that the counterexample names is the event.
+    assert_eq!(verdicts(&report).get("consistency").map(String::as_str), Some("refuted"), "{report}");
+    let found = report["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "contradiction").unwrap();
+    assert!(found["message"].as_str().unwrap().contains("event3"), "{report}");
     let consistent = check(&format!("{inclusions}{}", rules(120)));
     assert!(analysis_codes(&consistent).is_empty(), "{consistent}");
-    assert_eq!(consistent["consistency"]["status"], "satisfiable");
+    assert_eq!(verdicts(&consistent).get("consistency").map(String::as_str), Some("proved"), "{consistent}");
 }
 
 #[test]
 fn a_statement_with_many_details_is_decided() {
     let details: Vec<String> = (0..120).map(|i| format!("[R{i}]")).collect();
-    let abstract_rule = format!("[TOP] The language shall keep each statement.\n    detailed by {}\n", details.join(", "));
+    // The statement is refined by its details: each detail requires what it requires where it applies.
+    let abstract_rule = format!("[TOP] When the event0 occurs, each statement shall keep the mark0.\n    detailed by {}\n", details.join(", "));
     let text = format!("{abstract_rule}{}", rules(120));
     let report = check(&text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["consistency"]["status"], "satisfiable");
-    // A conflict with one detail is found and names the detailed statement.
+    assert_eq!(verdicts(&report).get("consistency").map(String::as_str), Some("proved"), "{report}");
+    // A conflict with one detail is found, and the details still refine the statement.
     let broken = check(&format!("{text}[X] When the event7 occurs, each statement shall not keep the mark7.\n"));
     assert_eq!(report_codes(&broken), ["contradiction"], "{broken}");
-    let message = broken["diagnostics"][0]["message"].as_str().unwrap();
-    assert!(message.contains("details `TOP`"), "{message}");
+    assert_eq!(verdicts(&broken).get("refinement/TOP").map(String::as_str), Some("proved"), "{broken}");
+    // An abstract statement that its details do not imply is reported.
+    let unrefined = format!("[TOP] The language shall keep each statement.\n    detailed by {}\n{}", details.join(", "), rules(120));
+    // A document that keeps both exists, so a requirement of it is missing from its details.
+    assert_eq!(report_codes(&check(&unrefined)), ["detail-not-refining", "detail-incomplete"]);
 }
 
 #[test]
 fn an_exclusion_agrees_with_an_enumeration_of_the_same_values() {
     let listed = "[SEV] The severity of a diagnostic is error, warning, or information.\n[X] No error is a warning.\n";
     assert!(codes(listed).is_empty(), "{:?}", codes(listed));
-    // One thing still cannot be both.
+    // One thing still cannot be both. The statements describe the language,
+    // which no statement gives to the system: they are assumptions, and
+    // together they allow no environment.
     let both = "[N1] The notation of the language is a controlled natural language.\n[N2] The notation of the language is English.\n[X] No controlled natural language is English.\n";
-    assert_eq!(codes(both), ["contradiction"]);
+    assert_eq!(codes(both), ["incompatible"]);
 }
 
 const VOCABULARY: &str = "A statement means a sentence of a specification.\nprimitive sentence\nprimitive specification\nprimitive comment\n";
@@ -137,11 +146,11 @@ fn a_term_defined_in_an_unused_namespace_is_pointed_out() {
     let manifest = "[package]\nname = \"p\"\nentry = \"p.trion\"\n";
     let entry = "package p edition \"1\"\n\nnamespace p.words\n\nprimitive message\nA response means a message.\n\nnamespace p.rules\n\nprimitive parser\n[A] The parser shall keep the response.\n";
     let f = Fixture::raw(&[("trion.toml", manifest), ("p.trion", entry)]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     let messages = silent(&report, "ungrounded");
     assert!(messages.iter().any(|m| m.contains("`response` is defined in the namespace `words`") && m.contains("`use p.words`")), "{messages:?}");
     // With the namespace used, the statement is grounded.
     let used = entry.replace("namespace p.rules\n", "namespace p.rules\n\nuse p.words\n");
     let f = Fixture::raw(&[("trion.toml", manifest), ("p.trion", &used)]);
-    assert!(silent(&f.trion(&["verify", "--json"]).json(), "ungrounded").is_empty());
+    assert!(silent(&f.verify(&["--json"]).json(), "ungrounded").is_empty());
 }

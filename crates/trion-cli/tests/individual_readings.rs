@@ -13,11 +13,20 @@ fn package(body: &str) -> Fixture {
 }
 
 fn check(body: &str) -> Value {
-    package(body).trion(&["verify", "--json"]).json()
+    package(body).verify(&["--json"]).json()
 }
 
+/// The statements cannot all hold: the proof refutes consistency, or, where
+/// every statement is a description of what no system is responsible for
+/// and so an assumption, compatibility (no environment meets them; A14).
+/// The proof runs: a package that is not converted says neither.
 fn contradicts(body: &str) -> bool {
-    check(body)["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "contradiction")
+    let report = check(body);
+    let verdicts = verdicts(&report);
+    let verdict = |name: &str| verdicts.get(name).cloned().unwrap_or_else(|| panic!("`{name}` was not proved or refuted: {report}"));
+    let (consistency, compatibility) = (verdict("consistency"), verdict("compatibility"));
+    assert!(consistency != "unproved" && compatibility != "unproved", "{report}");
+    consistency == "refuted" || compatibility == "refuted"
 }
 
 fn kinds(body: &str, id: &str) -> Vec<String> {
@@ -49,15 +58,19 @@ fn each_individual_of_the_kind_with_the_difference_is_of_the_term() {
 #[test]
 fn a_statement_that_distinguishes_individuals_reads_them_itself() {
     let body = format!("{TERMS}[N] No two rooms have the same name.\n");
-    // The pair denial is a part of the reading of its statement, alone.
-    assert!(kinds(&body, "N").contains(&"Axiom".to_string()), "{:?}", kinds(&body, "N"));
-    assert!(!kinds(&body, "N").contains(&"Carried".to_string()));
+    // The pair denial is what the statement says of the individuals of
+    // the package. It stands beside the contract of the sentence, as what
+    // follows from the claim of the sentence: the contract follows from the
+    // sentence alone, and which individuals there are does not.
+    assert_eq!(kinds(&body, "N"), ["Spec", "Carried"]);
     let model = package(&body).inspect(&["model"]).stdout;
     assert!(model.contains("¬(x::name(x::room#1, x::name#1) ∧ x::name(x::room#2, x::name#1))"), "{model}");
     // It is the same reading beside other statements.
     let with = format!("{body}[E] Each room has exactly 1 name.\n[P] There are at least 2 rooms.\n");
-    let report = package(&with).trion(&["verify", "--json", "--properties"]).json();
-    assert_eq!(report["properties"].as_array().map(Vec::len), Some(0), "{}", report["properties"]);
+    let report = package(&with).verify(&["--json", "--properties"]).json();
+    // The properties of the reading are examined with `--properties`, and
+    // what breaks one is an error of the checker.
+    assert_eq!(report["checker"].as_array().map(Vec::len), Some(0), "{}", report["checker"]);
 }
 
 #[test]
@@ -74,8 +87,12 @@ fn two_nouns_of_one_carrier_speak_about_one_relation() {
 #[test]
 fn a_defined_state_holds_exactly_when_its_differences_hold() {
     let definition = "[F4]\nAn archived room means a room that accepts no messages.\n";
-    // The state excludes the action.
-    assert!(contradicts(&format!("{definition}\n[F5]\nWhile the room is archived, the room shall accept messages.\n")));
+    // The state excludes the action. Whether the room is archived is the
+    // system's, so the two contradict once a statement requires the state
+    // (AGENTS.md, limit 2); alone, a room that is never archived keeps F5.
+    let archived = format!("{definition}\n[F5]\nWhile the room is archived, the room shall accept messages.\n");
+    assert!(!contradicts(&archived));
+    assert!(contradicts(&format!("{archived}\n[R]\nThe room shall be archived.\n")));
     // The definition is an equivalence over the disposition of the room: both directions are stated.
     let model = package(definition).inspect(&["model"]).stdout;
     assert!(model.contains("disposed to"), "{model}");

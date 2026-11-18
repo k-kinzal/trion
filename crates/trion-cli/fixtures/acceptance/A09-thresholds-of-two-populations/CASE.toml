@@ -2,7 +2,7 @@ id = "A09"
 title = "Shares of different populations are not compared"
 work = "W07"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 The share of [Q1] is taken of the requests and that of [Q2] of the uploads. Nothing says that an upload
 is a request, so no inclusion relates the two sets and both bounds can hold.
@@ -10,3 +10,6 @@ is a request, so no inclusion relates the two sets and both bounds can hold.
 
 [expect]
 verified = true
+
+[expect.obligations]
+consistency = "proved"

@@ -2,22 +2,17 @@ id = "A18"
 title = "A result about another text is no result about this one"
 work = "W13"
 status = "closed"
-args = ["verify", "--json", "--against", "saved.json"]
+args = ["--json", "--against", "saved.json"]
 reason = """
-`saved.json` is the subject of an earlier report with the digest of another text and the key of
-this one. A result is about its subject: the texts, the semantic version, the versions of the
-programs and the settings. The comparison reads each field and the key, so a report whose key was
-kept while its text changed is refused, and the verification fails with `result-stale`.
-
-The other alterations of plan A18 are refused where they are made: a record, an instance, a
-contract or an atom that differs from the statement by `derivation-refused`
-(`tests/individuals.rs`), and an answer that another prover does not give by the `prover` gate.
+`saved.json` is the result of an earlier `trioc prove` about another subject: another revision of
+the texts. A result is about its subject: the package, the revision of its texts, the semantics, the
+program and the bounds of its obligations. `trioc prove --against` compares each field, and a saved
+result about another subject is refused with `result-stale`: nothing of it holds here.
 """
 
 [expect]
 verified = false
-blockers = ["result-stale"]
-gates_failed = ["check"]
+diagnostics = ["result-stale"]
 
 [baseline]
 commit = "24cab2aa"

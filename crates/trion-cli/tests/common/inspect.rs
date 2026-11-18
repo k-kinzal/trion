@@ -8,7 +8,7 @@ use std::path::Path;
 use trion_cli::project;
 use trion_language::expand::{concept_edge, concept_notation, expand, expressions, flow_notation};
 use trion_language::{glossary, rules, ConstraintKind};
-use trion_verification::{analyze, smt2, Bounds, Options};
+use trion_verification::{analyze, proof::script_of, Bounds, Options};
 
 fn to_json<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string_pretty(value).unwrap()
@@ -41,10 +41,14 @@ pub fn inspect_in(dir: &Path, args: &[&str]) -> Result {
             }
         }
         "model" => {
-            let analysis = analyze(&project.set, &Options::read_only());
+            let analysis = analyze(&project.set, &Options::default());
             let length = value("--trace-length").unwrap_or(Bounds::default().trace_length).max(2);
             if flag("--smt2") {
-                out = smt2(&project.set, &analysis, length);
+                // The contracts over the trace with the background, as one
+                // question for an external solver.
+                let trace = trion_language::reading::unroll(&analysis.model, length);
+                let formulas: Vec<trion_solver::Formula> = trace.background.iter().cloned().chain(trace.groups.iter().map(|(formula, _)| formula.clone())).collect();
+                out = script_of(&[formulas.as_slice()]);
             } else if flag("--unrolled") {
                 // Each contract over the trace, as the consistency of the package is decided.
                 let trace = trion_language::reading::unroll(&analysis.model, length);
@@ -72,7 +76,7 @@ pub fn inspect_in(dir: &Path, args: &[&str]) -> Result {
             }
         }
         "vocab" => {
-            let analysis = analyze(&project.set, &Options::read_only());
+            let analysis = analyze(&project.set, &Options::default());
             if json {
                 out = to_json(&analysis.vocabulary) + "\n";
             } else {
@@ -84,7 +88,7 @@ pub fn inspect_in(dir: &Path, args: &[&str]) -> Result {
             }
         }
         "relate" => {
-            let analysis = analyze(&project.set, &Options::read_only());
+            let analysis = analyze(&project.set, &Options::default());
             let r = &analysis.relations;
             if json {
                 out = to_json(r) + "\n";
@@ -114,7 +118,7 @@ pub fn inspect_in(dir: &Path, args: &[&str]) -> Result {
             }
         }
         "glossary" => {
-            let analysis = analyze(&project.set, &Options::read_only());
+            let analysis = analyze(&project.set, &Options::default());
             let entries = glossary(&analysis.vocabulary);
             if json {
                 out = to_json(&entries) + "\n";

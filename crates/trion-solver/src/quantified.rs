@@ -96,6 +96,24 @@ fn compare(value: i128, cmp: Cmp, n: i128) -> bool {
     }
 }
 
+/// Whether a response decides the atom. The status of an action, forbidden
+/// or advised against, is what the statements make of it and no behaviour
+/// of anyone: a response always decides it. Any other atom is decided when
+/// one of its symbols is chosen.
+fn decided(atom: &Atom, chosen: &dyn Fn(&str) -> bool) -> bool {
+    matches!(atom, Atom::Forbid { .. } | Atom::Discouraged { .. }) || atom.symbols().into_iter().any(chosen)
+}
+
+/// The names by which a response decides the atom, for the grouping of
+/// the conclusions: the chosen symbols, and the status of an action under
+/// a name of its own.
+fn decided_names(atom: &Atom, chosen: &dyn Fn(&str) -> bool) -> Vec<String> {
+    match atom {
+        Atom::Forbid { key } | Atom::Discouraged { key } if !chosen(key) => vec![format!("status of {key}")],
+        _ => atom.symbols().into_iter().filter(|s| chosen(s)).map(str::to_string).collect(),
+    }
+}
+
 /// A formula with each chosen symbol replaced by its value in a response.
 /// What is left speaks about given symbols only. `None` when the response
 /// does not tell a value that the formula needs.
@@ -104,7 +122,7 @@ fn answered(formula: &Formula, chosen: &dyn Fn(&str) -> bool, atoms: &BTreeMap<A
     Some(match formula {
         Formula::True => Formula::True,
         Formula::Atom(atom) => {
-            if !atom.symbols().into_iter().any(chosen) {
+            if !decided(atom, chosen) {
                 return Some(formula.clone());
             }
             match atom {
@@ -344,9 +362,9 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], standing: &[usize
     for &id in conclusions {
         let mut own: Vec<usize> = Vec::new();
         formulas[id].atoms(true, &mut |atom, _| {
-            for symbol in atom.symbols().into_iter().filter(|s| chosen(s)) {
+            for symbol in decided_names(atom, chosen) {
                 let next = numbers.len();
-                let number = *numbers.entry(symbol.to_string()).or_insert(next);
+                let number = *numbers.entry(symbol).or_insert(next);
                 if number == parent.len() {
                     parent.push(number);
                 }
@@ -392,7 +410,7 @@ pub fn for_all_exists(instance: &Instance, premises: &[usize], standing: &[usize
                 }
                 Atom::Lin { terms, unit, .. } => measures.extend(terms.iter().filter(|(attr, _)| !chosen(attr)).map(|(attr, _)| (attr.clone(), unit.clone()))),
                 other => {
-                    if !other.symbols().into_iter().any(chosen) {
+                    if !decided(other, chosen) {
                         facts.insert(other.clone());
                     }
                 }

@@ -26,7 +26,7 @@ use crate::eval::{evaluate, Evaluation};
 use crate::world::{Occurrence, World};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use trion_language::reading::{continues, is_count, moment_atom, moment_time, unroll_complete_in, Fact, Individuals, Model};
+use trion_language::reading::{continues, is_count, moment_atom, moment_time, unroll_complete_in, ConstraintKind, Fact, Individuals, Model};
 use trion_solver::{decide, Atom, Cmp, Formula, Status, NUMERIC_SCALE};
 
 /// What the formulas say of a behaviour.
@@ -303,6 +303,24 @@ impl<'a> Stated<'a> {
     /// The atoms of the formulas about events, actions or states that the
     /// reading states no fact for: a behaviour does not fix them.
     pub(crate) fn open(&self, formulas: &[Formula]) -> Vec<String> {
+        // What a statement about the domain claims of the types is no fact
+        // of a behaviour: no behaviour fixes it, and none has to.
+        let about: HashSet<&str> = self.individuals.domain.iter().map(|fact| fact.statement.as_str()).collect();
+        let mut claimed: BTreeSet<String> = BTreeSet::new();
+        for constraint in self.model.constraints.iter().filter(|c| matches!(c.kind, ConstraintKind::Spec | ConstraintKind::Permission | ConstraintKind::Axiom) && c.refs.first().is_some_and(|at| about.contains(at.id.as_str()))) {
+            for formula in [&constraint.assume, &constraint.guarantee] {
+                formula.atoms(true, &mut |atom, _| {
+                    claimed.insert(match atom {
+                        Atom::Event { key } => format!("Event({key})"),
+                        Atom::Act { key } => format!("Act({key})"),
+                        // A value that the statement gives the type: at a
+                        // moment it is the same claim.
+                        Atom::Val { attr, value } | Atom::Dom { attr, value } => format!("Val({attr}, {value})"),
+                        other => other.to_string(),
+                    });
+                });
+            }
+        }
         let mut open: BTreeSet<String> = BTreeSet::new();
         for formula in formulas {
             formula.atoms(true, &mut |atom, _| {
@@ -316,26 +334,54 @@ impl<'a> Stated<'a> {
                     _ => true,
                 };
                 if !known {
-                    open.insert(match atom {
+                    let written = match atom {
                         Atom::Event { key } => format!("Event({})", base(key)),
                         Atom::Act { key } => format!("Act({})", base(key)),
                         Atom::Val { attr, value } => format!("Val({}, {value})", base(attr)),
                         other => other.to_string(),
-                    });
+                    };
+                    if !claimed.contains(&written) {
+                        open.insert(written);
+                    }
                 }
             });
         }
         open.into_iter().collect()
     }
 
+    /// The model as a behaviour is judged by it. A statement about the
+    /// domain of the individuals claims something of their types, and no
+    /// behaviour makes that claim true or false: the claim of its sentence is
+    /// left out, and what follows from the claim over the declared
+    /// individuals is kept as it stands.
+    fn for_behaviours(&self) -> Model {
+        let about: HashSet<&str> = self.individuals.domain.iter().map(|fact| fact.statement.as_str()).collect();
+        let mut model = self.model.clone();
+        for constraint in &mut model.constraints {
+            if !constraint.refs.first().is_some_and(|at| about.contains(at.id.as_str())) {
+                continue;
+            }
+            match constraint.kind {
+                ConstraintKind::Carried => constraint.assume = Formula::True,
+                ConstraintKind::Spec | ConstraintKind::Permission => {
+                    constraint.assume = Formula::True;
+                    constraint.guarantee = Formula::True;
+                }
+                _ => {}
+            }
+        }
+        model
+    }
+
     /// The formulas of the model over one behaviour of which `fixed` holds
     /// the facts: the contracts without the activations whose condition
     /// fails there.
     pub(crate) fn formulas(&self, length: usize, fixed: &Fixed) -> Vec<Formula> {
-        let trace = unroll_complete_in(self.model, length, &|atom| fixed.value(atom));
+        let model = self.for_behaviours();
+        let trace = unroll_complete_in(&model, length, &|atom| fixed.value(atom));
         let mut formulas: Vec<Formula> = trace.background;
         for (at, (formula, _)) in trace.groups.into_iter().enumerate() {
-            let advice = self.required && self.model.constraints[at].refs.first().is_some_and(|reference| self.advises(&reference.id));
+            let advice = self.required && model.constraints[at].refs.first().is_some_and(|reference| self.advises(&reference.id));
             if !advice {
                 formulas.push(formula);
             }
@@ -345,6 +391,23 @@ impl<'a> Stated<'a> {
 
     /// Decides what the formulas of the model say of a behaviour.
     pub fn generated(&self, world: &World) -> Generated {
+        match self.question(world) {
+            Err(generated) => generated,
+            Ok(left) => match decide(&left).status {
+                Status::Satisfiable => Generated::Accepted,
+                Status::Unsatisfiable => Generated::Rejected,
+                _ => Generated::Unknown,
+            },
+        }
+    }
+
+    /// The question that the formulas of the model ask of a behaviour:
+    /// formulas that hold together exactly when the behaviour keeps every
+    /// statement. What the behaviour decides is evaluated, and what is left
+    /// is the status of each action and the times and counts that the
+    /// reading makes. `Err` holds a judgement without a question: the
+    /// behaviour does not fix an atom of the formulas.
+    pub fn question(&self, world: &World) -> Result<Vec<Formula>, Generated> {
         let individuals = self.individuals;
         let world = world.closed();
         let length = world.moments.len();
@@ -394,20 +457,17 @@ impl<'a> Stated<'a> {
         // An atom about a moment that no fact is stated for is not fixed by the behaviour.
         let open = self.open(&formulas);
         if !open.is_empty() {
-            return Generated::NotComparable { atoms: open };
+            return Err(Generated::NotComparable { atoms: open });
         }
         // What the behaviour decides is evaluated; the solver is asked only
         // for what the reading adds: the status of each action, and the times
         // and counts that it makes.
-        let Some(mut left) = reduce_all(formulas, &mut facts) else { return Generated::Rejected };
+        // A formula that the behaviour fails leaves the question `false`.
+        let Some(mut left) = reduce_all(formulas, &mut facts) else { return Ok(vec![Formula::not(Formula::True)]) };
         for (moment, at) in world.moments.iter().enumerate() {
             left.push(Formula::atom(Atom::Num { attr: moment_time(moment), unit: "ms".to_string(), cmp: Cmp::Eq, n: at.time * NUMERIC_SCALE }));
         }
-        match decide(&left).status {
-            Status::Satisfiable => Generated::Accepted,
-            Status::Unsatisfiable => Generated::Rejected,
-            _ => Generated::Unknown,
-        }
+        Ok(left)
     }
 
     /// Judges one behaviour by the reference evaluator and by the formulas.

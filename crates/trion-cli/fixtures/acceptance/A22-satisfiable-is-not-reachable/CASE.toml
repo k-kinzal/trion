@@ -2,7 +2,7 @@ id = "A22"
 title = "A state that can hold is not a state that can be reached"
 work = "W12"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 `done` is a state that a task may have: the behaviour DONE, in which a task is done, fails no
 statement. Nothing states an initial state or a transition, and [STAY] forbids the only action that
@@ -15,9 +15,8 @@ reachability is no part of it.
 [expect]
 verified = true
 
-[expect.claims]
-"scenario_satisfiable:scenario DONE" = "proved"
-scenario_reachable = "not_requested"
+[expect.obligations]
+"scenario/DONE" = "proved"
 
 [baseline]
 commit = "24cab2aa"

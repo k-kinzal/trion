@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-checker", "crates/trion-cli"]
+members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-checker", "crates/trion-cli", "crates/trioc-cli", "crates/trion-lsp", "crates/trion-format-rust-test", "crates/smtlib", "crates/moxi", "crates/alethe", "crates/eunoia", "crates/cpc", "crates/mmt"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,7 +11,16 @@ trion-solver = { path = "crates/trion-solver" }
 trion-language = { path = "crates/trion-language" }
 trion-verification = { path = "crates/trion-verification" }
 trion-checker = { path = "crates/trion-checker" }
-serde = { version = "1", features = ["derive"] }
+trioc-cli = { path = "crates/trioc-cli" }
+trion-cli = { path = "crates/trion-cli" }
+smtlib = { path = "crates/smtlib" }
+moxi = { path = "crates/moxi" }
+alethe = { path = "crates/alethe" }
+eunoia = { path = "crates/eunoia" }
+cpc = { path = "crates/cpc" }
+mmt = { path = "crates/mmt" }
+proptest = "1.11"
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 regex = "1"
 thiserror = "1"
@@ -34,4 +43,9 @@ opt-level = 3
 # The independent checker judges every scenario, its variations and the
 # behaviour behind a claim: without optimisation it is the longest part of a run.
 [profile.dev.package.trion-checker]
+opt-level = 3
+
+# trioc reads the MMT form of every package through the notation parser of
+# the mmt crate: without optimisation it is the longest part of `trioc prove`.
+[profile.dev.package.mmt]
 opt-level = 3

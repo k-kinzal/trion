@@ -2,7 +2,7 @@ id = "A02"
 title = "`even when P` does not turn an unconditional obligation into one under P"
 work = "W02"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 [A] is unconditional: `even when the network is down` names a case that a reader might take for an
 exception and says that it is none. So [A] also applies while the network is up, where [B] forbids the
@@ -12,8 +12,8 @@ would lose the obligation while the network is up and verify the package.
 
 [expect]
 verified = false
-blockers = ["contradiction"]
+diagnostics = ["contradiction"]
 
-[expect.claims]
-contract_sat = "proved"
-situation_total = "refuted"
+[expect.obligations]
+consistency = "refuted"
+compatibility = "proved"

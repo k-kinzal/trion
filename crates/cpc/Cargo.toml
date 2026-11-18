@@ -1,0 +1,16 @@
+[package]
+name = "cpc"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.79"
+description = "Reading the CPC proofs that cvc5 1.4.2 writes (in its SMT-LIB output, for the commands sent) and writing them as proof files that Ethos checks."
+readme = "README.md"
+keywords = ["cvc5", "cpc", "proof", "smt", "eunoia"]
+categories = ["parser-implementations", "science", "mathematics"]
+
+[dependencies]
+eunoia.workspace = true
+smtlib.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,53 +1,32 @@
-//! The three-valued results of the checker, at the level of the library.
+//! The three results of a proof obligation, at the level of the library:
+//! proved, refuted, or neither, by the bounds of the questions.
 
 mod common;
 use common::*;
-use trion_solver::Status;
-use trion_verification::{analyze, Analysis, Bounds, Options};
+use trion_verification::{Bounds, ObligationVerdict, Options};
 
-fn bounded(src: &str, decisions: Option<u64>) -> Analysis {
-    analyze(&set(src), &Options { bounds: Bounds { decisions, ..Bounds::default() }, subject_revision: Some("r1".to_string()), ..Options::default() })
+fn bounded(decisions: Option<u64>) -> Options {
+    Options { bounds: Bounds { decisions, ..Bounds::default() }, subject_revision: Some("r1".to_string()) }
 }
 
 const CHOICE: &str = "The API shall either accept the call or reject the call.\n";
 
 #[test]
-fn a_result_is_satisfiable_unsatisfiable_or_unknown_by_its_status() {
-    let cases = [
-        (bounded("The API shall stop.\n", None), Status::Satisfiable),
-        (bounded("The API shall stop.\nThe API shall not stop.\n", None), Status::Unsatisfiable),
-        (bounded(CHOICE, Some(0)), Status::Unknown),
-    ];
-    for (analysis, status) in cases {
-        let result = &analysis.consistency;
-        assert_eq!(result.status, status);
-        // Exactly one of the three holds, and it is the one the status names.
-        assert_eq!((result.is_satisfiable(), result.is_unsatisfiable(), result.is_unknown()), (status == Status::Satisfiable, status == Status::Unsatisfiable, status == Status::Unknown));
-        assert_eq!(result.status.as_str(), ["satisfiable", "unsatisfiable", "unknown"][status as usize]);
-    }
+fn an_obligation_is_proved_refuted_or_unproved() {
+    assert_eq!(consistency("The API shall stop.\n", &bounded(None)), ObligationVerdict::Proved);
+    assert_eq!(consistency("The API shall stop.\nThe API shall not stop.\n", &bounded(None)), ObligationVerdict::Refuted);
+    // A question that the bounds end is neither proved nor refuted.
+    assert_eq!(consistency(CHOICE, &bounded(Some(0))), ObligationVerdict::Unproved);
+    assert_eq!(consistency(CHOICE, &bounded(None)), ObligationVerdict::Proved);
 }
 
 #[test]
-fn a_result_carries_its_subject_method_and_bounds() {
-    // A trace copies each atom for each moment, so the budget is wider than for one moment.
-    let result = bounded(CHOICE, Some(200)).consistency;
-    assert_eq!(result.subject_revision.as_deref(), Some("r1"));
-    assert_eq!(result.bounds, Bounds { decisions: Some(200), ..Bounds::default() });
-    assert!(!result.method.is_empty() && !result.profile.is_empty() && !result.assumptions.is_empty());
-    assert!(result.exhaustive && result.peak_decisions <= 200);
-    let cut = bounded(CHOICE, Some(0)).consistency;
-    assert!(!cut.exhaustive && cut.is_unknown());
+fn an_unproved_obligation_is_reported_and_a_refutation_names_its_statements() {
+    let unproved = proved(&set(CHOICE), &bounded(Some(0)));
+    assert!(codes(&unproved).iter().all(|c| c == "obligation-unproved") && !codes(&unproved).is_empty(), "{:?}", codes(&unproved));
+    let conflict = run("The API shall stop.\nThe API shall not stop.\nThe API shall log the call.\n");
+    assert_eq!(codes(&conflict), ["contradiction"]);
+    let mut named: Vec<&str> = conflict.diagnostics[0].refs.iter().map(|r| r.text.as_str()).collect();
+    named.sort();
+    assert_eq!(named, ["The API shall not stop.", "The API shall stop."]);
 }
-
-#[test]
-fn an_unknown_result_is_flagged_and_a_core_is_minimal_only_when_proved() {
-    let unknown = bounded(CHOICE, Some(0));
-    assert!(unknown.has_unknown());
-    assert_eq!(codes(&unknown), ["consistency-unknown"]);
-    assert!(!bounded(CHOICE, None).has_unknown());
-    let conflict = bounded("The API shall stop.\nThe API shall not stop.\nThe API shall log the call.\n", None);
-    assert_eq!(conflict.conflicts.len(), 1);
-    assert!(conflict.conflicts[0].minimal);
-    assert_eq!(conflict.conflicts[0].elements.len(), 2);
-}
-

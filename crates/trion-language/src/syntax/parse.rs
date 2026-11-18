@@ -244,7 +244,7 @@ pub enum ParseError {
     #[error("`{word}` is not a supported modal: use shall, must, should, or may — or write capability as `is able to <response>`")]
     UnsupportedModal { word: String },
     /// `may not` — permission-denial vs. prohibition is ambiguous.
-    #[error("`may not` is ambiguous: write `shall not` for a prohibition")]
+    #[error("`may not` and `may … no …` are ambiguous: write `shall not` for a prohibition")]
     AmbiguousModal,
     /// A `no` subject under `may` — `No client may retry.` is a prohibition
     /// wearing a permission's modal, the same legislated-ambiguity family as
@@ -369,6 +369,11 @@ pub enum ParseError {
     /// `and` and `or` between verb phrases at one level.
     #[error("`and` and `or` are mixed between the responses of one level: group them with a `perform ...` action list")]
     UngroupedResponseOperators,
+    /// `shall not A and B`: `not` stands once before verb phrases that `and`
+    /// joins. Denying the phrases together is not denying each of them, and
+    /// the text does not say which is meant.
+    #[error("`not` is written before the first of several verb phrases that `and` joins: it may deny each of them or all of them together; write the modal verb before each phrase (`shall not store the message and shall not log the call`), or join the phrases with `or` to deny each")]
+    DeniedConjunction,
 }
 
 impl ParseError {
@@ -414,6 +419,7 @@ impl ParseError {
             ParseError::WithinTakesPlainMeasure => "within_takes_plain_measure",
             ParseError::AmbiguousVerbBoundary => "ambiguous_verb_boundary",
             ParseError::UngroupedResponseOperators => "ungrouped_response_operators",
+            ParseError::DeniedConjunction => "denied_conjunction",
         }
     }
 }
@@ -3726,6 +3732,9 @@ fn share_object_and_roles(items: &mut [Vp]) {
 
 fn vp_conjunction(tokens: &[Token], negated: bool) -> Result<Option<(Vec<Vp>, Vec<bool>, Conj)>, ParseError> {
     if let Some((items, conj)) = shared_verb_roles(tokens) {
+        if negated && conj == Conj::And {
+            return Err(ParseError::DeniedConjunction);
+        }
         let polarity = vec![negated; items.len()];
         return Ok(Some((items, polarity, conj)));
     }
@@ -3769,6 +3778,7 @@ fn vp_conjunction(tokens: &[Token], negated: bool) -> Result<Option<(Vec<Vp>, Ve
         let rest = &rest[start..];
         let inner = match vp_conjunction(rest, item_negated) {
             Ok(inner) => inner,
+            Err(ParseError::DeniedConjunction) => return Err(ParseError::DeniedConjunction),
             Err(_) => {
                 mixed = true;
                 continue;
@@ -3784,6 +3794,11 @@ fn vp_conjunction(tokens: &[Token], negated: bool) -> Result<Option<(Vec<Vp>, Ve
                 _ => continue,
             },
         };
+        // `shall not A and B`: the phrase after `and` states no modal verb
+        // of its own, so `not` may deny each phrase or the phrases together.
+        if negated && conj == Conj::And && !restated {
+            return Err(ParseError::DeniedConjunction);
+        }
         items.insert(0, first);
         polarity.insert(0, negated);
         return Ok(Some((items, polarity, conj)));
@@ -4594,8 +4609,55 @@ pub fn parse(input: &str) -> Result<Specification, ParseError> {
     }
     let mut sentences = Vec::with_capacity(sources.len());
     for source in sources {
-        let tokens = partitives(tokenize(source));
-        sentences.push(parse_sentence(&tokens, source)?);
+        let tokens = opening(partitives(tokenize(source)));
+        let sentence = parse_sentence(&tokens, source)?;
+        // `may store no message` permits not to store: it says what `may
+        // not` says, and it is refused as `may not` is.
+        if permits_nothing(&sentence.core) {
+            return Err(ParseError::AmbiguousModal);
+        }
+        sentences.push(sentence);
     }
     Ok(Specification { sentences })
+}
+
+/// `true` when a permission names nothing that it permits: its object or a
+/// phrase of a role is `no …` (`may send no report`, `may send it to no
+/// client`). A permission of nothing guarantees nothing.
+fn permits_nothing(core: &Core) -> bool {
+    let none = |group: &NpGroup| match group {
+        NpGroup::Single(np) => np.det == Some(Det::No),
+        NpGroup::Coordinated { items, .. } => items.iter().any(|np| np.det == Some(Det::No)),
+    };
+    let of_role = |role: &RolePp| match role {
+        RolePp::Recipient(np) | RolePp::Topic(np) | RolePp::Source(np) | RolePp::Goal(np) | RolePp::Agent(np) => none(np),
+        RolePp::Means { np, .. } | RolePp::Location { np, .. } | RolePp::Other { np, .. } => none(np),
+        RolePp::Deadline(_) | RolePp::Duration(_) | RolePp::Rate { .. } | RolePp::Before(_) | RolePp::After(_) | RolePp::Until(_) => false,
+    };
+    match core {
+        Core::Conjoined { items } => items.iter().any(permits_nothing),
+        Core::Deontic { modal: Modal::May, vp, .. } => vp.items().iter().any(|item| item.object.as_ref().is_some_and(none) || item.roles.iter().any(of_role)),
+        Core::Deontic { .. } | Core::Definition { .. } | Core::Description { .. } | Core::Relation { .. } | Core::Existence { .. } => false,
+    }
+}
+
+/// The tokens of a sentence without the capital that only opens it: a
+/// first word that is written with one capital at its start and small
+/// letters after it is that word in small letters (`Verification
+/// guarantees …` speaks of `verification`). The spelling of a word in a
+/// sentence follows from the sentence alone: a capital anywhere else is
+/// part of the word, and so is every capital of a word that has more than
+/// one (`API`, `GitHub`) and of a literal.
+fn opening(mut tokens: Vec<Token>) -> Vec<Token> {
+    // A word of the language itself (`When`, `The`, `Each`) is read in any case as it is.
+    if let Some(Token::Word(word)) = tokens.first_mut().filter(|token| token.word().is_some_and(|word| super::words::classify(word) == super::words::WordClass::Open && !is_reserved(word))) {
+        let mut letters = word.chars();
+        if let Some(first) = letters.next().filter(char::is_ascii_uppercase) {
+            let rest = letters.as_str();
+            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase()) {
+                *word = format!("{}{rest}", first.to_ascii_lowercase());
+            }
+        }
+    }
+    tokens
 }

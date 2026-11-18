@@ -1,0 +1,10 @@
+; QF_LIA: x + y <= 10, x >= 6, y >= 6.
+(set-logic QF_LIA)
+(declare-fun x () Int)
+(declare-fun y () Int)
+(declare-fun z () Int)
+(assert (<= (+ x y) 10))
+(assert (>= x 6))
+(assert (>= y 6))
+(assert (distinct x z))
+(check-sat)

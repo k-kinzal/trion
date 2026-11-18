@@ -1,6 +1,7 @@
-//! A definition constrains: a statement that denies what the definition says
-//! contradicts it, and the same statement is consistent where the term is a
-//! primitive without the definition. Each test reads the definition from the
+//! A definition constrains: a description that denies what the definition
+//! says leaves no environment with it (`incompatible`), and the same
+//! statement is consistent where the term is a primitive without the
+//! definition. Each test reads the definition from the
 //! specification of trion or from its standard vocabulary, so it follows
 //! their wording. No test names an atom.
 
@@ -21,7 +22,7 @@ fn package(body: &str) -> Fixture {
 }
 
 fn codes(body: &str) -> (i32, Vec<String>) {
-    let out = package(body).trion(&["verify", "--json"]);
+    let out = package(body).verify(&["--json"]);
     let report = out.json();
     let mut codes = report_codes(&report);
     for list in ["opaque", "ungrounded"] {
@@ -38,7 +39,9 @@ fn constrains(file: &str, term: &str, others: &[&str], denial: &str) {
     let text = definition(file, term);
     let declared: String = others.iter().map(|t| format!("primitive {t}\n")).collect();
     let (code, with) = codes(&format!("{declared}\n[DEFINITION] {text}\n\n[DENIAL] {denial}\n"));
-    assert!(with.iter().any(|c| c == "contradiction"), "the definition of `{term}` does not exclude `{denial}`: it constrains nothing here (codes {with:?})\n{text}");
+    // The denial is a description of no actor of a system: an assumption.
+    // With the definition it allows no environment.
+    assert!(with.iter().any(|c| c == "incompatible"), "the definition of `{term}` does not exclude `{denial}`: it constrains nothing here (codes {with:?})\n{text}");
     assert_eq!(code, 1);
     let (code, without) = codes(&format!("primitive {term}\n{declared}\n[DENIAL] {denial}\n"));
     assert!(without.is_empty() && code == 0, "`{denial}` must be consistent without the definition of `{term}`: {without:?}");
@@ -65,8 +68,8 @@ fn a_statement_is_a_sentence() {
 }
 
 #[test]
-fn a_short_sentence_is_a_statement() {
-    constrains("spec/sentences.trion", "short sentence", &["statement", "reading"], "No short sentence is a statement.");
+fn a_simple_sentence_is_a_statement() {
+    constrains("spec/sentences.trion", "simple sentence", &["statement", "composite vocabulary"], "No simple sentence is a statement.");
 }
 
 #[test]

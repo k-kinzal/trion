@@ -21,14 +21,17 @@ fn model_json(body: &str) -> Value {
 }
 
 fn check(body: &str) -> Value {
-    package(body).trion(&["verify", "--json"]).json()
+    package(body).verify(&["--json"]).json()
 }
 
-/// The state of the gate of the properties of the reading.
+/// Whether the properties of the reading hold: `passed` when `--properties`
+/// finds none of them broken, `failed` with the findings otherwise. A broken
+/// property is an error of the checker, and the package does not convert.
 fn properties(body: &str) -> String {
-    let report = package(body).trion(&["verify", "--json", "--properties"]).json();
-    let gate = report["gates"].as_array().unwrap().iter().find(|gate| gate["name"] == "properties").unwrap();
-    format!("{}: {}", gate["state"].as_str().unwrap(), report["properties"])
+    let report = package(body).verify(&["--json", "--properties"]).json();
+    const PROPERTIES: [&str; 4] = ["relation-not-local", "order-dependent", "round-trip-differs", "context-dependent"];
+    let broken: Vec<&Value> = report["checker"].as_array().unwrap().iter().filter(|d| PROPERTIES.contains(&d["code"].as_str().unwrap_or_default())).collect();
+    format!("{}: {broken:?}", if broken.is_empty() { "passed" } else { "failed" })
 }
 
 /// The kinds of the constraints of one statement, in the order of the model.
@@ -82,7 +85,7 @@ fn a_bare_participle_is_the_passive_of_an_action_and_establishes_a_named_state()
     assert!(model(&body).contains("(Act(x::room|be archived) → Val(x::room, archived))"));
     assert!(applied(&json).contains(&("applied".to_string(), "R".to_string(), vec!["P".to_string()])), "{json}");
     let report = check(&body);
-    assert_eq!(report["consistency"]["status"], "satisfiable", "{report}");
+    assert_eq!(verdicts(&report).get("consistency").map(String::as_str), Some("proved"), "{report}");
     assert!(properties(&body).starts_with("passed"), "{}", properties(&body));
     // The prohibition of the action excludes the state.
     let denied = model(&format!("{TERMS}[R] The room shall not be archived.\n[P] While the room is archived, the user shall not delete the message.\n"));
@@ -108,9 +111,11 @@ fn an_enumeration_lists_its_values_and_excludes_the_others_as_a_relation() {
 fn an_inclusion_states_itself_and_reaches_other_statements_as_a_relation() {
     let body = format!("{TERMS}primitive guest\n[G] Each guest is a user.\n[N] The parser shall not notify a user.\n[Y] The parser shall notify a guest.\n");
     let json = model_json(&body);
-    // Alone, the inclusion is its own atom; what it says of [N] and [Y] is carried to them.
+    // The inclusion is read as one contract; what it says of its terms,
+    // and of [N] and [Y], stands beside the contract.
     let own: Vec<String> = kinds(&json, "G");
-    assert!(own.contains(&"Axiom".to_string()) && own.contains(&"Carried".to_string()), "{json}");
+    assert_eq!(own.iter().filter(|kind| *kind != "Carried").collect::<Vec<_>>(), ["Spec"], "{json}");
+    assert!(own.contains(&"Carried".to_string()), "{json}");
     let relations = applied(&json);
     assert!(relations.iter().any(|(kind, subject, rests_on)| kind == "applied" && subject == "G" && rests_on.contains(&"N".to_string()) && rests_on.contains(&"Y".to_string())), "{json}");
     let report = check(&body);
@@ -122,9 +127,11 @@ fn an_inclusion_states_itself_and_reaches_other_statements_as_a_relation() {
 fn a_reading_over_individuals_is_a_relation_between_the_statements_that_name_the_domain() {
     let body = format!("{TERMS}primitive owner\n[A] Some room has no owner.\n[B] Each room has exactly one owner.\n");
     let json = model_json(&body);
-    // `Some room …` distinguishes individuals itself: its formula over the
-    // domain is a part of its own reading.
-    assert!(kinds(&json, "A").contains(&"Axiom".to_string()) && !kinds(&json, "A").contains(&"Carried".to_string()), "{json}");
+    // `Some room …` claims that such a room exists: that is the contract of
+    // its sentence. What it says of an individual is read over the
+    // individuals of the package and stands beside the contract, as what
+    // follows from the claim.
+    assert!(kinds(&json, "A").contains(&"Spec".to_string()) && kinds(&json, "A").contains(&"Carried".to_string()) && !kinds(&json, "A").contains(&"Axiom".to_string()), "{json}");
     // `Each room …` is read over individuals because A speaks of the relation.
     assert!(kinds(&json, "B").contains(&"Carried".to_string()), "{json}");
     assert!(applied(&json).iter().any(|(kind, subject, rests_on)| kind == "individuals" && subject == "B" && rests_on.contains(&"A".to_string())), "{json}");

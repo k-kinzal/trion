@@ -1,26 +1,30 @@
 namespace trion:
     use formal
 
-    section "A composition stands for short sentences":
-        A composition means a statement that joins short sentences.
-        An expansion means a set of short sentences that replaces a composition.
-        Each composition has exactly one expansion.
-        A complex sentence means a composition that is exactly one sentence.
-        A document structure means a composition that spans more than one sentence.
-        Each complex sentence is a composition, and each document structure is a composition.
+    section "Composite vocabulary abbreviates simple sentences":
+        An expansion means the set of simple sentences that a composite sentence abbreviates.
+        Each composite sentence has exactly one expansion.
+        The reading of a composite sentence is the contracts of the simple sentences of the expansion of the composite sentence.
 
-        [COMPOSITION-EXPANDS]
-        The trion processor shall read each composition as the expansion of the composition.
+        [COMPOSITE-ABBREVIATES]
+        The trion processor shall read each composite sentence as the contracts of the simple sentences of the expansion of the composite sentence.
 
-        [COMPOSITION-NO-MEANING]
-        The trion processor shall add no contract to the contracts of the expansion of a composition.
+        [COMPOSITE-NO-MEANING]
+        The trion processor shall add no contract to the contracts of the expansion of a composite sentence.
 
-        [COMPOSITION-VALID]
-        Each short sentence of an expansion shall be a statement of the trion language.
+        example COMPOSITE-SENTENCE:
+            kind reading
+            form contract
+            input "The API shall store the message and log the message."
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|store message) ∧ ¬Forbid(API|store message) ∧ ¬Discouraged(API|store message))"
+            expect "assume: ⊤"
+            expect "guarantee: (Act(API|log message) ∧ ¬Forbid(API|log message) ∧ ¬Discouraged(API|log message))"
 
     section "A shared condition":
+        A document structure means a part of a source file that writes statements.
         A shared condition means a document structure that states exactly one condition for a group of statements.
-        The expansion of a shared condition holds each statement with the condition.
+        A shared condition writes each statement of the group with the condition.
 
         example SHARED-CONDITION:
             kind reading
@@ -35,13 +39,34 @@ When the bell rings:
             expect "assume: Event(bell ring)"
             expect "guarantee: (Act(API|log call) ∧ ¬Forbid(API|log call) ∧ ¬Discouraged(API|log call))"
 
+    section "A shared assumption is merging":
+        Conjunction means the combination of contracts that requires each guarantee where the assumption of that guarantee holds.
+        Merging means the combination of contracts that requires each guarantee where each assumption holds.
+        A shared assumption means the assumption of a shared condition or the assumption of an assumption sentence.
+        A distributed contract means a contract that holds a shared assumption in the assumption of the contract.
+        The merging of a shared assumption is the conjunction of the distributed contracts of the shared assumption.
+        The scope of an assumption sentence means the statements that the assumption sentence constrains.
+        A shared condition narrows the scope of each assumption sentence of the shared condition to the statements of the shared condition.
+
+        [COMPOSITE-CONJUNCTION]
+        The trion processor shall read the statements of a specification as the conjunction of the contracts of the statements.
+
+        [COMPOSITE-MERGING]
+        The trion processor shall read a shared condition as the merging of the condition with each statement of the shared condition.
+
+        [COMPOSITE-ASSUMPTION-DISTRIBUTED]
+        The trion processor shall add the assumption of each assumption sentence to the assumption of each guarantee sentence in the scope of the assumption sentence.
+
+        [COMPOSITE-ASSUMPTION-NOT-ALONE]
+        The trion processor shall not read an assumption sentence as a separate contract.
+
     section "A selection and a sequence stay one contract":
-        A selection means a composition that offers alternatives.
-        A sequence means a composition that orders actions.
-        An action list means a composition that lists actions under exactly one modal verb.
+        A selection means a simple sentence that offers alternatives.
+        A sequence means a simple sentence that orders actions.
+        An action list means a simple sentence that lists actions under exactly one modal verb.
         The operator of an action list is conjunction, inclusive choice, exclusive choice, or order.
 
-        [COMPOSITION-KEPT]
+        [SELECTION-ONE-CONTRACT]
         The trion processor shall read each selection and each sequence as exactly one contract.
 
         The guarantee of a selection is a disjunction.
@@ -98,7 +123,7 @@ The API shall perform all of the following actions:
 
     section "An exception narrows the assumption":
         An exception means a clause that begins with the word "unless".
-        The assumption of a short sentence that has an exception holds the negation of that exception.
+        The assumption of a simple sentence that has an exception holds the negation of that exception.
 
         example UNLESS:
             kind reading

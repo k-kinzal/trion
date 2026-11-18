@@ -1,0 +1,24 @@
+unsat
+(
+(assume a0 p)
+(assume a1 (! (not p) :named @p_1))
+(step t0 (cl) :rule resolution :premises (a0 a1))
+)
+(
+(assume a0 p)
+(assume a1 (! (not p) :named @p_1))
+(step t0 (cl) :rule resolution :premises (a0 a1))
+)
+unsat
+(
+(assume a0 (! (and p (! (not p) :named @p_1)) :named @p_2))
+(step t0 (cl p) :rule and :premises (a0) :args (0))
+(step t1 (cl @p_1) :rule and :premises (a0) :args (1))
+(step t2 (cl) :rule resolution :premises (t0 t1))
+)
+(
+(assume a0 (! (and p (! (not p) :named @p_1)) :named @p_2))
+(step t0 (cl p) :rule and :premises (a0) :args (0))
+(step t1 (cl @p_1) :rule and :premises (a0) :args (1))
+(step t2 (cl) :rule resolution :premises (t0 t1))
+)

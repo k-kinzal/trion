@@ -6,7 +6,7 @@
 //! diagram is drawn as a figure beside the controlled English it stands for.
 
 use crate::project::Project;
-use crate::verify::Verification;
+use crate::convert::Converted;
 use crate::figure;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -164,6 +164,8 @@ fn take_label(text: &str) -> (Option<&str>, &str) {
 struct Shared<'a> {
     project: &'a Project,
     analysis: &'a Analysis,
+    /// The examples that demonstrate the conversion, with what each observed.
+    demonstrated: &'a [trion_verification::ExampleOutcome],
     diagnostics: Vec<Diagnostic>,
     /// The diagnostics that name a place, by file and line.
     placed: BTreeMap<(String, usize), Vec<usize>>,
@@ -478,8 +480,9 @@ impl<'a> FileView<'a> {
                     let body_end = self.dedent(i, end);
                     let (word, name) = text.trim_end_matches(':').split_once(' ').unwrap_or((&text, ""));
                     let outcome = match word {
-                        "check" => self.shared.analysis.checks.iter().find(|c| c.file == self.file && c.name == name).map(|c| c.result.clone()),
-                        "example" => self.shared.analysis.examples.iter().find(|e| e.file == self.file && e.name == name).map(|e| format!("{}, expected {}", e.observed, e.expected)),
+                        // A check is a proof obligation of the MMT form: `trioc prove` decides it.
+                        "check" => Some(format!("obligation check/{name}")),
+                        "example" => self.shared.demonstrated.iter().find(|e| e.file == self.file && e.name == name).map(|e| format!("{}, expected {}", e.observed, e.expected)).or_else(|| Some(format!("obligation example/{name}"))),
                         _ => None,
                     };
                     let state = outcome.map_or(String::new(), |text| format!(" <span class=\"badge ok\">{}</span>", esc(&text)));
@@ -777,8 +780,8 @@ dl.glossary dd{margin:0 0 0 1rem;color:var(--muted);font-size:.92rem}dl.glossary
 "#;
 
 /// Renders the package, or one of its files, as one HTML document.
-pub(crate) fn render(project: &Project, verification: &Verification, only: Option<&str>) -> Result<String, String> {
-    let analysis = &verification.analysis;
+pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str>) -> Result<String, String> {
+    let analysis = &converted.analysis;
     let documents: Vec<&Document> = project.set.packages.iter().filter(|p| p.is_root).flat_map(|p| &p.documents).collect();
     let mut files: Vec<&str> = Vec::new();
     for document in &documents {
@@ -794,9 +797,8 @@ pub(crate) fn render(project: &Project, verification: &Verification, only: Optio
         }
     }
 
-    let mut diagnostics: Vec<Diagnostic> = project.diagnostics.iter().chain(&analysis.diagnostics).cloned().collect();
-    let source_report = &verification.sources;
-    diagnostics.extend(source_report.diagnostics.iter().cloned());
+    let diagnostics: Vec<Diagnostic> = converted.all().cloned().collect();
+    let source_report = &converted.sources;
     let mut placed: BTreeMap<(String, usize), Vec<usize>> = BTreeMap::new();
     for (index, diagnostic) in diagnostics.iter().enumerate() {
         for reference in &diagnostic.refs {
@@ -819,7 +821,7 @@ pub(crate) fn render(project: &Project, verification: &Verification, only: Optio
             }
         }
     }
-    let shared = Shared { project, analysis: &analysis, diagnostics, placed, shown: RefCell::new(BTreeSet::new()), glossary, anchors, used_terms: RefCell::new(BTreeSet::new()), figures: Cell::new(0), details_of };
+    let shared = Shared { project, analysis: &analysis, demonstrated: &converted.demonstrated, diagnostics, placed, shown: RefCell::new(BTreeSet::new()), glossary, anchors, used_terms: RefCell::new(BTreeSet::new()), figures: Cell::new(0), details_of };
 
     let mut body = String::new();
     let mut toc = String::new();
@@ -867,56 +869,29 @@ pub(crate) fn render(project: &Project, verification: &Verification, only: Optio
         Some(line.split_once(" edition ")?.1.trim().trim_matches('"').to_string())
     });
 
-    // The package is verified: it has no error, and what is left to say of it is a warning.
+    // The package conforms to the language: what is left to say of it is a
+    // warning. Nothing in the document is proved: the proof obligations are
+    // listed with the bound that each is about.
     let warnings = shared.diagnostics.iter().filter(|d| d.severity == Severity::Warning).count();
-    let consistency = &analysis.consistency;
-    let mut status = format!("<section class=\"status\" id=\"status\"><strong>{}</strong>: {statements} statements shown; the package is verified with {warnings} warnings<ul>\n", esc(&consistency.verdict));
-    let mut bounds = vec![format!("traces of {} moments", consistency.bounds.trace_length), format!("{} individuals of each type", consistency.bounds.scope)];
-    bounds.extend(consistency.bounds.decisions.map(|n| format!("{n} decisions for each query")));
-    status.push_str(&format!("<li>consistency: {} within {} ({}; {})</li>\n", esc(consistency.status.as_str()), esc(&bounds.join(" and ")), esc(&consistency.method), if consistency.exhaustive { "the search within the bounds was exhaustive" } else { "the bounds ended the search" }));
-    if let Some(situations) = &consistency.situations {
-        status.push_str(&format!("<li>situations: {}</li>\n", esc(situations)));
+    let stated = &converted.obligations;
+    let mut status = format!("<section class=\"status\" id=\"status\"><strong>converted</strong>: {statements} statements shown; the package conforms to the language with {warnings} warnings, and nothing here is proved<ul>\n");
+    for obligation in &stated.obligations {
+        status.push_str(&format!("<li>proof obligation <code>{}</code> ({}): {}; not proved here: <code>trioc prove</code> proves it from the MMT form</li>\n", esc(&obligation.name), esc(&obligation.property), esc(&obligation.proposition)));
     }
-    // What `verified` covers, as the command prints it: each claim apart,
-    // the bounds of the analysis, and what was not examined.
-    for claim in &analysis.claims.claims {
-        let subject = claim.subject.as_ref().map_or(String::new(), |subject| format!(" ({})", esc(subject)));
-        status.push_str(&format!("<li>claim {}{subject}: {}{}</li>
-", esc(&claim.claim), esc(claim.verdict.as_str()), if claim.verdict == trion_verification::Verdict::Proved { format!(" within {}: {}; not claimed: {}", esc(&claim.range.phrase()), esc(&claim.statement), esc(&claim.not_claimed)) } else { String::new() }));
+    if !converted.control.system.is_empty() || !converted.control.environment.is_empty() {
+        let names = |set: &std::collections::BTreeSet<String>| if set.is_empty() { "none".to_string() } else { set.iter().map(|a| esc(a)).collect::<Vec<_>>().join(", ") };
+        status.push_str(&format!("<li>system: {}; environment: {}</li>\n", names(&converted.control.system), names(&converted.control.environment)));
     }
-    status.push_str(&format!("<li>covers: {}</li>
-", esc(&verification.outcome.covers)));
-    for declared in &verification.outcome.declared {
+    for declared in &converted.declared {
         status.push_str(&format!("<li>declared, not checked: {}</li>\n", esc(declared)));
     }
-    // The reading over individuals: the domain, how far the records and the
-    // contracts were derived again, and each scenario with both judgements.
     if let Some(individuals) = &analysis.model.individuals {
-        let derivations = &verification.checked.derivations;
-        status.push_str(&format!("<li>individuals: semantic version {}; domains of {} individuals of each declared type; the record of {} of {} typed statements and the contract of {} of {} instances were derived again and agree; the tree of {} of {} statements about individuals was read again from the text and agrees</li>\n", esc(individuals.version), individuals.scope, derivations.statements, derivations.of_statements, derivations.contracts, derivations.of_instances, derivations.texts, derivations.of_texts));
-        for scenario in &verification.checked.scenarios {
-            let undefined = if scenario.undefined.is_empty() { String::new() } else { format!("; without a value and not counted as met: the share of {}", scenario.undefined.iter().map(|(statement, _)| format!("[{}]", esc(statement))).collect::<Vec<_>>().join(", ")) };
-            status.push_str(&format!("<li>scenario {}: {} for the reference evaluator, {} for the formulas of the reading (expected: {}){undefined}</li>\n", esc(&scenario.name), esc(&scenario.reference), esc(&scenario.generated), esc(&scenario.expect)));
-        }
+        status.push_str(&format!("<li>individuals: semantic version {}; domains of {} individuals of each declared type</li>\n", esc(individuals.version), individuals.scope));
         status.push_str("<li><details><summary>readings over individuals</summary><dl>\n");
         for meaning in &individuals.meanings {
             status.push_str(&format!("<dt>[{}] {}</dt><dd>{}</dd>\n", esc(&meaning.statement), esc(&meaning.source), meaning.lines().iter().map(|line| esc(line)).collect::<Vec<_>>().join("<br>")));
         }
         status.push_str("</dl></details></li>\n");
-    }
-    if !analysis.model.priorities.is_empty() {
-        let pairs: Vec<String> = analysis.model.priorities.iter().map(|p| format!("{} {} {}", esc(&p.to.id), if p.kind == "default" { "is more specific than the default" } else { "overrides" }, esc(&p.yields.id))).collect();
-        status.push_str(&format!("<li>priorities: {}</li>\n", pairs.join("; ")));
-    }
-    if let Some(preference) = &analysis.preference {
-        let names = |refs: &[trion_language::SpecRef]| refs.iter().map(|r| esc(&r.id)).collect::<Vec<_>>().join(", ");
-        status.push_str(&format!("<li>recommendations: keep {} (weight {}); drop {} (weight {})</li>\n", names(&preference.kept), preference.kept_weight, names(&preference.dropped), preference.dropped_weight));
-    }
-    if !analysis.checks.is_empty() {
-        status.push_str(&format!("<li>checks: {} of {} proved</li>\n", analysis.checks.iter().filter(|c| c.result == "proved").count(), analysis.checks.len()));
-    }
-    if !analysis.examples.is_empty() {
-        status.push_str(&format!("<li>examples: {} of {} as expected</li>\n", analysis.examples.iter().filter(|e| e.observed == e.expected).count(), analysis.examples.len()));
     }
     for source in &source_report.sources {
         status.push_str(&format!("<li>source {}: {:.2}% cited</li>\n", esc(&source.id), source.percent));

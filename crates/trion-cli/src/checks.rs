@@ -1,40 +1,18 @@
-//! The checks of a verification that stand apart from the analysis: what
-//! `trion-checker` finds of the package.
-//!
-//! Each scenario of the package is one concrete behaviour. It is judged
-//! twice: by the reference evaluator, which reads the typed meaning of the
-//! statements and builds no formula, and by the formulas that the analysis
-//! decides. The two judgements are one claim (`scenario_satisfiable`) when
-//! they agree; when they differ, the reading and the meaning differ, and
-//! that is an error of trion and no finding about the package.
+//! What `trion-checker` shows of the conversion of a package: the reading
+//! of each statement about individuals is derived again apart from the
+//! reader, and the formulas of the reading judge concrete behaviours as the
+//! reference evaluator does, which reads the typed meaning of the
+//! statements and builds no formula. A difference is an error of the
+//! conversion and no finding about the package: the package is not
+//! converted. Nothing here proves anything about the package.
 
 use crate::project::Project;
 use serde::Serialize;
-use trion_checker::{scenario, Generated, Violation};
+use trion_checker::{scenario, Generated};
 use trion_language::reading::{Constraint, ConstraintKind, Model};
 use trion_language::{Diagnostic, SpecRef};
 use trion_solver::{Atom, Formula};
-use trion_verification::{Analysis, AnalysisRange, Claim, Verdict};
-
-/// How one scenario was judged.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct ScenarioOutcome {
-    pub name: String,
-    /// `allowed` or `forbidden`: what the author expects.
-    pub expect: String,
-    /// `allowed`, `forbidden` or `undecided`: what the reference evaluator found.
-    pub reference: String,
-    /// `allowed`, `forbidden`, `unknown` or `not comparable`: what the formulas say.
-    pub generated: String,
-    /// The statements that the behaviour fails, with the instance and the moment.
-    pub violations: Vec<Violation>,
-    /// The statements with a part that the reference evaluator does not evaluate.
-    pub unevaluated: Vec<(String, String)>,
-    /// The statements whose share has no value in the behaviour: they are
-    /// neither met nor failed.
-    pub undefined: Vec<(String, String)>,
-    pub verdict: Verdict,
-}
+use trion_verification::Analysis;
 
 /// What the check of the records of the reading covered.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -57,18 +35,6 @@ pub(crate) struct Derivations {
     /// The statements whose text holds a form outside that grammar, each
     /// with the form: their tree rests on the parser alone.
     pub not_read: Vec<(String, String)>,
-}
-
-/// The behaviour that stands for the claim that a behaviour keeps every
-/// contract, and what the reference evaluator says of it.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct WitnessOutcome {
-    /// `accepted`, `refused`, `not evaluated`, `none` or `unknown`.
-    pub state: String,
-    /// What the state rests on, in one sentence.
-    pub what: String,
-    /// The behaviour, when one was found.
-    pub behaviour: Option<trion_checker::World>,
 }
 
 /// The behaviours next to the scenarios, and how both judgements stand on them.
@@ -102,20 +68,6 @@ pub(crate) struct Variations {
     pub together_unanswered: Vec<String>,
     /// Those that were not decided.
     pub together_open: Vec<String>,
-}
-
-/// What the checks found.
-#[derive(Debug, Clone, Default, Serialize)]
-pub(crate) struct Checked {
-    pub diagnostics: Vec<Diagnostic>,
-    pub derivations: Derivations,
-    /// The concrete behaviour behind `contract_sat`, in a package that declares its individuals.
-    pub witness: Option<WitnessOutcome>,
-    /// The variations of the scenarios, when the properties of the reading are examined.
-    pub variations: Option<Variations>,
-    pub scenarios: Vec<ScenarioOutcome>,
-    /// `true` when the package holds something that these checks examine.
-    pub asked: bool,
 }
 
 /// The faults of the reading that `TRION_FAULT` seeds, so that a test can
@@ -342,8 +294,11 @@ pub(crate) fn vary(project: &Project, analysis: &Analysis) -> (Variations, Vec<D
         }
     }
     // The situations that the statements themselves give: each statement
-    // with a condition, and each two of them, applying at one moment.
-    let claimed = analysis.claims.claims.iter().any(|claim| claim.claim == "situation_total" && claim.verdict == Verdict::Proved);
+    // with a condition, and each two of them, applying at one moment. That
+    // a situation has no response is a question of consistency, which the
+    // proof decides; here only a response that the meaning refuses is a
+    // fault of the reading.
+    let claimed = false;
     for (statements, outcome) in trion_checker::together(&stated, &is_response, later, TOGETHER) {
         found.together += 1;
         let names = statements.iter().map(|statement| format!("[{statement}]")).collect::<Vec<_>>().join(" and ");
@@ -394,158 +349,70 @@ fn word(accepted: Option<bool>) -> &'static str {
     }
 }
 
-/// Judges each scenario of the root package and states one claim for each.
-pub(crate) fn run(project: &Project, analysis: &mut Analysis) -> Checked {
-    let mut out = Checked { asked: analysis.model.individuals.is_some(), ..Default::default() };
-    let mut claims: Vec<Claim> = Vec::new();
-    let template = analysis.claims.claims.first().map(|c| c.range.clone());
+/// What the checker showed of the conversion.
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct Demonstrated {
+    pub derivations: Derivations,
+    /// The scenarios whose behaviour both judgements judge alike.
+    pub scenarios: usize,
+    /// The behaviour that keeps every contract, as the reference evaluator judges it.
+    pub witness: Option<String>,
+    /// The variations of the scenarios, when the properties of the reading are examined.
+    pub variations: Option<Variations>,
+}
+
+/// Shows the conversion of a package by the checker: the records of the
+/// reading, a behaviour that keeps every contract, and each scenario. With
+/// `properties`, the behaviours next to each scenario as well.
+pub(crate) fn demonstrate(project: &Project, analysis: &Analysis, moments: usize, properties: bool, diagnostics: &mut Vec<Diagnostic>) -> Demonstrated {
+    let mut out = Demonstrated::default();
     let seeded = faulted(&analysis.model);
     let read = seeded.as_ref().unwrap_or(&analysis.model);
+    let Some(individuals) = &read.individuals else { return out };
     // The record of each reading, the instances and their contracts,
     // against the statements of the package.
-    if let Some(individuals) = &read.individuals {
-        let derived = trion_checker::derive::check(&project.set, read, &analysis.lexicon);
-        for refusal in &derived.refusals {
-            out.diagnostics.push(Diagnostic::error("derivation-refused", format!("the check of the reading refuses `{}`: {}", refusal.subject, refusal.what), Vec::new()));
-        }
-        out.derivations = Derivations { statements: derived.statements, contracts: derived.contracts, not_derived: derived.not_derived, of_statements: individuals.meanings.len(), of_instances: individuals.instances.len(), texts: derived.texts, of_texts: derived.of_texts, not_read: derived.not_read };
+    let derived = trion_checker::derive::check(&project.set, read, &analysis.lexicon);
+    for refusal in &derived.refusals {
+        diagnostics.push(Diagnostic::error("derivation-refused", format!("the check of the reading refuses `{}`: {}", refusal.subject, refusal.what), Vec::new()));
     }
-    // The model behind `contract_sat`, as a concrete behaviour that the
-    // reference evaluator judges.
-    let kept = analysis.claims.of("contract_sat").is_some_and(|claim| claim.verdict == Verdict::Proved);
-    if let (true, Some(individuals)) = (kept, &read.individuals) {
-        let moments = analysis.consistency.bounds.trace_length;
-        let (state, what, behaviour) = match trion_checker::witness(read, individuals, moments) {
-            trion_checker::Witnessed::Behaviour { world, spacing, applies, evaluation } => {
-                let shape = format!("a complete behaviour of {} moments, {spacing} ms apart, with {} occurrences, in which {}", world.moments.len(), world.moments.iter().map(|m| m.occurrences.len()).sum::<usize>(), if applies { "a statement with a condition applies at the first moment" } else { "no condition is required to hold" });
-                match (evaluation.accepted(), evaluation.violations.first(), evaluation.unevaluated.first()) {
-                    (Some(true), _, _) => ("accepted", format!("{shape}: the formulas of the reading accept it, and the reference evaluator finds that it fails no statement"), Some(world)),
-                    (Some(false), Some(violation), _) => {
-                        out.diagnostics.push(Diagnostic::error(
-                            "witness-refused",
-                            format!("the formulas of the reading accept {shape}, and it fails [{}]{}: {}; the reading of a statement differs from its meaning, and no result about the package is established", violation.statement, violation.moment.map_or(String::new(), |m| format!(" at moment {m}")), violation.what),
-                            Vec::new(),
-                        ));
-                        ("refused", format!("{shape}: the formulas of the reading accept it, and it fails [{}]: {}", violation.statement, violation.what), Some(world))
-                    }
-                    (_, _, Some((statement, part))) => ("not evaluated", format!("{shape}: [{statement}] holds {part}, which the reference evaluator does not evaluate, so the behaviour is not confirmed"), Some(world)),
-                    _ => ("not evaluated", format!("{shape}: the reference evaluator does not judge it"), Some(world)),
-                }
+    out.derivations = Derivations { statements: derived.statements, contracts: derived.contracts, not_derived: derived.not_derived, of_statements: individuals.meanings.len(), of_instances: individuals.instances.len(), texts: derived.texts, of_texts: derived.of_texts, not_read: derived.not_read };
+    // A behaviour that the formulas of the reading accept, judged by the meaning.
+    if let trion_checker::Witnessed::Behaviour { evaluation, .. } = trion_checker::witness(read, individuals, moments) {
+        match (evaluation.accepted(), evaluation.violations.first()) {
+            (Some(false), Some(violation)) => {
+                diagnostics.push(Diagnostic::error("witness-refused", format!("the formulas of the reading accept a complete behaviour that fails [{}]{}: {}; the reading of a statement differs from its meaning", violation.statement, violation.moment.map_or(String::new(), |m| format!(" at moment {m}")), violation.what), Vec::new()));
+                out.witness = Some("refused".to_string());
             }
-            trion_checker::Witnessed::None { tried } => ("none", format!("no complete behaviour of {moments} moments keeps every contract with the moments {} ms apart: the model of the claim rests on what happens after the trace, and no concrete behaviour confirms it", tried.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")), None),
-            trion_checker::Witnessed::Unknown => ("unknown", "the search for a complete behaviour was not decided within the budget".to_string(), None),
-        };
-        if let Some(claim) = analysis.claims.claims.iter_mut().find(|claim| claim.claim == "contract_sat") {
-            claim.evidence.push(format!("as a concrete behaviour ({state}): {what}"));
-            if state == "refused" {
-                claim.verdict = Verdict::Error;
-                claim.reason = Some("reading_differs_from_meaning".to_string());
-            }
+            (Some(true), _) => out.witness = Some("accepted".to_string()),
+            _ => out.witness = Some("not evaluated".to_string()),
         }
-        out.witness = Some(WitnessOutcome { state: state.to_string(), what, behaviour });
     }
-    let stated = trion_checker::Stated::of(read);
+    // Each scenario is judged alike by the meaning and by the formulas.
+    let stated = trion_checker::Stated::of(read).expect("a model over individuals");
     for doc in project.set.packages.iter().filter(|p| p.is_root).flat_map(|p| &p.documents) {
         let lex = analysis.lexicon.in_document(doc);
-        for block in &doc.scenarios {
-            out.asked = true;
-            let at = SpecRef { id: format!("scenario {}", block.name), file: block.file.clone(), line: block.line, text: format!("scenario {}", block.name) };
-            let mut outcome = ScenarioOutcome { name: block.name.clone(), expect: block.expect.clone(), reference: "undecided".to_string(), generated: "unknown".to_string(), violations: Vec::new(), unevaluated: Vec::new(), undefined: Vec::new(), verdict: Verdict::Invalid };
-            let mut reason = None;
-            let mut moments = 0;
-            let read_block = if block.malformed { Some(Err(Vec::new())) } else { analysis.model.individuals.as_ref().map(|individuals| scenario::world(block, individuals, &lex)) };
-            match read_block {
-                None => {
-                    outcome.verdict = Verdict::Unsupported;
-                    reason = Some("no_declared_individuals".to_string());
-                    out.diagnostics.push(Diagnostic::error("scenario-unsupported", "a scenario is judged over individuals of declared types, and the package declares none: declare them, as in `individuals user, room`", vec![at.clone()]));
-                }
-                Some(Err(problems)) => {
-                    reason = Some("malformed_block".to_string());
-                    for problem in problems {
-                        out.diagnostics.push(Diagnostic::error("scenario-invalid", problem.what, vec![SpecRef { line: problem.line, ..at.clone() }]));
-                    }
-                }
-                Some(Ok(world)) => {
-                    moments = world.closed().moments.len();
-                    let comparison = stated.as_ref().expect("a model over individuals").compare(&world);
-                    outcome.reference = word(comparison.reference.accepted()).to_string();
-                    outcome.violations = comparison.reference.violations.clone();
-                    outcome.unevaluated = comparison.reference.unevaluated.clone();
-                    outcome.undefined = comparison.reference.undefined.clone();
-                    outcome.generated = match &comparison.generated {
-                        Generated::Accepted => "allowed".to_string(),
-                        Generated::Rejected => "forbidden".to_string(),
-                        Generated::Unknown => "unknown".to_string(),
-                        Generated::NotComparable { .. } => "not comparable".to_string(),
+        for block in doc.scenarios.iter().filter(|block| !block.malformed) {
+            let Ok(world) = scenario::world(block, individuals, &lex) else { continue };
+            let comparison = stated.compare(&world);
+            match comparison.agree() {
+                Some(true) => out.scenarios += 1,
+                Some(false) => {
+                    let at = SpecRef { id: format!("scenario {}", block.name), file: block.file.clone(), line: block.line, text: format!("scenario {}", block.name) };
+                    let generated = match &comparison.generated {
+                        Generated::Accepted => "allowed",
+                        Generated::Rejected => "forbidden",
+                        _ => "undecided",
                     };
-                    match (comparison.agree(), comparison.reference.accepted()) {
-                        (Some(true), Some(accepted)) => {
-                            outcome.verdict = if accepted { Verdict::Proved } else { Verdict::Refuted };
-                            // `expect undefined`: the behaviour fails nothing, and a share has no value in it.
-                            let met = match block.expect.as_str() {
-                                "undefined" => accepted && !outcome.undefined.is_empty(),
-                                expected => expected == word(Some(accepted)),
-                            };
-                            if !block.expect.is_empty() && !met {
-                                let why = match outcome.violations.first() {
-                                    Some(v) => format!("it fails [{}]{}: {}", v.statement, v.moment.map_or(String::new(), |m| format!(" at moment {m}")), v.what),
-                                    None if outcome.undefined.is_empty() => "it fails no statement, and each share has a value in it".to_string(),
-                                    None => "it fails no statement".to_string(),
-                                };
-                                out.diagnostics.push(Diagnostic::error("scenario-failed", format!("the scenario is expected to be {} and is {}: {why}", block.expect, word(Some(accepted))), vec![at.clone()]));
-                            }
-                        }
-                        (Some(false), _) => {
-                            outcome.verdict = Verdict::Error;
-                            reason = Some("reading_differs_from_meaning".to_string());
-                            out.diagnostics.push(Diagnostic::error("scenario-differs", format!("the reference evaluator finds the behaviour {} and the formulas of the reading find it {}: the reading of a statement differs from its meaning, and no result about the package is established", outcome.reference, outcome.generated), vec![at.clone()]));
-                        }
-                        _ => {
-                            outcome.verdict = Verdict::Unsupported;
-                            let why = match (&comparison.generated, outcome.unevaluated.first()) {
-                                (Generated::NotComparable { atoms }, _) => {
-                                    reason = Some("atoms_without_a_fact".to_string());
-                                    format!("the formulas hold atoms that the behaviour does not fix ({}): a statement of the package is not read over individuals", atoms.iter().take(3).cloned().collect::<Vec<_>>().join(", "))
-                                }
-                                (_, Some((statement, part))) => {
-                                    reason = Some("not_evaluated".to_string());
-                                    format!("[{statement}] holds {part}, which the reference evaluator does not evaluate")
-                                }
-                                _ => {
-                                    reason = Some("resource_limit".to_string());
-                                    "the formulas were not decided within the budget".to_string()
-                                }
-                            };
-                            out.diagnostics.push(Diagnostic::error("scenario-unsupported", format!("the scenario is not judged: {why}"), vec![at.clone()]));
-                        }
-                    }
+                    diagnostics.push(Diagnostic::error("scenario-differs", format!("the reference evaluator finds the behaviour {} and the formulas of the reading find it {generated}: the reading of a statement differs from its meaning", word(comparison.reference.accepted())), vec![at]));
                 }
+                None => {}
             }
-            let range = template.clone().map(|range| AnalysisRange { moments, individuals: analysis.model.instance_scope, ..range }).unwrap_or(AnalysisRange { moments, individuals: analysis.model.instance_scope, individuals_requested: 0, decisions: None });
-            claims.push(Claim {
-                claim: "scenario_satisfiable".to_string(),
-                subject: Some(format!("scenario {}", block.name)),
-                verdict: outcome.verdict,
-                reason,
-                vacuous: false,
-                // The expectation of the author decides whether the verdict is a finding.
-                required: false,
-                statement: "the behaviour that the scenario states satisfies each statement of the package".to_string(),
-                not_claimed: "that the behaviour can be reached from an initial state, or that it ever occurs".to_string(),
-                range,
-                lifted: true,
-                relation: "exact: the behaviour is concrete and complete, and the judgement is about it alone".to_string(),
-                method: "reference evaluation of the typed meaning of each statement, and a decision of the formulas of the reading with the behaviour fixed".to_string(),
-                evidence: vec![format!("reference evaluator: {}{}", outcome.reference, if outcome.undefined.is_empty() { String::new() } else { format!("; without a value in this behaviour, and not counted as met: the share of {}", outcome.undefined.iter().map(|(statement, _)| format!("[{statement}]")).collect::<Vec<_>>().join(", ")) }), format!("formulas of the reading: {}", outcome.generated), format!("expected: {}", if block.expect.is_empty() { "nothing" } else { &block.expect })],
-                unresolved: outcome.unevaluated.iter().map(|(statement, _)| statement.clone()).collect(),
-            });
-            out.scenarios.push(outcome);
         }
     }
-    if !claims.is_empty() {
-        analysis.claims.claims.retain(|c| !(c.claim == "scenario_satisfiable" && c.verdict == Verdict::NotRequested));
-        analysis.claims.claims.extend(claims);
+    if properties {
+        let (variations, differing) = vary(project, analysis);
+        diagnostics.extend(differing);
+        out.variations = Some(variations);
     }
     out
 }

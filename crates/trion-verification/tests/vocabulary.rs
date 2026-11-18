@@ -1,7 +1,7 @@
 mod common;
 use common::*;
 use trion_language::VocabularyMode;
-use trion_verification::{analyze, Options};
+use trion_verification::{Options};
 
 #[test]
 fn infers_terms_and_kinds_from_specifications() {
@@ -25,7 +25,7 @@ fn records_declared_terms() {
 #[test]
 fn declared_mode_rejects_undeclared_terms() {
     let src = "term API: entity\nThe API shall return foo.\n";
-    let analysis = analyze(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
     let undeclared: Vec<&str> = analysis.diagnostics.iter().filter(|d| d.code == "UNRESOLVED_TERM").map(|d| d.message.as_str()).collect();
     assert_eq!(undeclared, ["the term `foo` has no interpretation: it is not declared"]);
 }
@@ -49,7 +49,7 @@ fn an_undeclared_term_is_accepted_only_where_something_relates_it() {
 #[test]
 fn a_definition_declares_its_term() {
     let src = "A room means a chat space.\nThe room shall close.\n";
-    let analysis = analyze(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
     assert!(analysis.diagnostics.iter().all(|d| !d.message.contains("`room`")), "{:?}", analysis.diagnostics);
 }
 
@@ -57,7 +57,7 @@ fn a_definition_declares_its_term() {
 fn imported_vocabulary_is_usable() {
     let src = "use lib\nThe API shall stop.\n";
     let library = "term API: entity\n";
-    let analysis = analyze(&set_of(&[("main", true, src), ("lib", false, library)], VocabularyMode::Declared), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, src), ("lib", false, library)], VocabularyMode::Declared), &Options::default());
     assert!(analysis.diagnostics.is_empty(), "{:?}", analysis.diagnostics);
 }
 
@@ -83,7 +83,10 @@ fn a_redeclaration_with_another_kind_is_an_error() {
 
 #[test]
 fn an_undeclared_term_used_as_attribute_and_value_warns() {
-    assert_eq!(run_codes("status is Open.\nOpen is Yes.\n"), ["vocabulary-kind-ambiguous"]);
+    // A name that keeps its capital at the start of a sentence is written
+    // as a literal: the capital that opens a sentence is no part of a word.
+    assert_eq!(run_codes("status is Open.\n`Open` is Yes.\n"), ["vocabulary-kind-ambiguous"]);
+    assert!(run_codes("status is Open.\nOpen is Yes.\n").is_empty());
 }
 
 #[test]

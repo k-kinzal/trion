@@ -1,50 +1,61 @@
 namespace trion:
     use software
 
-    section "The trion command":
+    section "The trion command converts":
         The trion command means the command that runs the trion processor.
-        The trion verify command means the subcommand of the trion command that verifies a package.
-        The trion doc command means the subcommand of the trion command that writes a document of a package.
-        The trion lsp command means the subcommand of the trion command that serves an editor.
+        The language server means the command that serves an editor.
         A diagnostic means a message that the trion command reports about a package.
         The severity of a diagnostic is error, warning, or information.
-        A gate means a step of the trion verify command.
-        The state of a gate is passed, failed, or skipped.
-        A verified package means a package that has no failed gate.
-        A meaning obligation means a part of a statement that no reading rule reads.
-        A claim means a result that the trion verify command states about a package.
-        The verdict of a claim is proved, refuted, unknown, unsupported, invalid, or erroneous.
-        A scenario means a declaration that states one behaviour.
+        A conforming package means a package whose statements conform to the trion language.
+        An output format means a format that the trion command writes.
+        The output format of a document is MMT, Markdown, HTML, or an extension format.
+        An extension format means an output format that a program outside the trion processor adds.
         A reading record means a record that states the meaning that the trion processor reads in a statement.
-        Each package has one or more readings.
 
-        [TOOL-VERIFY]
-        When an author runs the trion verify command on a package P,
-        the trion verify command shall follow this flow:
-            step check: check the statements of P;
-            step meaning: check the meaning obligations of P;
-            step claims: check the claims of P;
-            step checker: check the reading records and the scenarios of P;
-            step sources: check the sources of P;
-            step prover: decide the queries of P with the external prover;
-            step properties: check the readings of P;
-            step stability: decide P at raised bounds;
+        [TOOL-CONVERT]
+        When an author runs the trion command on a package P,
+        the trion command shall follow this flow:
+            step check: check the statements of P against the trion language;
+            step expand: expand the composite sentences of P;
+            step read: read the simple sentences of P as contracts;
+            step write: write P in each requested output format;
 
             start check
-            check -> meaning
-            meaning -> claims
-            claims -> checker
-            checker -> sources
-            sources -> prover
-            prover -> properties
-            properties -> stability
-            finish stability
+            check -> expand
+            expand -> read
+            read -> write
+            finish write
 
         [TOOL-EXIT]
-        If a gate of a package is failed, then the trion verify command shall fail.
+        If a statement of a package does not conform to the trion language, then the trion command shall fail.
 
-        [TOOL-DOC-VERIFIED]
-        The trion doc command shall write a document of a verified package only.
+        [TOOL-DOC-CONFORMING]
+        The trion command shall write a document of each conforming package.
+
+        [TOOL-NO-PROOF]
+        The trion command shall not prove a package.
 
         [TOOL-LSP]
-        The trion lsp command shall report the diagnostics of each open source file to the editor.
+        The language server shall report the diagnostics of each open source file to the editor.
+
+    section "The trioc command proves":
+        The trioc command means the command that proves the proof obligations of the MMT form of a package.
+        A result means the answer of the trioc command for exactly one proof obligation.
+        The verdict of a result is proved, refuted, or unproved.
+
+        [TOOL-PROVE]
+        When an author runs the trioc command on an MMT form M,
+        the trioc command shall follow this flow:
+            step read: read the proof obligations of M;
+            step prove: decide each proof obligation of M;
+            step certify: issue a certificate of each result in each requested certificate format;
+            step report: report each result of M;
+
+            start read
+            read -> prove
+            prove -> certify
+            certify -> report
+            finish report
+
+        [TOOL-TRIOC-EXIT]
+        If the verdict of a result is refuted or unproved, then the trioc command shall fail.

@@ -16,11 +16,13 @@ fn fixture(spec: &str) -> Fixture {
     fixture_with(&QUOTES, spec)
 }
 
-/// What `trion verify` reports about the sources: the report of the
-/// sources as its output, and 1 as its code when the gate `sources` fails.
+/// What the conversion reports about the sources: the report of the
+/// sources as its output, and 1 as its code when it holds an error, which
+/// keeps the package from converting.
 fn sources(f: &Fixture) -> Result {
-    let report = f.trion(&["verify", "--json"]).json();
-    let failed = report["gates"].as_array().unwrap().iter().any(|gate| gate["name"] == "sources" && gate["state"] == "failed");
+    let report = f.verify(&["--json"]).json();
+    let failed = report["sources"]["diagnostics"].as_array().unwrap().iter().any(|d| d["severity"] == "error");
+    assert_eq!(failed, report["conforms"] == false && unverified(&report).iter().any(|code| code.starts_with("source")), "{report}");
     Result { code: i32::from(failed), stdout: report["sources"].to_string(), stderr: String::new() }
 }
 
@@ -145,14 +147,14 @@ fn a_specification_without_a_source_is_a_warning() {
     let report = req(&f);
     assert_eq!(report_codes(&report), ["unsourced"]);
     assert_eq!(report["diagnostics"][0]["severity"], "warning");
-    // A warning fails no gate.
+    // A warning keeps no package from converting.
     assert_eq!(sources(&f).code, 0);
 }
 
 #[test]
 fn an_unknown_source_or_quote_is_unresolved() {
     let f = fixture(&format!("{FULL}[C] The API shall run.\n  cite X#ONE\n[D] The API shall wait.\n  cite R#NOPE\n"));
-    let codes = analysis_codes(&f.trion(&["verify", "--json"]).json());
+    let codes = analysis_codes(&f.verify(&["--json"]).json());
     assert_eq!(codes, ["UNRESOLVED_CITATION", "UNRESOLVED_CITATION"]);
 }
 
@@ -172,7 +174,7 @@ fn specifications_without_a_source_are_listed_with_their_reason() {
     assert_eq!(report["unsourced"][0]["id"], "C");
     assert_eq!(report["unsourced"][0]["reason"], "an internal decision");
     assert_eq!(report["sources"][0]["percent"], 100.0, "they do not count as coverage");
-    let text = f.trion(&["verify"]).stdout;
+    let text = f.verify(&[]).stdout;
     assert!(text.contains("warning[unsourced]: this statement names no source: an internal decision"), "{text}");
 }
 
@@ -233,3 +235,37 @@ fn a_quote_can_span_lines() {
     assert_eq!(sources(&f).json()["sources"][0]["percent"], 100.0);
 }
 
+
+/// A quote that reads as trion sentences is a reference of the statements
+/// that cite it (spec/verification.trion, `A source is a reference only if
+/// the quotes of the source are statements of the trion language`): they
+/// owe correctness and completeness against it. A quote in other prose is
+/// traced and is no reference.
+#[test]
+fn a_quote_that_reads_as_trion_sentences_is_a_reference_of_the_statements_that_cite_it() {
+    const TEXT: &str = "The API shall store the message.\n要求その二です。\n";
+    let block = source_block("R", "requirement", "r.txt", TEXT, "", &[("STOP", "The API shall store the message."), ("PROSE", "要求その二です。")]);
+    let run = |spec: &str| {
+        let f = Fixture::new(&[("trion.toml", MANIFEST), ("r.txt", TEXT), ("s.trion", &block), ("a.trion", &format!("system API\nprimitive API, message\n{spec}"))]);
+        f.verify(&["--json"]).json()
+    };
+    // The statement says what the quote says: it refines it.
+    let same = run("[A] The API shall store the message.\n  cite R#STOP\n[B] The API shall log the message.\n  cite R#PROSE\n");
+    let found = verdicts(&same);
+    assert_eq!(found.get("reference/R#STOP").map(String::as_str), Some("proved"), "{same}");
+    assert_eq!(found.get("completeness/R#STOP").map(String::as_str), Some("proved"), "{same}");
+    // The prose quote is no reference: nothing is owed against it.
+    assert!(!found.keys().any(|name| name.contains("PROSE")), "{found:?}");
+    // A statement that says something else does not refine the quote, and
+    // together they can be kept: more statements would complete it.
+    let other = run("[A] The API shall log the message.\n  cite R#STOP\n[B] The API shall log the message.\n  cite R#PROSE\n");
+    let found = verdicts(&other);
+    assert_eq!(found.get("reference/R#STOP").map(String::as_str), Some("refuted"), "{other}");
+    assert_eq!(found.get("completeness/R#STOP").map(String::as_str), Some("refuted"), "{other}");
+    // A statement that contradicts the quote does not refine it, and no
+    // consistent document refines both: it is not incomplete.
+    let against = run("[A] The API shall not store the message.\n  cite R#STOP\n[B] The API shall log the message.\n  cite R#PROSE\n");
+    let found = verdicts(&against);
+    assert_eq!(found.get("reference/R#STOP").map(String::as_str), Some("refuted"), "{against}");
+    assert_eq!(found.get("completeness/R#STOP").map(String::as_str), Some("proved"), "{against}");
+}

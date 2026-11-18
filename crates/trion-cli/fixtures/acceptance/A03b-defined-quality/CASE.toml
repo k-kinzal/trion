@@ -2,7 +2,7 @@ id = "A03b"
 title = "A defined quality means what its definition says"
 work = "W03"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 With the definition, an API that is secure encrypts the message. [G1] requires the API to be secure and
 [G2] forbids it to encrypt the message: the two statements cannot both be kept. The quality is examined
@@ -13,8 +13,10 @@ requirement pass unexamined.
 
 [expect]
 verified = false
-blockers = ["contradiction"]
-gates_passed = ["meaning"]
+diagnostics = ["contradiction"]
+
+[expect.obligations]
+consistency = "refuted"
 
 [baseline]
 commit = "24cab2aa"

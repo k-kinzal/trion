@@ -31,7 +31,7 @@ pub enum Activation {
     /// the trigger is sampled once, at that occurrence.
     Occurrence { event: String, unwanted: bool, gate: Vec<String> },
     /// Each invocation of the operation that the response names.
-    Invocation { operation: String, declared: bool, inputs: Vec<String>, boundary: String },
+    Invocation { operation: String, boundary: String },
     /// Throughout each interval in which the stated conditions hold.
     Interval { conditions: Vec<String> },
     /// Throughout the applicable system scope, with no discrete activation.
@@ -272,8 +272,6 @@ pub struct Obligation {
     pub read: Vec<String>,
 }
 
-/// The declared operations: each name with its input domain.
-pub(super) type Operations = BTreeMap<String, Vec<String>>;
 
 const FINISH_MEANING: &str = "completion of the flow instance, with no verification verdict";
 
@@ -338,9 +336,12 @@ impl Builder<'_> {
         }
         match self.activation {
             Activation::Occurrence { .. } => Origin::Activation,
-            Activation::Invocation { declared: true, .. } => Origin::Invocation,
+            // A response without a trigger is measured from the invocation
+            // of its action, whatever the package declares: the reading of a
+            // sentence follows from the sentence alone.
+            Activation::Invocation { .. } => Origin::Invocation,
             Activation::Interval { .. } => Origin::IntervalStart,
-            Activation::Invocation { .. } | Activation::Always => Origin::Unresolved,
+            Activation::Always => Origin::Unresolved,
         }
     }
 
@@ -430,7 +431,7 @@ impl Builder<'_> {
         if !bounds.is_empty() {
             let origin = self.origin(vp);
             if origin == Origin::Unresolved {
-                self.unresolved.push(format!("the deadline `{}` has no origin: the response has no trigger, its operation is not declared and the sentence names no event to measure from", bounds.join(" ")));
+                self.unresolved.push(format!("the deadline `{}` has no origin: the response has no trigger and no action, and the sentence names no event to measure from", bounds.join(" ")));
             }
             let event = vp.roles.iter().find_map(|r| match r {
                 RolePp::After(clause) => Some(model::clause_formula(clause, self.lex)),
@@ -612,7 +613,7 @@ fn first_action(core: &Core) -> Option<&Vp> {
 }
 
 /// The temporal shape of a statement, or `None` for a definition, which is timeless.
-pub(super) fn obligation(sentence: &Sentence, otherwise: bool, statement: SpecRef, operations: &Operations, lex: &Lexicon) -> Option<Obligation> {
+pub(super) fn obligation(sentence: &Sentence, otherwise: bool, statement: SpecRef, lex: &Lexicon) -> Option<Obligation> {
     if matches!(sentence.core, Core::Definition { .. }) {
         return None;
     }
@@ -629,8 +630,7 @@ pub(super) fn obligation(sentence: &Sentence, otherwise: bool, statement: SpecRe
         (None, _) if !states.is_empty() => Activation::Interval { conditions: states },
         (None, Some(action)) => {
             let operation = model::base_verb(&action.verb);
-            let inputs = operations.get(&operation).cloned();
-            Activation::Invocation { boundary: format!("each invocation of {operation}"), declared: inputs.is_some(), inputs: inputs.unwrap_or_default(), operation }
+            Activation::Invocation { boundary: format!("each invocation of {operation}"), operation }
         }
         (None, None) => Activation::Always,
     };
@@ -644,8 +644,12 @@ pub(super) fn obligation(sentence: &Sentence, otherwise: bool, statement: SpecRe
             Core::Conjoined { items } => items.iter().for_each(|item| collect(item, builder, responses, orders, flows)),
             Core::Deontic { subject, modal, negated, vp } => {
                 for np in subjects(subject) {
+                    // `No user shall delete the log` denies the action of
+                    // each user, as `The user shall not delete the log` does:
+                    // the response is forbidden and nothing is owed eventually.
+                    let denied = *negated != matches!(np.det, Some(Det::No));
                     for item in vp.items() {
-                        responses.push(builder.response(np, item, *modal, *negated));
+                        responses.push(builder.response(np, item, *modal, denied));
                     }
                     if let VpGroup::Composite(composition) = vp {
                         let before = flows.len();
@@ -697,10 +701,7 @@ impl Obligation {
                 let gate = if gate.is_empty() { String::new() } else { format!("; gate sampled at the occurrence: {}", gate.join(" ∧ ")) };
                 format!("activation: each {kind} of {event}{gate}")
             }
-            Activation::Invocation { operation, declared, inputs, boundary } => {
-                let profile = if *declared { format!("declared operation {operation}({})", inputs.join(", ")) } else { format!("undeclared operation {operation}") };
-                format!("activation: {boundary}; {profile}")
-            }
+            Activation::Invocation { operation, boundary } => format!("activation: {boundary}; operation {operation}"),
             Activation::Interval { conditions } => format!("activation: throughout each interval of {}", conditions.join(" ∧ ")),
             Activation::Always => "activation: none; throughout the applicable system scope".to_string(),
         });
@@ -884,6 +885,9 @@ fn place(formula: &Formula, state: usize, completions: &[usize], untils: &Untils
             (None, many) => Formula::Or(many.iter().map(|m| done(key, *m)).collect()),
         },
         Formula::Atom(atom) if timed(atom) => Formula::Atom(at(atom.clone(), state)),
+        // A step of a flow is reached in one instance of the flow: each
+        // activation has its own, as it reads its guards at its own moment.
+        Formula::Atom(Atom::Event { key }) if key.starts_with("reach ") => Formula::Atom(Atom::Event { key: format!("{key} at activation {state}") }),
         Formula::Atom(atom) => Formula::Atom(atom.clone()),
         Formula::And(items) => Formula::And(items.iter().map(|i| place(i, state, completions, untils)).collect()),
         Formula::Or(items) => Formula::Or(items.iter().map(|i| place(i, state, completions, untils)).collect()),
@@ -1268,8 +1272,6 @@ fn has_moment(formula: &Formula) -> bool {
 /// What of a response is kept where the rest of the trace cannot state all of it.
 #[derive(Clone, Copy, PartialEq)]
 enum Kept {
-    /// The completions of required actions.
-    Completions,
     /// Everything about actions: what completes, what does not and what is forbidden.
     Actions,
 }
@@ -1299,6 +1301,41 @@ fn weaken(formula: Formula, positive: bool, kept: Kept) -> Formula {
     }
 }
 
+/// The response to a trigger of the rest, with each action of the rest
+/// read after the first occurrence of the trigger there: `key@rest` becomes
+/// `key after trigger@rest`. `related` maps each such action to the
+/// action of the rest that it is one completion of.
+fn after_trigger(formula: Formula, rest: usize, trigger: &str, related: &mut BTreeMap<String, String>) -> Formula {
+    let suffix = format!("@{rest}");
+    let found = std::cell::RefCell::new(BTreeMap::new());
+    let relate = |key: &str| -> Option<String> {
+        let base = key.strip_suffix(&suffix)?;
+        let after = format!("{base} after {trigger}{suffix}");
+        found.borrow_mut().insert(after.clone(), key.to_string());
+        Some(after)
+    };
+    let replaced = replace(formula, &|atom| match atom {
+        Atom::Act { key } => relate(key).map(|key| Formula::Atom(Atom::Act { key })),
+        Atom::Forbid { key } => relate(key).map(|key| Formula::Atom(Atom::Forbid { key })),
+        Atom::Discouraged { key } => relate(key).map(|key| Formula::Atom(Atom::Discouraged { key })),
+        _ => None,
+    });
+    related.extend(found.into_inner());
+    replaced
+}
+
+/// `true` for the reading of a necessary condition: an alternative between
+/// a state and the prohibition of an action.
+fn only_when(guarantee: &Formula) -> bool {
+    let Formula::Or(parts) = guarantee else { return false };
+    let holds = |part: &Formula, kind: &dyn Fn(&Atom) -> bool| {
+        let mut found = false;
+        part.atoms(true, &mut |atom, _| found |= kind(atom));
+        found
+    };
+    parts.iter().any(|p| holds(p, &|a| matches!(a, Atom::Forbid { .. }))) && parts.iter().any(|p| !holds(p, &|a| matches!(a, Atom::Forbid { .. } | Atom::Act { .. })))
+}
+
 /// `true` when a condition denies a state. At the rest of the trace a state
 /// atom says that the state holds throughout the rest, so its negation says
 /// only that the state fails somewhere there: such a condition does not say
@@ -1318,6 +1355,14 @@ fn occurrence(condition: &Formula) -> bool {
     }
 }
 
+/// `true` for an axiom whose atoms with a moment all stand negated: it
+/// excludes states and requires none.
+fn excludes_only(axiom: &Formula) -> bool {
+    let mut only = true;
+    axiom.atoms(true, &mut |atom, positive| only &= !positive || !timed(atom));
+    only
+}
+
 /// The background of a model at every moment of a trace of `length` moments,
 /// with the order of the times of the moments.
 pub fn unroll_background(model: &Model, length: usize) -> Vec<Formula> {
@@ -1330,9 +1375,37 @@ pub fn unroll_background(model: &Model, length: usize) -> Vec<Formula> {
         if acts {
             background.extend(all.iter().map(|&m| place(axiom, m, &[m], &Untils::new())));
         } else if has_moment(axiom) {
-            background.extend(all[..rest].iter().map(|&m| place(axiom, m, &[m], &Untils::new())));
+            // A state of the rest holds throughout the rest. An axiom that
+            // only excludes states holds there too: two states that never
+            // hold together do not both hold throughout the rest. Any other
+            // axiom about states is not stated there.
+            let upto = if excludes_only(axiom) { rest + 1 } else { rest };
+            background.extend(all[..upto].iter().map(|&m| place(axiom, m, &[m], &Untils::new())));
         } else {
             background.push(axiom.clone());
+        }
+    }
+    // A configuration holds one value over the whole behaviour.
+    if !model.configured.is_empty() {
+        let mut values: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut visit = |atom: &Atom, _: bool| {
+            if let Atom::Val { attr, value } | Atom::Dom { attr, value } = atom {
+                if model.configured.contains(attr) {
+                    values.entry(attr.clone()).or_default().insert(value.clone());
+                }
+            }
+        };
+        for formula in model.background.iter().chain(model.constraints.iter().flat_map(|c| [&c.assume, &c.guarantee])) {
+            formula.atoms(true, &mut visit);
+        }
+        for (attr, values) in &values {
+            for value in values {
+                let first = Formula::Atom(at(Atom::Val { attr: attr.clone(), value: value.clone() }, 0));
+                for moment in 1..=rest {
+                    let later = Formula::Atom(at(Atom::Val { attr: attr.clone(), value: value.clone() }, moment));
+                    background.push(Formula::And(vec![Formula::implies(first.clone(), later.clone()), Formula::implies(later, first.clone())]));
+                }
+            }
         }
     }
     // Each moment has a time, and time does not run backwards.
@@ -1390,7 +1463,43 @@ fn contract_over(model: &Model, c: &crate::reading::model::Constraint, length: u
         return (Formula::True, None);
     }
     // An axiom about terms holds at every moment, as the background does.
+    // What a statement says of individuals stands beside its claim and holds
+    // where the claim does: the facts follow from the claim, and are no
+    // axiom without it.
     if c.kind.is_vocabulary() {
+        // Facts about the individuals under the condition of the statement
+        // are the meaning of the condition, and hold as an axiom: `When an
+        // accepted construct has no supported formal interpretation` says
+        // that such a construct exists. Other facts say what the response
+        // does, and follow from the claim.
+        let id = c.refs.first().map(|r| r.id.as_str());
+        let own = model.constraints.iter().find(|o| matches!(o.kind, crate::reading::model::ConstraintKind::Spec | crate::reading::model::ConstraintKind::Permission) && o.refs.first().map(|r| r.id.as_str()) == id);
+        let of_condition = own.is_some_and(|own| {
+            let mut condition = BTreeSet::new();
+            own.assume.atoms(true, &mut |atom, _| {
+                condition.insert(atom.clone());
+            });
+            let under = |part: &Formula| match part {
+                Formula::Implies(antecedent, _) => {
+                    let mut inside = !condition.is_empty();
+                    antecedent.atoms(true, &mut |atom, _| inside &= condition.contains(atom));
+                    inside
+                }
+                _ => false,
+            };
+            match &c.guarantee {
+                Formula::And(parts) => !parts.is_empty() && parts.iter().all(under),
+                other => under(other),
+            }
+        });
+        if c.kind == crate::reading::model::ConstraintKind::Carried && c.assume != Formula::True && !of_condition {
+            // The claim is the contract of the statement over the trace.
+            let claim = match own {
+                Some(own) => contract_over(model, own, length, complete, known).0,
+                None => unroll_axiom(&c.assume, length),
+            };
+            return (Formula::implies(claim, unroll_axiom(&c.guarantee, length)), None);
+        }
         return (unroll_axiom(&c.guarantee, length), None);
     }
     if let Some(counted) = share_contract(model, c, length, complete, known) {
@@ -1468,6 +1577,10 @@ fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: 
         Activation::Interval { .. } => Reading::Now,
         Activation::Invocation { .. } | Activation::Always => Reading::Sometime,
     });
+    // `shall stop only when the door is open` is read as `C ∨ forbidden`: at
+    // each moment the action needs the state at that moment, and a moment
+    // without the state forbids the action there and nowhere else.
+    let reading = if reading == Reading::Sometime && only_when(&c.guarantee) { Reading::Now } else { reading };
     let mut untils = Untils::new();
     for response in shape.iter().flat_map(|o| &o.responses) {
         if let (ResponseKind::Action { key, .. }, false) = (&response.kind, response.until.is_empty()) {
@@ -1514,11 +1627,34 @@ fn activations_of(model: &Model, c: &crate::reading::model::Constraint, length: 
             // the rest does not tell apart, so they are not stated there. A
             // condition that is no single event may hold at one moment of
             // the rest and fail at the next: it opens nothing there.
+            //
+            // What the response does after its own trigger is told apart
+            // all the same: a completion in the rest after the first
+            // occurrence of the trigger there. A requirement says that one
+            // exists and a prohibition that none does, so two statements
+            // that answer one trigger of the rest in opposite ways
+            // contradict there as they do at each moment.
             Reading::Later if moment == rest => {
                 if !occurrence(&c.assume) {
                     continue;
                 }
-                weaken(place(&c.guarantee, rest, &[rest], &untils), true, Kept::Completions)
+                // `shall not immediately A` forbids A at the one position
+                // after the trigger. The rest holds every later position at
+                // once and has no first one apart: what the prohibition says
+                // there is said by a trigger at an earlier moment, whose next
+                // moment is its own.
+                let mut forbids = false;
+                c.guarantee.atoms(true, &mut |atom, positive| forbids |= positive && matches!(atom, Atom::Forbid { .. }));
+                if forbids && shape.is_some_and(|o| o.responses.iter().any(|r| r.timing == Some(Timing::Immediately))) {
+                    continue;
+                }
+                let placed = place(&c.guarantee, rest, &[rest], &untils);
+                let trigger = place(&c.assume, rest, &[rest], &none).to_string();
+                let mut related: BTreeMap<String, String> = BTreeMap::new();
+                let after = after_trigger(placed, rest, &trigger, &mut related);
+                let mut parts = vec![weaken(after, true, Kept::Actions)];
+                parts.extend(related.into_iter().map(|(after, key)| Formula::implies(Formula::Atom(Atom::Act { key: after }), Formula::Atom(Atom::Act { key }))));
+                Formula::And(parts)
             }
             // The state that a trigger at the last moment requires holds at
             // the first moment of the rest. A state atom of the rest speaks

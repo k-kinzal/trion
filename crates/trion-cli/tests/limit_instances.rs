@@ -11,16 +11,17 @@ fn package(body: &str) -> Fixture {
 }
 
 fn check(body: &str) -> Value {
-    package(body).trion(&["verify", "--json"]).json()
+    package(body).verify(&["--json"]).json()
 }
 
-/// The statements of each contradiction, sorted.
+/// The statements of each conflict that the proof names, sorted: a
+/// contradiction names its statements, an incompatibility names none.
 fn conflicts(report: &Value) -> Vec<Vec<String>> {
     report["diagnostics"]
         .as_array()
         .unwrap()
         .iter()
-        .filter(|d| d["code"] == "contradiction")
+        .filter(|d| d["code"] == "contradiction" || d["code"] == "incompatible")
         .map(|d| {
             let mut ids: Vec<String> = d["refs"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
             ids.sort();
@@ -30,16 +31,35 @@ fn conflicts(report: &Value) -> Vec<Vec<String>> {
         .collect()
 }
 
+fn verdict(report: &Value, obligation: &str) -> Option<String> {
+    verdicts(report).get(obligation).cloned()
+}
+
 fn consistent(body: &str) {
     let report = check(body);
     assert!(conflicts(&report).is_empty(), "{body}\n{report}");
-    assert_eq!(report["consistency"]["status"], "satisfiable", "{body}");
+    assert_eq!(verdict(&report, "consistency").as_deref(), Some("proved"), "{body}\n{report}");
+    assert_eq!(verdict(&report, "compatibility").as_deref(), Some("proved"), "{body}\n{report}");
 }
 
+/// The body without the statements `ids`: each statement is a block that
+/// begins with its label.
+fn without(body: &str, id: &str) -> String {
+    body.split("\n\n").filter(|block| !block.trim_start().starts_with(&format!("[{id}]"))).collect::<Vec<_>>().join("\n\n")
+}
+
+/// The statements describe individuals that no statement gives to the
+/// system: they are assumptions, and together they allow no environment.
+/// The incompatibility names no statements, so each of `members` is shown
+/// to be needed: without it, an environment exists.
 fn contradicts(body: &str, members: &[&str]) {
     let report = check(body);
-    let found = conflicts(&report);
-    assert!(found.iter().any(|ids| members.iter().all(|m| ids.iter().any(|id| id == m))), "{body}\nexpected {members:?}, found {found:?}");
+    assert_eq!(verdict(&report, "compatibility").as_deref(), Some("refuted"), "{body}\n{report}");
+    assert!(report_codes(&report).contains(&"incompatible".to_string()), "{body}\n{report}");
+    for member in members {
+        let rest = check(&without(body, member));
+        assert_eq!(verdict(&rest, "compatibility").as_deref(), Some("proved"), "{body}\nwithout {member}:\n{rest}");
+    }
 }
 
 const ROOMS: &str = "[U1]\nEach room has exactly one owner.\n\n[U2]\nThe owner of each room is a member of the room.\n\n[U3]\nThere is a room.\n";
@@ -73,8 +93,9 @@ fn a_statement_about_some_individual_is_not_about_all_of_them() {
     // One room without an owner and another room with one can both exist.
     consistent("[S1]\nSome room has no owner.\n\n[S2]\nSome room has an owner.\n\n[S3]\nThere is a room.\n");
     // In a domain of one room they cannot.
-    let one = package("[S1]\nSome room has no owner.\n\n[S2]\nSome room has an owner.\n").trion(&["verify", "--json", "--scope", "1"]).json();
+    let one = package("[S1]\nSome room has no owner.\n\n[S2]\nSome room has an owner.\n").verify(&["--json", "--scope", "1"]).json();
     assert_eq!(conflicts(&one).len(), 1, "{one}");
+    assert_eq!(verdict(&one, "compatibility").as_deref(), Some("refuted"), "{one}");
 }
 
 #[test]
@@ -104,13 +125,12 @@ fn a_condition_that_no_individual_can_meet_is_found() {
     // and that expression is its interpretation: the condition cannot be met.
     let report = check(&format!("{denotation}{inclusion}{identity}"));
     // The three statements without a modal verb exclude the condition: it is
-    // no contradiction, and the statement under the condition requires nothing.
-    assert!(conflicts(&report).is_empty(), "{report}");
-    let unreachable = report["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "condition-unreachable").unwrap_or_else(|| panic!("{report}"));
-    let mut named: Vec<&str> = unreachable["refs"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
-    named.sort();
-    assert_eq!(named, ["I1", "I2", "MODEL-TEXT-DENOTATION", "MODEL-UNSUPPORTED"], "{report}");
-    assert!(unreachable["message"].as_str().unwrap().contains("holds in no situation that can occur"), "{unreachable}");
+    // no contradiction, and the statement under the condition requires
+    // nothing. No environment that the descriptions allow meets the
+    // assumption of a statement, and compatibility says so.
+    assert!(!report_codes(&report).contains(&"contradiction".to_string()), "{report}");
+    assert_eq!(verdict(&report, "consistency").as_deref(), Some("proved"), "{report}");
+    assert_eq!(verdict(&report, "compatibility").as_deref(), Some("refuted"), "{report}");
     // Each of the two links is needed: nothing is guessed from the spelling.
     consistent(&format!("{denotation}{inclusion}"));
     consistent(&format!("{denotation}{identity}"));
@@ -129,18 +149,19 @@ fn a_definition_reaches_each_member_that_exists() {
 #[test]
 fn a_result_about_individuals_names_the_size_of_its_domains() {
     let f = package(ROOMS);
-    let text = f.trion(&["verify"]).stdout;
+    let text = f.verify(&[]).stdout;
     assert!(text.contains("domains of 3 individuals"), "{text}");
-    assert!(f.trion(&["verify", "--scope", "2"]).stdout.contains("domains of 2 individuals"));
-    assert_eq!(f.trion(&["verify", "--json"]).json()["consistency"]["bounds"]["scope"], 3);
+    assert!(f.verify(&["--scope", "2"]).stdout.contains("domains of 2 individuals"));
+    assert_eq!(f.verify(&["--json"]).json()["proof"]["subject"]["individuals"], 3);
     // A package that relates no individuals is not bounded by a domain.
-    let plain = package("[A]\nThe API shall stop.\n").trion(&["verify"]).stdout;
+    let plain = package("primitive API\n\n[A]\nThe API shall stop.\n").verify(&[]).stdout;
+    assert!(plain.trim_end().ends_with("\nproved"), "{plain}");
     assert!(!plain.contains("individuals"), "{plain}");
     // A statement that counts four rooms is read over four rooms, whatever bound is asked for.
     let many = package("[P1]\nThere are at least 4 rooms.\n\n[P2]\nEach room has exactly one owner.\n");
-    let report = many.trion(&["verify", "--scope", "2"]).stdout;
-    assert!(report.contains("consistency: consistent") && report.contains("domains of 4 individuals"), "{report}");
-    assert!(!conflicts(&package("[P1]\nThere are at least 4 rooms.\n\n[P2]\nEach room has exactly one owner.\n\n[P3]\nSome room has no owner.\n").trion(&["verify", "--json"]).json()).is_empty());
+    let report = many.verify(&["--scope", "2"]).stdout;
+    assert!(report.contains("obligation consistency (consistency): proved") && report.contains("domains of 4 individuals"), "{report}");
+    assert!(!conflicts(&package("[P1]\nThere are at least 4 rooms.\n\n[P2]\nEach room has exactly one owner.\n\n[P3]\nSome room has no owner.\n").verify(&["--json"]).json()).is_empty());
     // The model shows the individuals.
     let model = f.inspect(&["model"]).stdout;
     assert!(model.contains("x::owner(x::room#1, x::owner#1) → x::member(x::room#1, x::member#1)"), "{model}");

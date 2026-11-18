@@ -17,6 +17,7 @@
 
 #![warn(unreachable_pub)]
 
+pub mod certificate;
 pub mod compare;
 pub mod derive;
 pub mod eval;

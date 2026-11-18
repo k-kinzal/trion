@@ -1,0 +1,10 @@
+; Propositional: (p or q), (p -> r), (q -> r), not r.
+(set-logic QF_UF)
+(declare-const p Bool)
+(declare-const q Bool)
+(declare-const r Bool)
+(assert (or p q))
+(assert (or (not p) r))
+(assert (or (not q) r))
+(assert (not r))
+(check-sat)

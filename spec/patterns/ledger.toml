@@ -87,11 +87,11 @@ lowering = "crates/trion-language/src/reading/model.rs:action_formula"
 evidence = [
     "crates/trion-verification/tests/contradiction.rs::a_permission_or_recommendation_contradicts_a_prohibition",
     "crates/trion-cli/tests/verification_results.rs::a_broken_recommendation_is_not_an_inconsistency",
-    "crates/trion-cli/tests/limitations.rs::the_heaviest_recommendations_that_fit_are_the_ones_to_keep",
+    "crates/trion-cli/tests/limitations.rs::recommendations_that_cannot_all_be_followed_are_reported",
 ]
 claims = ["contract_sat", "situation_total"]
 open = [
-    "W02: a recommendation is not Forbid and not Discouraged; it is soft (reported as recommendation-violation, kept or dropped by weight) and must not be counted as a hard member of contract_sat",
+    "W02: a recommendation is not Forbid and not Discouraged; it is soft (reported as recommendation-violation; no weight ranks it) and must not be counted as a hard member of contract_sat",
     "W06: advice with `before`/`after`/`immediately`/`in a row` has no reading and is rejected (UNRESOLVED_TEMPORAL_SCOPE)",
 ]
 acceptance = ["A17"]
@@ -120,18 +120,18 @@ surface = ["The API may log the call."]
 parser = "crates/trion-language/src/syntax/parse.rs:parse_deontic"
 parse = "accepted"
 meaning = "rule"
-lowering = "crates/trion-language/src/reading/model.rs:action_formula; crates/trion-language/src/reading/priority.rs:apply"
+lowering = "crates/trion-language/src/reading/model.rs:action_formula"
 evidence = [
     "crates/trion-verification/tests/contradiction.rs::a_permission_does_not_oblige",
-    "crates/trion-verification/tests/contradiction.rs::a_narrow_prohibition_overrides_a_permission",
-    "crates/trion-verification/tests/proof_engine.rs::a_general_permission_is_narrowed_in_its_own_formula",
+    "crates/trion-verification/tests/contradiction.rs::a_narrow_prohibition_contradicts_a_permission_where_both_apply",
+    "crates/trion-verification/tests/proof_engine.rs::a_permission_keeps_its_own_formula",
     "crates/trion-cli/tests/key_misreadings.rs::a_permission_of_a_composed_response_is_one_permission",
     "crates/trion-cli/tests/draft_rules.rs::each_speech_act_has_its_own_meaning",
 ]
 claims = ["contract_sat", "situation_total"]
 open = [
     "W03: a permission is the absence of a prohibition (not Forbid(k)); it obliges nothing",
-    "W05: a narrower prohibition of the same action silently narrows a general permission (priority.rs) without an `overrides` line; the narrowed contract must be shown beside the authored one",
+    "W05: no prohibition narrows a permission: where both apply they contradict, and the exception is written into the permission with `, unless`",
 ]
 acceptance = []
 
@@ -706,7 +706,7 @@ lowering = "crates/trion-language/src/reading/model.rs:clause_formula"
 evidence = [
     "crates/trion-verification/tests/contradiction.rs::a_negated_condition_is_the_complement",
     "crates/trion-verification/tests/contradiction.rs::a_condition_can_list_values",
-    "crates/trion-verification/tests/contradiction.rs::a_condition_outside_the_domain_is_unreachable",
+    "crates/trion-verification/tests/contradiction.rs::a_condition_outside_the_domain_holds_vacuously",
 ]
 claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
 open = [
@@ -2291,7 +2291,7 @@ surface = [
 parser = "crates/trion-language/src/document.rs:choice"
 parse = "accepted"
 meaning = "rule"
-lowering = "crates/trion-language/src/reading/model.rs:Composer::flow; crates/trion-verification/src/analysis/flows.rs:check_flow_guards"
+lowering = "crates/trion-language/src/reading/model.rs:Composer::flow; crates/trion-verification/src/analysis/references.rs:build"
 evidence = [
     "crates/trion-cli/tests/language_spec.rs::exclusive_and_complete_guards_pass",
     "crates/trion-cli/tests/language_spec.rs::overlapping_guards_are_an_error",
@@ -2747,8 +2747,9 @@ surface = ["When a request arrives:", "While the door is open:"]
 parser = "crates/trion-language/src/document.rs:block_statement"
 parse = "accepted"
 meaning = "rule"
-lowering = "crates/trion-language/src/document.rs:push_spec; crates/trion-language/src/reading/model.rs:guard_formula"
+lowering = "crates/trion-language/src/document.rs:push_spec; crates/trion-language/src/reading/model.rs:guard_formula; crates/trion-verification/src/analysis/references.rs:Unrolled::distributed"
 evidence = [
+    "crates/trion-verification/tests/proof_engine.rs::an_assumption_in_a_shared_condition_block_is_distributed_to_that_block_only",
     "crates/trion-cli/tests/language_spec.rs::a_shared_context_applies_its_condition_to_each_statement",
     "crates/trion-cli/tests/language_spec.rs::a_shared_context_holds_at_most_one_trigger",
     "crates/trion-cli/tests/document_rules.rs::a_block_shares_its_condition_and_its_subject",
@@ -2760,6 +2761,7 @@ evidence = [
 claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
 open = [
     "W05: the frames of the head are merged into each statement of the block; a definition inside a context is an error; variables of the head are visible in the block",
+    "an assumption sentence in a block is distributed to the guarantee sentences of that block and of the blocks inside it, and to no other; outside every block it is distributed to the whole document",
 ]
 acceptance = []
 
@@ -2853,7 +2855,7 @@ meaning = "rule"
 lowering = "crates/trion-language/src/reading/model.rs:compile; crates/trion-language/src/reading/temporal.rs:obligation; crates/trion-language/src/reading/vocabulary.rs:build_table"
 evidence = [
     "crates/trion-verification/tests/vocabulary_rules.rs::an_uninterpreted_predicate_has_a_signature_an_identity_and_no_axioms",
-    "crates/trion-cli/tests/temporal_rules.rs::an_untriggered_requirement_applies_to_each_invocation_of_its_declared_operation",
+    "crates/trion-cli/tests/temporal_rules.rs::an_untriggered_requirement_applies_to_each_invocation_of_its_action",
 ]
 claims = ["contract_sat", "situation_total", "property_entails"]
 open = [
@@ -2929,16 +2931,16 @@ surface = ["detailed by [D1], [D2]"]
 parser = "crates/trion-language/src/document.rs:details"
 parse = "accepted"
 meaning = "rule"
-lowering = "crates/trion-language/src/reading/meaning.rs:apply; crates/trion-language/src/reading/meaning.rs:check"
+lowering = "crates/trion-verification/src/analysis/references.rs:build"
 evidence = [
-    "crates/trion-cli/tests/limitations.rs::a_statement_holds_exactly_when_its_details_hold",
+    "crates/trion-cli/tests/limitations.rs::the_details_of_a_statement_must_refine_it",
     "crates/trion-cli/tests/engine_keys.rs::a_refinement_stays_out_of_a_proof_that_its_statement_is_not_part_of",
     "crates/trion-cli/tests/engine_keys.rs::a_concept_block_and_a_flow_can_detail_a_statement",
     "crates/trion-cli/tests/grounding_engine.rs::a_statement_with_many_details_is_decided",
 ]
-claims = ["property_entails"]
+claims = []
 open = [
-    "W11: the line declares an equivalence (the statement holds exactly when the conjunction of its details holds), a strong axiom, not a document link; it is a premise of checks and comparisons only and is not searched with the contracts (ConstraintKind::Refinement)",
+    "W11: the line names the reference of the details: that they refine the statement is a proof obligation (refinement/ID, detail-not-refining when refuted), never an axiom",
     "W02: a statement grounded only through `detailed by` passes and is merely listed (`refinement_only`)",
 ]
 acceptance = ["A23"]
@@ -2949,18 +2951,14 @@ group = "priority"
 surface = ["overrides [GENERAL]"]
 parser = "crates/trion-language/src/document.rs:rank"
 parse = "accepted"
-meaning = "rule"
-lowering = "crates/trion-language/src/reading/priority.rs:apply; crates/trion-language/src/reading/priority.rs:check"
+meaning = "rejected"
+lowering = "crates/trion-language/src/reading/priority.rs:check"
 evidence = [
-    "crates/trion-cli/tests/limitations.rs::a_statement_overrides_another_without_editing_it",
-    "crates/trion-cli/tests/limitations.rs::a_priority_names_a_statement_ends_somewhere_and_ranks_a_conflict",
-    "crates/trion-cli/tests/limitations.rs::a_priority_holds_through_a_refinement_and_an_inclusion",
-    "crates/trion-verification/tests/proof_engine.rs::an_overridden_statement_and_a_default_stay_in_every_query",
+    "crates/trion-cli/tests/limitations.rs::a_priority_line_is_rejected_because_the_contracts_are_a_conjunction",
 ]
-claims = ["contract_sat", "situation_total", "property_entails"]
+claims = []
 open = [
-    "W05: the loser's formula is narrowed to where the winner's condition does not hold (the authored condition is kept beside it); a cycle of priorities is reported and nothing is narrowed",
-    "W02: the narrowed contract, not the authored one, enters contract_sat and situation_total",
+    "rejected with priority-unsupported: conjunction is monotone, so no statement changes the contract of another (AGENTS.md, Limits of the Mechanism 3)",
 ]
 acceptance = ["A17"]
 
@@ -2970,15 +2968,14 @@ group = "priority"
 surface = ["default"]
 parser = "crates/trion-language/src/document.rs:rank"
 parse = "accepted"
-meaning = "rule"
-lowering = "crates/trion-language/src/reading/priority.rs:apply"
+meaning = "rejected"
+lowering = "crates/trion-language/src/reading/priority.rs:check"
 evidence = [
-    "crates/trion-cli/tests/limitations.rs::a_default_yields_to_each_more_specific_statement_that_contradicts_it",
-    "crates/trion-verification/tests/proof_engine.rs::an_overridden_statement_and_a_default_stay_in_every_query",
+    "crates/trion-cli/tests/limitations.rs::a_priority_line_is_rejected_because_the_contracts_are_a_conjunction",
 ]
-claims = ["contract_sat", "situation_total", "property_entails"]
+claims = []
 open = [
-    "W05: 'more specific' is decided by solver queries about the conditions; a default yields only to a statement that contradicts it where both apply",
+    "rejected with priority-unsupported: conjunction is monotone, so no statement changes the contract of another (AGENTS.md, Limits of the Mechanism 3)",
 ]
 acceptance = ["A17"]
 
@@ -2988,15 +2985,14 @@ group = "priority"
 surface = ["weight 5"]
 parser = "crates/trion-language/src/document.rs:rank"
 parse = "accepted"
-meaning = "rule"
-lowering = "crates/trion-verification/src/analysis/mod.rs:analyze_from"
+meaning = "rejected"
+lowering = "crates/trion-language/src/reading/priority.rs:check"
 evidence = [
-    "crates/trion-cli/tests/limitations.rs::the_heaviest_recommendations_that_fit_are_the_ones_to_keep",
-    "crates/trion-cli/tests/verification_results.rs::a_broken_recommendation_is_not_an_inconsistency",
+    "crates/trion-cli/tests/limitations.rs::a_priority_line_is_rejected_because_the_contracts_are_a_conjunction",
 ]
 claims = []
 open = [
-    "W02: a weight ranks `should` statements only (an error on any other statement); the heaviest satisfiable set is reported as a preference and never drops a hard statement (A17)",
+    "rejected with priority-unsupported: conjunction is monotone, so no statement changes the contract of another (AGENTS.md, Limits of the Mechanism 3)",
 ]
 acceptance = ["A17"]
 
@@ -3078,7 +3074,7 @@ surface = [
 parser = "crates/trion-language/src/document.rs:check_block"
 parse = "partial"
 meaning = "rule"
-lowering = "crates/trion-verification/src/analysis/blocks.rs:run_checks"
+lowering = "crates/trion-verification/src/analysis/references.rs:build"
 evidence = [
     "crates/trion-cli/tests/language_spec.rs::a_check_with_different_sides_is_refuted",
     "crates/trion-cli/tests/language_spec.rs::a_check_names_existing_statements",
@@ -3106,7 +3102,7 @@ surface = [
 parser = "crates/trion-language/src/document.rs:example_block"
 parse = "accepted"
 meaning = "rule"
-lowering = "crates/trion-verification/src/analysis/blocks.rs:run_examples"
+lowering = "crates/trion-verification/src/analysis/blocks.rs:run_examples_of"
 evidence = [
     "crates/trion-cli/tests/language_spec.rs::a_syntax_example_reports_acceptance_or_its_diagnostic",
     "crates/trion-cli/tests/language_spec.rs::a_comparison_example_classifies_the_candidate",
@@ -3131,16 +3127,17 @@ surface = [
 ]
 parser = "crates/trion-language/src/document.rs:source_block"
 parse = "accepted"
-meaning = "nonnormative"
-lowering = ""
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/references.rs:quoted_references"
 evidence = [
     "crates/trion-cli/tests/sources.rs::a_changed_quote_is_an_error",
     "crates/trion-cli/tests/sources.rs::a_changed_source_is_an_error",
     "crates/trion-cli/tests/sources.rs::coverage_below_the_minimum_fails",
+    "crates/trion-cli/tests/sources.rs::a_quote_that_reads_as_trion_sentences_is_a_reference_of_the_statements_that_cite_it",
 ]
 claims = []
 open = [
-    "W11: a source is evidence of origin; quote matching, sha256 and coverage are checked in trion-cli sources.rs and say nothing about the validity of a statement",
+    "W11: a quote that reads as trion sentences is the reference of the statements that cite it, with an obligation of correctness and one of completeness; any other quote is evidence of origin, and quote matching, sha256 and coverage say nothing about the validity of a statement",
 ]
 acceptance = ["A18"]
 
@@ -3827,10 +3824,12 @@ evidence = [
     "crates/trion-cli/tests/individuals.rs::one_noun_names_one_individual_in_the_condition_and_in_the_response",
     "crates/trion-cli/tests/individuals.rs::a_package_that_declares_no_individuals_keeps_its_reading",
     "crates/trion-cli/tests/individuals.rs::the_record_of_a_reading_states_the_variables_and_what_is_said_of_them",
+    "crates/trion-verification/tests/schematic_contracts.rs::the_size_of_the_domains_changes_no_contract",
+    "crates/trion-verification/tests/schematic_contracts.rs::a_declaration_of_individuals_leaves_the_contract_of_each_sentence_as_it_is",
 ]
 claims = ["background_sat", "contract_sat", "situation_total", "scenario_satisfiable"]
 open = [
-    "W05: a declaration moves the whole package to the reading over individuals (spec/semantics/readings.md); a statement that names a declared type outside the typed fragment is rejected and does not keep its representative reading",
+    "W05: the contract of a sentence is one schematic contract over variables named by their nouns, whatever the size of the domains; the declaration of types is vocabulary: `of` between two declared types is their relation, and a noun that no declaration makes a type names one thing; a statement that names a declared type outside the typed fragment is rejected",
     "W08: every result is within domains of `scope` individuals of each carrier and is not lifted",
 ]
 acceptance = ["A15", "A16"]
@@ -3846,7 +3845,6 @@ parse = "accepted"
 meaning = "rule"
 lowering = "crates/trion-checker/src/scenario.rs:world"
 evidence = [
-    "crates/trion-cli/tests/individuals.rs::the_rooms_example_is_verified_and_each_scenario_is_judged_as_its_requirement_expects",
     "crates/trion-cli/tests/individuals.rs::a_seeded_fault_of_the_reading_is_found_by_a_scenario",
     "crates/trion-cli/tests/individuals.rs::a_scenario_that_is_not_read_is_judged_of_nothing",
 ]
@@ -3880,7 +3878,7 @@ open = [
     "W07: a share is a count of the activations of its statement, in the reference evaluator and in the formulas: each instance at each moment of the trace is one activation, sequential counters count the population, the unanswered and the completed activations, and the bound is compared in whole numbers (temporal.rs:share_contract). The count binds where the behaviour ends with the trace; where it goes on, the counts of the trace are not those of the behaviour and only a bound of all or of none binds",
     "W07: a lower bound counts the activations that the response meets as a requirement; an upper bound counts each activation whose action completes in time, whatever forbids it or advises against it",
     "W07: one measure names one population: statements that share a measure have the same variables and conditions, or the later one is rejected",
-    "W08: a scenario of a hundred postings is judged (examples/rooms/measurements.trion, individuals.rs::a_share_of_a_hundred_postings_is_counted): the formulas are stated for the behaviour, without the activations whose condition fails in it",
+    "W08: a scenario of a hundred postings is judged (individuals.rs::a_share_of_a_hundred_postings_is_counted): the formulas are stated for the behaviour, without the activations whose condition fails in it",
 ]
 acceptance = ["A08", "A09", "A10"]
 

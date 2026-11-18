@@ -1,0 +1,18 @@
+[package]
+name = "smtlib"
+version.workspace = true
+edition.workspace = true
+# The oldest toolchain the library and its doctests have been built and run
+# with (1.79.0); older ones were not tried. The tests use proptest, which may
+# need a newer toolchain.
+rust-version = "1.79"
+description = "The syntax of SMT-LIB 2.7: lexicon, S-expressions, sorts, terms, scripts and command responses, read from text with line and column on every error and printed back to text that reads to an equal value."
+repository = "https://github.com/k-kinzal/trion"
+readme = "README.md"
+keywords = ["smt-lib", "smt", "parser", "formal-methods", "sat"]
+categories = ["parser-implementations", "science"]
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true

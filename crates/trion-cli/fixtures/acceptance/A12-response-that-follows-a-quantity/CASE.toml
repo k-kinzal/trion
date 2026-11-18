@@ -2,7 +2,7 @@ id = "A12"
 title = "A response that follows a quantity of the situation"
 work = "W09"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 The environment decides the load, and [A] requires a capacity above it: for every load some capacity
 is greater. No list of constant capacities answers every load, so a search that tries constants ends
@@ -17,9 +17,8 @@ environment is fixed by the situation.
 [expect]
 verified = true
 
-[expect.claims]
-situation_total = "proved"
-contract_sat = "proved"
+[expect.obligations]
+consistency = "proved"
 
 [baseline]
 commit = "24cab2aa"

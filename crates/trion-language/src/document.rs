@@ -57,6 +57,10 @@ pub struct Spec {
     pub shares_line: bool,
     /// The heads of the enclosing explicit scopes, outermost first.
     pub scopes: Vec<String>,
+    /// The line of each of those heads: two blocks with one head are two
+    /// scopes. An assumption sentence in a block is distributed to the
+    /// guarantee sentences of that block only.
+    pub scope_lines: Vec<usize>,
     /// The elements of the diagram that this statement was written as.
     pub elements: Vec<Element>,
     /// The declared diagram kind of a statement written as an element of that kind.
@@ -69,15 +73,26 @@ pub struct Spec {
     pub default: bool,
     /// `weight N`: how much a recommendation counts when recommendations conflict.
     pub weight: Option<u32>,
+    /// The sentence with composite vocabulary that this statement is one
+    /// part of, as it was written, and the number of the part, from one.
+    /// The sentence of the statement is the simple sentence that the part
+    /// abbreviates: every statement holds a simple sentence.
+    pub abbreviates: Option<(String, usize)>,
 }
 
 impl Spec {
     /// The stable identifier, or the position of a statement without one.
+    /// A part of a sentence with composite vocabulary is named after the
+    /// sentence and its number: `ID/2`.
     pub fn display_id(&self) -> String {
+        let part = |base: String| match &self.abbreviates {
+            Some((_, number)) => format!("{base}/{number}"),
+            None => base,
+        };
         match &self.id {
             Some(id) => id.clone(),
-            None if self.shares_line => format!("{}:{}:{}", self.file, self.line, self.column),
-            None => format!("{}:{}", self.file, self.line),
+            None if self.shares_line => part(format!("{}:{}:{}", self.file, self.line, self.column)),
+            None => part(format!("{}:{}", self.file, self.line)),
         }
     }
 }
@@ -936,6 +951,7 @@ struct Context {
     vars: Vars,
     shared: bool,
     head_text: Vec<String>,
+    head_lines: Vec<usize>,
 }
 
 const LIST_PHRASES: [(&str, ListKind); 4] = [
@@ -1230,6 +1246,8 @@ impl<'a> Parser<'a> {
             self.error("UNSUPPORTED_SEMANTICS", error.to_string(), line, text);
         } else if matches!(error, ParseError::MissingPivot) {
             self.error("MISSING_PREDICATE", error.to_string(), line, text);
+        } else if matches!(error, ParseError::DeniedConjunction) {
+            self.error("composite-not-distributive", error.to_string(), line, text);
         } else if matches!(error, ParseError::UngroupedResponseOperators) {
             self.error("UNGROUPED_RESPONSE_OPERATORS", error.to_string(), line, text);
         } else {
@@ -1310,6 +1328,7 @@ impl<'a> Parser<'a> {
     }
 
     fn push_spec(&mut self, doc: &mut Document, ctx: &Context, id: Option<String>, mut sentence: Sentence, line: usize, parts: Vec<String>, expansion: Option<String>, otherwise: bool) {
+        let authored = sentence.source.clone();
         if ctx.shared {
             if matches!(sentence.core, Core::Definition { .. }) {
                 self.error("definition-in-context", "a definition is declared outside every shared context", line, &sentence.source);
@@ -1326,13 +1345,34 @@ impl<'a> Parser<'a> {
                 return;
             }
         }
+        // Composite vocabulary abbreviates several sentences: each becomes a
+        // statement of its own, and no statement holds composite vocabulary.
+        let simple = match crate::syntax::composite::expand(&sentence) {
+            Ok(simple) => simple,
+            Err(refused) => {
+                self.error("composite-not-distributive", refused.reason, line, &sentence.source);
+                return;
+            }
+        };
         let end_line = self.end_line.max(line);
         let meta = std::mem::take(&mut self.block_meta);
         let elements = std::mem::take(&mut self.block_elements);
         let diagram = self.block_kind.clone();
         let details = std::mem::take(&mut self.block_details);
         let rank = std::mem::take(&mut self.block_rank);
-        doc.specs.push(Spec { overrides: rank.overrides, default: rank.default, weight: rank.weight, details, elements, diagram, id, sentence, meta, file: self.file.to_string(), line, sections: ctx.sections.clone(), parts, expansion, otherwise, column: self.column, end_line, shares_line: self.shares_line, scopes: ctx.head_text.clone() });
+        let composite = simple.len() > 1;
+        if let (true, Some(id)) = (composite, &id) {
+            // The identifier of the sentence is the parent of the identifier of each part.
+            doc.references.push((format!("concept:{id}"), line));
+        }
+        for (number, sentence) in simple.into_iter().enumerate() {
+            let abbreviates = composite.then(|| (authored.clone(), number + 1));
+            let id = match (&id, composite) {
+                (Some(id), true) => Some(format!("{id}/{}", number + 1)),
+                (id, _) => id.clone(),
+            };
+            doc.specs.push(Spec { overrides: rank.overrides.clone(), default: rank.default, weight: rank.weight, details: details.clone(), elements: elements.clone(), diagram: diagram.clone(), id, sentence, meta: meta.clone(), file: self.file.to_string(), line, sections: ctx.sections.clone(), parts: parts.clone(), expansion: expansion.clone(), otherwise, column: self.column, end_line, shares_line: self.shares_line, scopes: ctx.head_text.clone(), scope_lines: ctx.head_lines.clone(), abbreviates });
+        }
     }
 
     /// A statement that ends with `.`, including `If C, then A; otherwise, B.`
@@ -2199,7 +2239,8 @@ impl<'a> Parser<'a> {
                 if ctx.shared {
                     self.error("parse-placement", "a shared context holds statements, action lists, diagrams, contexts, sections, citations, notes and references", line, &text);
                 } else {
-                    doc.controls.push(ControlDecl { name: name.to_string(), by: by.to_string(), file: file.clone(), line });
+                    // `system A, B` declares each listed actor, as `primitive A, B` declares each term.
+                    doc.controls.extend(name.split(',').map(str::trim).filter(|actor| !actor.is_empty()).map(|actor| ControlDecl { name: actor.to_string(), by: by.to_string(), file: file.clone(), line }));
                 }
                 return;
             }
@@ -2349,6 +2390,7 @@ impl<'a> Parser<'a> {
             inner.frames = merged;
         }
         inner.head_text.push(head.to_string());
+        inner.head_lines.push(line);
         self.open();
         if self.closing() {
             self.error("parse-block", "a block holds the lines that are indented more than its header: this one holds none", line, head);

@@ -1,9 +1,4 @@
 namespace main
-[F] When the checker receives a result R, the checker shall follow this flow:
-    step inspect: read R;
-    step tell: publish the success for R;
-    start inspect
-    inspect -> tell
-    finish tell
+primitive checker, result
+[F] When a result arrives, the checker shall read the result.
 [N] The checker should not read the result.
-

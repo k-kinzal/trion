@@ -23,17 +23,17 @@ fn combine(conj: Option<Conj>, mut parts: Vec<Formula>) -> Formula {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ConstraintKind {
     Spec,
-    /// A `may` sentence. A narrower prohibition may override it.
+    /// A `may` sentence: no other statement forbids its action where it
+    /// applies. A prohibition that applies there contradicts it.
     Permission,
     Binding,
     Form,
     /// What a definition, an inclusion, an exclusion or a refinement says
     /// about terms. It holds at every moment and obliges nobody.
     Axiom,
-    /// A statement holds exactly when the statements that detail it hold.
-    /// Every party is itself a statement of the package, so this adds
-    /// nothing to what the package allows: it is a premise of checks and
-    /// comparisons, and it is not searched with the contracts.
+    /// A statement is detailed by other statements. The details must refine
+    /// it, which is a proof obligation and no premise: the relation adds no
+    /// formula to any question.
     Refinement,
     /// What a statement about terms says about the atoms of other
     /// statements, and what a statement says about individuals whose domain
@@ -101,6 +101,15 @@ pub struct Counted {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct Model {
     pub constraints: Vec<Constraint>,
+    /// The states that a feature scope selects (`Where the audit feature is
+    /// included`): a configuration, which holds one value over a whole
+    /// behaviour.
+    #[serde(skip)]
+    pub configured: std::collections::BTreeSet<String>,
+    /// The statements that the reading over the individuals of a bounded
+    /// domain reads: what their predicates and values say is a relation.
+    #[serde(skip)]
+    pub over_instances: std::collections::BTreeSet<String>,
     /// The instances that the statements that bound a share count.
     pub counted: Vec<Counted>,
     /// Axioms that always hold, such as the exclusivity of attribute values.
@@ -1407,9 +1416,11 @@ fn core_formula(core: &Core, scope: &str, guarded: bool, universe: &BTreeMap<Str
                     }).collect());
                 }
                 // `Some room has no owner.` speaks about one individual, and
-                // the representative of the type is not that individual.
+                // the representative of the type is not that individual: of
+                // the type the sentence claims that such a thing exists.
+                // What it says of the individual is read over individuals.
                 if matches!(np.det, Some(Det::Some)) {
-                    return Formula::True;
+                    return exists_formula(np, lex);
                 }
                 let held = Formula::And(vp.items().iter().map(|item| relation_item(np, item, lex)).collect());
                 // `The checker reports the diagnostic.` names its subject: the
@@ -1960,13 +1971,140 @@ pub(crate) fn carry_to_others(model: &mut Model, carried: Vec<(SpecRef, Formula,
     }
 }
 
+/// What a statement claims, as its sentence states it: the guarantee of its
+/// contract, under the condition of the contract. What a declaration of
+/// individuals makes of a statement is said beside its contract, as what
+/// follows from this claim over the declared individuals.
+pub(super) fn claim_of(model: &Model, id: &str) -> Option<Formula> {
+    let contract = model.constraints.iter().find(|c| matches!(c.kind, ConstraintKind::Spec | ConstraintKind::Permission) && c.refs.first().is_some_and(|at| at.id == id))?;
+    Some(if contract.assume == Formula::True { contract.guarantee.clone() } else { Formula::And(vec![contract.assume.clone(), contract.guarantee.clone()]) })
+}
+
+/// The atoms in which two formulas of one shape differ, pairwise, or
+/// nothing when the formulas have different shapes.
+fn renamed_atoms(plain: &Formula, named: &Formula, out: &mut BTreeSet<(Atom, Atom)>) -> bool {
+    match (plain, named) {
+        (Formula::True, Formula::True) => true,
+        (Formula::Atom(a), Formula::Atom(b)) => {
+            if a != b {
+                out.insert((a.clone(), b.clone()));
+            }
+            true
+        }
+        (Formula::Not(a), Formula::Not(b)) => renamed_atoms(a, b, out),
+        (Formula::And(a), Formula::And(b)) | (Formula::Or(a), Formula::Or(b)) => a.len() == b.len() && a.iter().zip(b).all(|(a, b)| renamed_atoms(a, b, out)),
+        (Formula::Implies(a, c), Formula::Implies(b, d)) => renamed_atoms(a, b, out) && renamed_atoms(c, d, out),
+        _ => false,
+    }
+}
+
+/// What a sentence is read as: the kind of its contract, the condition
+/// under which it holds, what it claims, and its temporal shape.
+pub struct Reading {
+    pub kind: ConstraintKind,
+    pub condition: Formula,
+    /// Nothing when the sentence states no claim that a contract holds.
+    pub claim: Option<Formula>,
+    pub temporal: Vec<crate::reading::temporal::Obligation>,
+    /// `true` when the sentence bounds a share of its activations.
+    pub bounds_a_share: bool,
+}
+
+/// Reads one sentence as its contract. The reading is a function of the
+/// sentence, of the branch of a shared context that holds it, and of the
+/// names that the lexicon gives its terms: no other statement and no
+/// declaration of a set takes part in it.
+pub fn read_sentence(sentence: &Sentence, otherwise: bool, reference: &SpecRef, lex: &Lexicon) -> Reading {
+    let alone: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // A bound on a share speaks about the activations as a whole: its
+    // contract is the bound on the quantity of the share, under no
+    // condition of a moment.
+    if matches!(&sentence.core, Core::Deontic { vp, .. } if vp.items().iter().any(|vp| proportion(vp).is_some())) {
+        let mut bounds: Vec<Formula> = Vec::new();
+        if let Some(claim) = claim_formula(sentence, &alone, lex) {
+            claim.atoms(true, &mut |atom, positive| {
+                let about_a_share = match atom {
+                    Atom::Num { attr, .. } => attr.contains(" share of "),
+                    Atom::Lin { terms, .. } => terms.iter().all(|(attr, _)| attr.contains(" share of ")),
+                    _ => false,
+                };
+                if about_a_share {
+                    let bound = Formula::atom(atom.clone());
+                    bounds.push(if positive { bound } else { Formula::not(bound) });
+                }
+            });
+        }
+        return Reading { kind: ConstraintKind::Spec, condition: Formula::True, claim: Some(Formula::And(bounds)), temporal: Vec::new(), bounds_a_share: true };
+    }
+    let temporal = crate::reading::temporal::obligation(sentence, otherwise, reference.clone(), lex).into_iter().collect();
+    let guard = guard_formula(sentence, lex);
+    let condition = if otherwise { Formula::not(guard) } else { guard };
+    let kind = if matches!(sentence.core, Core::Deontic { modal: Modal::May, .. }) { ConstraintKind::Permission } else { ConstraintKind::Spec };
+    Reading { kind, condition, claim: claim_formula(sentence, &alone, lex), temporal, bounds_a_share: false }
+}
+
 /// Compiles a specification set; `scope` is the number of individuals of each
 /// carrier that the statements about individuals are read over.
+///
+/// The sentences are read without the aliases of the set: the contracts of
+/// a sentence follow from the sentence alone. An alias says that two names
+/// name one term, and that is said beside the contracts: for each atom that
+/// an alias renames, the background holds that the atom and the renamed
+/// atom stand together.
 pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
+    let mut model = compile_with(set, &lex.without_aliases(), scope);
+    if !lex.has_aliases() {
+        return model;
+    }
+    // The same sentences with the aliases applied: where a contract differs
+    // from the contract of its sentence, it differs in the names of atoms.
+    let named = compile_with(set, lex, scope);
+    let mut renamed: BTreeSet<(Atom, Atom)> = BTreeSet::new();
+    let mut seen: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for constraint in &model.constraints {
+        let Some(at) = constraint.refs.first() else { continue };
+        // The contracts of one statement and one kind are paired in their order.
+        let key = (format!("{:?}", constraint.kind), at.id.clone());
+        let nth = seen.entry(key).or_default();
+        let other = named.constraints.iter().filter(|other| other.kind == constraint.kind && other.refs.first().is_some_and(|r| r.id == at.id)).nth(*nth);
+        *nth += 1;
+        if let Some(other) = other {
+            if renamed_atoms(&constraint.assume, &other.assume, &mut renamed) {
+                renamed_atoms(&constraint.guarantee, &other.guarantee, &mut renamed);
+            }
+        }
+    }
+    for (plain, alias) in renamed {
+        let (plain, alias) = (Formula::atom(plain), Formula::atom(alias));
+        model.background.push(Formula::And(vec![Formula::implies(plain.clone(), alias.clone()), Formula::implies(alias, plain)]));
+    }
+    // What the statements say of each other under one name of a term: the
+    // values that a statement closes for an attribute, and what one
+    // statement carries to another. It stands beside the contracts, over
+    // the names that the aliases give, and the equivalences above join it
+    // to the contracts.
+    for axiom in named.background {
+        if !model.background.contains(&axiom) {
+            model.background.push(axiom);
+        }
+    }
+    for carried in named.constraints.into_iter().filter(|constraint| constraint.kind == ConstraintKind::Carried) {
+        if !model.constraints.contains(&carried) {
+            model.constraints.push(carried);
+        }
+    }
+    model
+}
+
+/// Compiles a specification set with the names that a lexicon gives.
+fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     // A set that declares the types of its individuals is read over them:
     // each statement about a declared type stands for its instances.
     let grounded = crate::reading::ground::apply(set, lex, scope);
-    let set = grounded.as_ref().map_or(set, |g| &g.set);
+    // The set with each statement about declared types replaced by its
+    // instances. A statement about the domain of the types stays in it: it
+    // is a sentence, and it is read as its sentence states it.
+    let set = grounded.as_ref().map_or(set, |g| &g.with_domain);
     let universe = value_universe(set, lex, &|id| grounded.as_ref().is_some_and(|g| g.claims.contains_key(id)), &|id| grounded.as_ref().is_some_and(|g| g.shares.contains(id)));
     let roles = collect_roles(set);
     let mut model = Model { background: background(&universe), ..Default::default() };
@@ -1985,8 +2123,6 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
             }
         }
     }
-    // A declared predicate is an operation: its signature is its input domain.
-    let operations: crate::reading::temporal::Operations = set.packages.iter().flat_map(|p| &p.documents).flat_map(|d| &d.predicates).map(|p| (base_verb(&lex.canon(&p.name)), p.signature.clone())).collect();
     let alone: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut carried: Vec<(SpecRef, Formula, Vec<Formula>)> = Vec::new();
     let mut closing = universe.clone();
@@ -1996,6 +2132,8 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
         }
     }
 
+    // What a role makes of a statement that activates it, beside the contract.
+    let mut carried_roles: Vec<Constraint> = Vec::new();
     let mut accounted: Option<SpecRef> = None;
     // What each atom of an instance says of a concrete behaviour.
     let mut atoms: Vec<crate::reading::ground::AtomOf> = Vec::new();
@@ -2013,48 +2151,39 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
             }
             for (spec, sentence) in doc.specs.iter().flat_map(|spec| crate::expand::formalized(spec).into_iter().map(move |sentence| (spec, sentence))) {
                 let sentence = &sentence;
+                for frame in sentence.frames.scopes.iter().filter(|f| f.keyword.eq_ignore_ascii_case("where")) {
+                    frame_formula(&frame.keyword, &frame.clause, lex).atoms(true, &mut |atom, _| {
+                        if let Atom::Val { attr, .. } = atom {
+                            model.configured.insert(attr.clone());
+                        }
+                    });
+                }
                 let display = if pkg.is_root { spec.display_id() } else { format!("{}::{}", pkg.name, spec.display_id()) };
                 let reference = SpecRef { id: display, file: spec.file.clone(), line: spec.line, text: sentence.source.clone() };
-                // A statement about the domain of declared types is read over
-                // the individuals, and that is its whole reading.
-                if grounded.as_ref().is_some_and(|g| g.about_the_domain.contains(&reference.id)) {
-                    continue;
-                }
                 if let Some(at) = accounted.replace(reference.clone()) {
                     model.absorb(&at, crate::reading::key::end());
                 }
                 crate::reading::key::begin();
+                // The contract of a sentence is read from the sentence and
+                // from the names of its terms.
+                let read = read_sentence(sentence, spec.otherwise, &reference, lex);
                 // A bound on a share speaks about the activations as a whole:
-                // its contract is the bound on the quantity of the share,
-                // under no condition of a moment. Its conditions select the
-                // population, and the reading over individuals reads them.
-                if grounded.as_ref().is_some_and(|g| g.shares.contains(&reference.id)) {
-                    let mut bounds: Vec<Formula> = Vec::new();
-                    if let Some(claim) = claim_formula(sentence, &alone, lex) {
-                        claim.atoms(true, &mut |atom, positive| {
-                            let about_a_share = match atom {
-                                Atom::Num { attr, .. } => attr.contains(" share of "),
-                                Atom::Lin { terms, .. } => terms.iter().all(|(attr, _)| attr.contains(" share of ")),
-                                _ => false,
-                            };
-                            if about_a_share {
-                                for quantity in atom.symbols() {
-                                    let entry = crate::reading::ground::ShareOf { quantity: quantity.to_string(), statement: reference.id.clone() };
-                                    if !shares.contains(&entry) {
-                                        shares.push(entry);
-                                    }
-                                }
-                                let bound = Formula::atom(atom.clone());
-                                bounds.push(if positive { bound } else { Formula::not(bound) });
+                // its contract is the bound on the quantity of the share.
+                if read.bounds_a_share {
+                    let guarantee = read.claim.unwrap_or(Formula::And(Vec::new()));
+                    guarantee.atoms(true, &mut |atom, _| {
+                        for quantity in atom.symbols() {
+                            let entry = crate::reading::ground::ShareOf { quantity: quantity.to_string(), statement: reference.id.clone() };
+                            if !shares.contains(&entry) {
+                                shares.push(entry);
                             }
-                        });
-                    }
-                    model.constraints.push(Constraint { kind: ConstraintKind::Spec, assume: Formula::True, guarantee: Formula::And(bounds), refs: vec![reference.clone()] });
+                        }
+                    });
+                    model.constraints.push(Constraint { kind: read.kind, assume: read.condition, guarantee, refs: vec![reference.clone()] });
                     continue;
                 }
-                model.temporal.extend(crate::reading::temporal::obligation(sentence, spec.otherwise, reference.clone(), &operations, lex));
-                let guard = guard_formula(sentence, lex);
-                let guard = if spec.otherwise { Formula::not(guard) } else { guard };
+                model.temporal.extend(read.temporal);
+                let guard = read.condition;
                 guard.atoms(true, &mut |a, positive| {
                     if let Atom::Val { attr, value } = a {
                         if positive {
@@ -2073,7 +2202,7 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 // What the statement says alone. An enumeration also excludes the
                 // values that other statements name: that part is carried to them.
                 let of_the_domain = grounded.as_ref().and_then(|g| g.claims.get(&reference.id));
-                let Some(claim) = of_the_domain.cloned().or_else(|| claim_formula(sentence, &alone, lex)) else { continue };
+                let Some(claim) = of_the_domain.cloned().or(read.claim) else { continue };
                 if let (None, Some(closed)) = (of_the_domain, claim_formula(sentence, &closing, lex)) {
                     let extra = beyond(&closed, &claim);
                     if !extra.is_empty() {
@@ -2110,20 +2239,23 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                     }
                     None => claim,
                 };
-                // A sentence that matches a role's activation binds its subject to the role.
-                let mut parts = vec![claim];
+                // A sentence that matches a role's activation binds its subject
+                // to the role. The role is declared beside the sentence: what
+                // it makes of the sentence is no part of the contract of the
+                // sentence, and it stands beside the contract, as what
+                // follows from the claim of the sentence.
+                let mut bound_roles: Vec<Formula> = Vec::new();
                 for info in &roles {
                     for activation in &info.role.activations {
                         for bound in match_core(&activation.core, &sentence.core) {
                             if let Some(subject) = bound.get(SUBJECT_VARIABLE) {
-                                parts.push(Formula::atom(Atom::Role { subject: lex.resolve(&lex.canon(subject)), role: info.qualified.clone() }));
+                                bound_roles.push(Formula::atom(Atom::Role { subject: lex.resolve(&lex.canon(subject)), role: info.qualified.clone() }));
                             }
                         }
                     }
                 }
-                let guarantee = if parts.len() == 1 { parts.remove(0) } else { Formula::And(parts) };
-                let is_permission = matches!(sentence.core, Core::Deontic { modal: Modal::May, .. });
-                let kind = if is_permission { ConstraintKind::Permission } else { ConstraintKind::Spec };
+                let guarantee = claim;
+                let kind = read.kind;
                 // An instance holds of its individuals: of those that are of
                 // the named types and stand in the named relations.
                 let assume = match grounded.as_ref().and_then(|g| g.guards.get(&reference.id)) {
@@ -2148,7 +2280,12 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                     model.counted.push(Counted { statement: statement.clone(), constraint: Constraint { kind, assume, guarantee, refs: vec![reference.clone()] } });
                     continue;
                 }
+                if !bound_roles.is_empty() {
+                    let claimed = if assume == Formula::True { guarantee.clone() } else { Formula::And(vec![assume.clone(), guarantee.clone()]) };
+                    carried_roles.push(Constraint { kind: ConstraintKind::Carried, assume: claimed, guarantee: Formula::And(bound_roles), refs: vec![reference.clone()] });
+                }
                 model.constraints.push(Constraint { kind, assume, guarantee, refs: vec![reference.clone()] });
+                model.constraints.append(&mut carried_roles);
 
                 // A malformed name cannot exist in a role's specification set,
                 // whatever the sentence's conditions are.
@@ -2286,7 +2423,14 @@ pub fn compile(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     if let Some(grounded) = grounded {
         // A relation or a kind that a statement states of its individuals.
         for direct in grounded.direct {
-            model.constraints.push(Constraint { kind: ConstraintKind::Axiom, assume: direct.assume, guarantee: direct.guarantee, refs: vec![direct.reference] });
+            // What the statement says of the declared individuals follows
+            // from what its sentence claims: it stands beside the contract.
+            let (kind, assume) = match claim_of(&model, &direct.reference.id) {
+                Some(claim) if direct.assume == Formula::True => (ConstraintKind::Carried, claim),
+                Some(claim) => (ConstraintKind::Carried, Formula::And(vec![claim, direct.assume])),
+                None => (ConstraintKind::Axiom, direct.assume),
+            };
+            model.constraints.push(Constraint { kind, assume, guarantee: direct.guarantee, refs: vec![direct.reference] });
         }
         model.instance_scope = Some(grounded.individuals.scope);
         let mut individuals = grounded.individuals;

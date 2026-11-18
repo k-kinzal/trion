@@ -6,7 +6,7 @@ use common::*;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use trion_solver::Status;
-use trion_verification::{analyze, smt2, Bounds, Options};
+use trion_verification::{proof::script_of, proof_obligations, analyze, Options};
 
 #[test]
 fn every_sentence_becomes_a_contract() {
@@ -34,7 +34,8 @@ fn a_large_independent_set_solves_quickly() {
     }
     src.push_str("kind is A and B.\nkind is C.\n");
     let started = std::time::Instant::now();
-    assert_eq!(run_codes(&src), ["contradiction"]);
+    // The two descriptions of the kind exclude each other: no environment.
+    assert_eq!(run_codes(&src), ["incompatible"]);
     assert!(started.elapsed().as_secs() < 60, "{:?}", started.elapsed());
 }
 
@@ -60,20 +61,26 @@ fn an_external_solver_agrees_with_the_built_in_solver() {
     ];
     let mut compared = 0;
     for src in cases {
-        // The built-in solver decides the status; the external one is asked
-        // the formulas that the status is decided over.
+        // The built-in solver decides each question of each obligation, as
+        // `trioc` does; the external one is asked the same questions.
         let set = set(src);
         let analysis = analyze(&set, &Options::default());
-        let expected = match analysis.consistency.status {
-            Status::Satisfiable => "sat",
-            Status::Unsatisfiable => "unsat",
-            Status::Unknown => panic!("the built-in solver left {src} open"),
-        };
-        // A cross-check that did not run is no cross-check that agreed: a
-        // run without the external solver fails, and it does not pass.
-        let answer = z3(&smt2(&set, &analysis, Bounds::default().trace_length)).expect("z3 did not answer: the cross-check needs `z3` on the path, and a run without it compares nothing");
-        assert_eq!(answer, expected, "{src}");
-        compared += 1;
+        let stated = proof_obligations(&set, &analysis, analysis.bounds.trace_length);
+        let inst = stated.instance(None);
+        for obligation in &stated.obligations {
+            for asked in stated.decide(&inst, obligation).asked {
+                let expected = match asked.answer.status {
+                    Status::Satisfiable => "sat",
+                    Status::Unsatisfiable => "unsat",
+                    Status::Unknown => panic!("the built-in solver left `{}` of {src} open", asked.name),
+                };
+                // A cross-check that did not run is no cross-check that agreed: a
+                // run without the external solver fails, and it does not pass.
+                let answer = z3(&script_of(&[asked.formulas.as_slice()])).expect("z3 did not answer: the cross-check needs `z3` on the path, and a run without it compares nothing");
+                assert_eq!(answer, expected, "{src}: {}", asked.name);
+                compared += 1;
+            }
+        }
     }
-    assert_eq!(compared, cases.len());
+    assert!(compared >= cases.len(), "{compared}");
 }

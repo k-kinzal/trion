@@ -1,0 +1,6 @@
+**
+!package.json
+!README.md
+!language-configuration.json
+!syntaxes/trion.tmLanguage.json
+!out/extension.js

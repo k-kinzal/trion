@@ -1,0 +1,6 @@
+(set-logic QF_UF)
+(declare-const p Bool)
+(declare-const q Bool)
+(assert (! (xor p q) :named A))
+(assert (let ((z (and p q))) z))
+(check-sat)

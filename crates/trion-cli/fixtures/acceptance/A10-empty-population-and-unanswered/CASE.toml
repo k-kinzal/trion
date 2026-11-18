@@ -2,7 +2,7 @@ id = "A10"
 title = "The denominator of a share holds what was not answered, and an empty population has no share"
 work = "W07"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 In UNANSWERED two messages are posted and one is stored in time. The posting without a response
 stays in the population: one of two is 50 percent, and [MOST] asks for 75. Counting only the
@@ -16,9 +16,9 @@ claim of the scenario is `proved` for what the behaviour fails, and its evidence
 [expect]
 verified = true
 
-[expect.claims]
-"scenario_satisfiable:scenario UNANSWERED" = "refuted"
-"scenario_satisfiable:scenario EMPTY" = "proved"
+[expect.obligations]
+"scenario/UNANSWERED" = "proved"
+"scenario/EMPTY" = "proved"
 
 [baseline]
 commit = "24cab2aa"

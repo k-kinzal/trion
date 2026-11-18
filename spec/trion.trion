@@ -3,17 +3,22 @@ package trion edition "0.2.0-draft.1"
 include "sentences.trion"
 include "words.trion"
 include "composition.trion"
+include "catalog.trion"
 include "verification.trion"
 include "evidence.trion"
 include "proof.trion"
 include "documents.trion"
 include "tool.trion"
+include "limits.trion"
 
 namespace trion:
     use formal
     use software
 
     primitive person, problem, readability, rigor, system, source
+
+    system trion processor, trion command, trioc command, language server, trion language, language rule, metatheoretic proof, proof obligation, specification consistency proof obligation, citation, section, missing case that trion processor report, trusted base member
+    environment person, external proof checker
 
     section "What trion is":
         The trion language means a formal specification language that is a controlled natural language.
@@ -24,12 +29,16 @@ namespace trion:
 
         Each statement has exactly one formal meaning.
         The trion language has a strict syntax and a formal semantics.
-        The trion processor means the program that reads a specification and verifies that specification.
+        The trion processor means the program that reads a specification and converts that specification.
+        The theory of contracts means the theory of assume-guarantee contracts.
 
-        A specification has consistency, completeness, and expected properties.
+        A specification has consistency, compatibility, correctness, and completeness.
 
-        [TRION-VERIFIABLE]
-        The trion processor shall verify the consistency, the completeness, and the expected properties of each specification.
+        [TRION-COMPILER]
+        The trion processor shall convert each specification into the proof obligations of the consistency, the compatibility, the correctness, and the completeness of the specification.
+
+        [TRION-THEORY]
+        The trion processor shall follow the theory of contracts.
 
     section "A specification is a document":
         Each specification describes a system.

@@ -5,6 +5,7 @@
 //! `Predicate::Enumeration`, which declares the closed set of an attribute.
 
 pub mod ast;
+pub mod composite;
 mod forms;
 pub(crate) mod parse;
 mod reference;

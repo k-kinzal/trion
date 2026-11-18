@@ -2,7 +2,7 @@ id = "A16"
 title = "Each message has a choice of its own"
 work = "W05"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 [A] holds for each message, and the choice between storing and rejecting stands inside the
 statement: for each message some alternative is taken, and two messages may take different ones
@@ -17,9 +17,9 @@ statement is outside the typed fragment and is rejected.
 [expect]
 verified = true
 
-[expect.claims]
-"scenario_satisfiable:scenario EACH-ITS-OWN" = "proved"
-"scenario_satisfiable:scenario ONE-LEFT-OUT" = "refuted"
+[expect.obligations]
+"scenario/EACH-ITS-OWN" = "proved"
+"scenario/ONE-LEFT-OUT" = "proved"
 
 [baseline]
 commit = "24cab2aa"

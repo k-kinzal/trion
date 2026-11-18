@@ -8,7 +8,7 @@ use common::*;
 const HEAD: &str = "primitive collection\nprimitive declaration\nprimitive constraint\nprimitive report\nprimitive summary\nprimitive user\nprimitive checker\nprimitive file\nprimitive author\nprimitive subject\nprimitive service\nprimitive room\nprimitive name\nprimitive request\n\n";
 
 fn check(text: &str) -> serde_json::Value {
-    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json", "a.trion"]).json()
 }
 
 fn model(text: &str) -> String {
@@ -31,6 +31,12 @@ fn contradicts(text: &str) {
     assert!(codes(text).iter().any(|c| c == "contradiction"), "no contradiction in:\n{text}\n{:?}", rejected(text));
 }
 
+/// The statements describe and none requires: each is an assumption, and
+/// assumptions that cannot all hold leave no environment.
+fn incompatible(text: &str) {
+    assert!(codes(text).iter().any(|c| c == "incompatible"), "no incompatibility in:\n{text}\n{:?}", rejected(text));
+}
+
 fn consistent(text: &str) {
     let found = rejected(text);
     assert!(found.is_empty(), "{text}\n{found:?}");
@@ -39,7 +45,7 @@ fn consistent(text: &str) {
 #[test]
 fn a_definition_includes_its_term_in_the_kind_that_it_names() {
     let definition = "[D]\nA specification means a collection of declarations and constraints.\n";
-    contradicts(&format!("{definition}\n[N]\nNo specification is a collection.\n"));
+    incompatible(&format!("{definition}\n[N]\nNo specification is a collection.\n"));
     // The list after `of` names the owners of one kind: the definition names no second kind.
     consistent(definition);
     consistent("[N]\nNo specification is a collection.\n");
@@ -55,8 +61,8 @@ fn the_clause_of_a_kind_is_a_property_of_each_member() {
 #[test]
 fn each_alternative_kind_is_a_kind_of_the_term() {
     let definition = "[K]\nA notice means a report or a summary.\n";
-    contradicts(&format!("{definition}\n[L]\nNo report is a notice.\n"));
-    contradicts(&format!("{definition}\n[L]\nNo summary is a notice.\n"));
+    incompatible(&format!("{definition}\n[L]\nNo report is a notice.\n"));
+    incompatible(&format!("{definition}\n[L]\nNo summary is a notice.\n"));
     consistent(definition);
 }
 
@@ -141,7 +147,7 @@ fn a_count_of_owners_above_one_is_rejected() {
 #[test]
 fn a_denial_of_a_pair_is_read_over_individuals_or_rejected() {
     // Two rooms with one name are denied.
-    contradicts("[P]\nNo two rooms have the same name.\n\n[C]\nThere are exactly 2 rooms.\n\n[N]\nThere is exactly 1 name.\n\n[E]\nEach room has a name.\n");
+    incompatible("[P]\nNo two rooms have the same name.\n\n[C]\nThere are exactly 2 rooms.\n\n[N]\nThere is exactly 1 name.\n\n[E]\nEach room has a name.\n");
     // The statement denies no room a name.
     consistent("[P]\nNo two rooms have the same name.\n\n[E]\nEach room has a name.\n");
     // A pair among the things of an owner needs a relation of three things.

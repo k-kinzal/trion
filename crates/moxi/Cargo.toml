@@ -1,0 +1,20 @@
+[package]
+name = "moxi"
+version.workspace = true
+edition.workspace = true
+# The oldest toolchain this crate has been built and tested with (1.79.0):
+# the library, its doctests and every test except tests/properties.rs, which
+# needs proptest; Cargo 1.79 did not resolve proptest offline, so that file
+# was run with 1.92. Older toolchains were not tried.
+rust-version = "1.79"
+description = "Reading and writing MoXI, the model checking intermediate language: abstract syntax, reader and printer for systems, queries and check-system responses over SMT-LIB terms."
+repository = "https://github.com/k-kinzal/trion"
+readme = "README.md"
+keywords = ["moxi", "model-checking", "smt-lib", "parser", "formal-methods"]
+categories = ["parser-implementations", "science"]
+
+[dependencies]
+smtlib.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

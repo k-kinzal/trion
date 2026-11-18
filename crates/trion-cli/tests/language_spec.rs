@@ -6,7 +6,7 @@ use common::*;
 use serde_json::Value;
 
 fn check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn codes(text: &str) -> Vec<String> {
@@ -17,7 +17,7 @@ fn run(args: &[&str], text: &str) -> String {
     let f = Fixture::new(&[("a.trion", text)]);
     let mut all = args.to_vec();
     all.push("a.trion");
-    let r = f.trion(&all);
+    let r = f.verify(&all);
     format!("{}{}", r.stdout, r.stderr)
 }
 
@@ -40,7 +40,9 @@ fn a_section_groups_statements_without_meaning() {
 #[test]
 fn a_shared_context_applies_its_condition_to_each_statement() {
     let text = "When the API receives a call:\n    [A] the API shall log the call.\n    [B] the API shall not log the call.\n";
-    assert_eq!(codes(text), ["contradiction"]);
+    // A trigger that the system controls and that nothing requires leaves both
+    // statements vacuous; where the environment decides it they contradict.
+    assert_eq!(codes(&text.replace("When the API receives a call", "When a client sends a call")), ["contradiction"]);
     let model = view(&["model"], text);
     assert!(model.contains("Event(API receive call)"), "{model}");
 }
@@ -67,7 +69,7 @@ fn a_reference_names_an_existing_statement() {
 #[test]
 fn identifiers_are_unique_in_a_package() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "[A] The API shall stop.\n"), ("b.trion", "namespace p.other:\n    [A] The bell shall ring.\n")]);
-    assert_eq!(analysis_codes(&f.trion(&["verify", "--json"]).json()), ["DUPLICATE_ID"]);
+    assert_eq!(analysis_codes(&f.verify(&["--json"]).json()), ["DUPLICATE_ID"]);
 }
 
 // Response composition.
@@ -140,12 +142,15 @@ fn an_exact_condition_is_both_sufficient_and_necessary() {
 fn an_existence_statement_makes_a_universal_rule_bite() {
     let rules = "Each source document has exactly one source identity.\nEach source document has exactly zero source identities.\n";
     assert!(codes(rules).is_empty(), "an empty domain satisfies both");
-    assert_eq!(codes(&format!("There is a source document D.\n{rules}")), ["contradiction"]);
+    // The statements describe and none requires: they are assumptions, and
+    // assumptions that cannot all hold leave no environment.
+    assert_eq!(codes(&format!("There is a source document D.\n{rules}")), ["incompatible"]);
 }
 
 #[test]
 fn relation_cardinalities_compose() {
-    assert_eq!(codes("There is a user U.\nEach user has at most one account.\nEach user has at least two accounts.\n"), ["contradiction"]);
+    // Descriptions only: a conflict among assumptions leaves no environment.
+    assert_eq!(codes("There is a user U.\nEach user has at most one account.\nEach user has at least two accounts.\n"), ["incompatible"]);
     assert!(codes("There is a user U.\nEach user has at most two accounts.\nEach user has at least two accounts.\n").is_empty());
 }
 
@@ -157,14 +162,14 @@ fn a_statement_outside_controlled_english_is_rejected() {
 
 // Flows.
 
-const FLOW_HEAD: &str = "[F] When the checker receives a result R, the checker shall follow this flow:\n    step inspect: read R;\n    step good: publish the success for R;\n    step bad: publish the failure for R;\n    start inspect\n";
+const FLOW_HEAD: &str = "primitive checker, result, success, failure, count, status\n[F] When the checker receives a result R, the checker shall follow this flow:\n    step inspect: read R;\n    step good: publish the success for R;\n    step bad: publish the failure for R;\n    start inspect\n";
 
 #[test]
 fn a_flow_reads_as_its_ordered_actions() {
     let text = "[T]\nWhen the compiler receives a resolved specification S,\nthe compiler shall perform the following actions in order:\n    construct the formal model of S;\n    check the formal model of S;\n[F]\nWhen the compiler receives a resolved specification S,\nthe compiler shall follow this flow:\n    step model: construct the formal model of S;\n    step verify: check the formal model of S;\n    start model\n    model -> verify\n    finish verify\ncheck SAME:\n    relation equivalent\n    left [T]\n    right [F]\n    using definitions\n";
     let report = check(text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["checks"][0]["result"], "proved");
+    assert_eq!(verdicts(&report)["check/SAME"], "proved", "{report}");
 }
 
 #[test]
@@ -217,14 +222,14 @@ const CONCEPT: &str = "[TEXT-A]\nEach specification contains zero or more normat
 fn a_concept_diagram_is_equivalent_to_its_sentences() {
     let report = check(&format!("{CONCEPT}check SAME:\n    relation equivalent\n    left [TEXT-A], [TEXT-B]\n    right [C]\n    using definitions\n"));
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["checks"][0]["result"], "proved");
+    assert_eq!(verdicts(&report)["check/SAME"], "proved", "{report}");
 }
 
 #[test]
 fn a_check_with_different_sides_is_refuted() {
     let report = check(&format!("{CONCEPT}check DIFFERENT:\n    relation equivalent\n    left [TEXT-A]\n    right [C]\n    using definitions\n"));
     assert_eq!(report_codes(&report), ["check-refuted"]);
-    assert_eq!(report["checks"][0]["result"], "refuted");
+    assert_eq!(verdicts(&report)["check/DIFFERENT"], "refuted", "{report}");
 }
 
 #[test]
@@ -250,9 +255,12 @@ fn example(kind: &str, fields: &str) -> String {
     format!("[NOTE-TEXT]\nWhen the checker finds a contradiction C,\nthe checker shall perform all of the following actions:\n    record C;\n    notify the author about C;\n[NOTE-FLOW]\nWhen the checker finds a contradiction C,\nthe checker shall follow this flow:\n    step keep: record C;\n    step tell: notify the author about C;\n    start keep\n    keep -> tell\n    finish tell\nexample E:\n    kind {kind}\n    {fields}")
 }
 
+/// The codes of the report and the report. A syntax or reading example
+/// demonstrates the conversion and is listed with `demonstrations`; a
+/// consistency or comparison example is the obligation `example/E`.
 fn example_outcome(kind: &str, fields: &str) -> (Vec<String>, Value) {
     let report = check(&example(kind, fields));
-    (report_codes(&report), report["examples"][0].clone())
+    (report_codes(&report), report)
 }
 
 /// As `codes`, reading the diagnostics of the analysis alone: no finding of
@@ -267,14 +275,14 @@ fn codes_of_the_analysis(text: &str) -> Vec<String> {
 #[allow(dead_code)]
 fn example_outcome_of_the_analysis(kind: &str, fields: &str) -> (Vec<String>, Value) {
     let report = check(&example(kind, fields));
-    (analysis_codes(&report), report["examples"][0].clone())
+    (analysis_codes(&report), report)
 }
 
 #[test]
 fn a_syntax_example_reports_acceptance_or_its_diagnostic() {
-    let (found, outcome) = example_outcome("syntax", "    form statement\n    input \"The parser shall preserve source locations.\"\n    expect accepted\n");
+    let (found, report) = example_outcome("syntax", "    form statement\n    input \"The parser shall preserve source locations.\"\n    expect accepted\n");
     assert!(found.is_empty(), "{found:?}");
-    assert_eq!(outcome["observed"], "accepted");
+    assert_eq!(report["demonstrations"][0]["observed"], "accepted", "{report}");
     let (found, _) = example_outcome("syntax", "    form statement\n    input \"The trion language for every EARS pattern.\"\n    expect rejected \"MISSING_PREDICATE\"\n");
     assert!(found.is_empty(), "{found:?}");
     let (found, _) = example_outcome("syntax", "    form fragment\n    input \"\"\"\nnamespace x:\n    source R:\n        title \"t\"\n        locator \"l\"\n        quote Q \"仕様記述言語を作成します。\"\n\"\"\"\n    expect accepted\n");
@@ -283,16 +291,19 @@ fn a_syntax_example_reports_acceptance_or_its_diagnostic() {
 
 #[test]
 fn a_comparison_example_classifies_the_candidate() {
-    let (found, outcome) = example_outcome("comparison", "    base [NOTE-TEXT]\n    candidate [NOTE-FLOW]\n    using definitions\n    expect extension\n");
+    let (found, report) = example_outcome("comparison", "    base [NOTE-TEXT]\n    candidate [NOTE-FLOW]\n    using definitions\n    expect extension\n");
     assert!(found.is_empty(), "{found:?}");
-    assert_eq!(outcome["observed"], "extension");
+    assert_eq!(verdicts(&report)["example/E"], "proved", "{report}");
     let (found, _) = example_outcome("comparison", "    base [NOTE-FLOW]\n    candidate [NOTE-TEXT]\n    using definitions\n    expect redundant\n");
     assert!(found.is_empty(), "{found:?}");
 }
 
 #[test]
 fn a_consistency_example_uses_only_its_input_and_definitions() {
-    let (found, _) = example_outcome("consistency", "    input \"\"\"\nThere is a source document D.\nEach source document has exactly one source identity.\nEach source document has exactly zero source identities.\n\"\"\"\n    expect inconsistent\n");
+    // Requirements that cannot both be kept: descriptions alone would be
+    // assumptions, and their conflict an incompatibility, which no
+    // consistency example states.
+    let (found, _) = example_outcome("consistency", "    input \"\"\"\nThere is a source document D.\nThe checker shall keep each source document.\nThe checker shall not keep a source document.\n\"\"\"\n    expect inconsistent\n");
     assert!(found.is_empty(), "{found:?}");
     let (found, _) = example_outcome("consistency", "    input \"The checker shall not record the contradiction.\"\n    expect consistent\n");
     assert!(found.is_empty(), "the package's own rules are excluded: {found:?}");
@@ -300,9 +311,13 @@ fn a_consistency_example_uses_only_its_input_and_definitions() {
 
 #[test]
 fn an_unmet_expectation_fails_and_keeps_both_results() {
-    let (found, outcome) = example_outcome("comparison", "    base [NOTE-TEXT]\n    candidate [NOTE-FLOW]\n    using definitions\n    expect redundant\n");
+    let (found, report) = example_outcome("comparison", "    base [NOTE-TEXT]\n    candidate [NOTE-FLOW]\n    using definitions\n    expect redundant\n");
     assert_eq!(found, ["example-failed"]);
-    assert_eq!((outcome["expected"].as_str(), outcome["observed"].as_str()), (Some("redundant"), Some("extension")));
+    // The obligation asks whether the expected class holds and is refuted;
+    // the class that holds instead is no part of the result.
+    assert_eq!(verdicts(&report)["example/E"], "refuted", "{report}");
+    let proposition = report["proof"]["results"].as_array().unwrap().iter().find(|r| r["obligation"] == "example/E").unwrap()["proposition"].as_str().unwrap().to_string();
+    assert!(proposition.contains("redundant"), "{proposition}");
 }
 
 #[test]
@@ -338,6 +353,9 @@ fn the_glossary_is_generated_with_the_origin_of_each_term() {
 #[test]
 fn the_check_summary_counts_checks_and_examples() {
     let text = format!("{CONCEPT}check SAME:\n    relation equivalent\n    left [TEXT-A], [TEXT-B]\n    right [C]\n    using definitions\nexample E:\n    kind syntax\n    form statement\n    input \"The API shall stop.\"\n    expect accepted\n");
-    let out = run(&["verify"], &text);
-    assert!(out.contains("1/1 checks proved, 1 examples run"), "{out}");
+    let out = run(&[], &text);
+    assert!(out.contains("obligation check/SAME (check): proved") && out.contains("3 obligations: 3 proved, 0 refuted, 0 unproved"), "{out}");
+    // The syntax example demonstrates the conversion and is no obligation.
+    let report = check(&text);
+    assert_eq!(report["demonstrations"].as_array().unwrap().len(), 1, "{report}");
 }

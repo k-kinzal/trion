@@ -7,7 +7,7 @@ use common::*;
 use serde_json::Value;
 
 fn check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn codes(text: &str) -> Vec<String> {
@@ -67,7 +67,7 @@ fn an_enumeration_grounds_its_values() {
 
 /// A package of `count` rules that one statement is detailed by.
 fn refined(count: usize) -> String {
-    let mut text = String::from("[TOP] The tool shall keep the contract.\n    detailed by ");
+    let mut text = String::from("[TOP] When the event0 occurs, the tool shall record the step0.\n    detailed by ");
     text.push_str(&(0..count).map(|i| format!("[D{i}]")).collect::<Vec<_>>().join(", "));
     text.push('\n');
     for i in 0..count {
@@ -83,22 +83,30 @@ fn a_refinement_stays_out_of_a_proof_that_its_statement_is_not_part_of() {
     let started = std::time::Instant::now();
     let report = check(&text);
     assert!(analysis_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["checks"][0]["result"], "proved");
-    assert_eq!(report["consistency"]["status"], "satisfiable");
+    let verdicts = verdicts(&report);
+    assert_eq!(verdicts.get("check/SAME").map(String::as_str), Some("proved"), "{report}");
+    assert_eq!(verdicts.get("consistency").map(String::as_str), Some("proved"), "{report}");
     assert!(started.elapsed().as_secs() < 20, "the check took {:?}", started.elapsed());
-    // The refinement still carries a conflict with a detail to the detailed statement.
+    // The details refine the statement, and a conflict with a detail is found.
+    assert_eq!(verdicts.get("refinement/TOP").map(String::as_str), Some("proved"), "{report}");
     let conflict = check(&format!("{text}[N] When the event3 occurs, the tool shall not record the step3.\n"));
     assert_eq!(analysis_codes(&conflict), ["contradiction"]);
-    assert!(conflict["diagnostics"][0]["message"].as_str().unwrap().contains("TOP"), "{conflict}");
+    assert!(conflict["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "contradiction" && d["refs"].as_array().unwrap().iter().any(|r| r["id"] == "D3")), "{conflict}");
 }
 
 #[test]
 fn a_concept_block_and_a_flow_can_detail_a_statement() {
     let text = "[A] The model shall keep the structure.\n    detailed by [C], [F]\n[C] concept:\n    [C/a] each order -> has -> exactly one buyer;\n[F] When a request arrives, the API shall follow this flow:\n    step check: validate the request;\n    start check\n    finish check\n[T] There is an order.\n";
-    assert!(codes_of_the_analysis(text).is_empty(), "{:?}", codes_of_the_analysis(text));
+    // The details are read; that they do not imply the abstract statement
+    // is reported, and, since a document that keeps both exists, that a
+    // requirement of the statement is missing from its details.
+    assert_eq!(codes_of_the_analysis(text), ["detail-not-refining", "detail-incomplete"]);
+    // The concept and [N] describe orders, which no statement gives to the
+    // system: they are assumptions, and together they allow no environment.
+    // (The engine named the detailed statement `A` in its message; the
+    // incompatibility names no statement.)
     let conflict = check(&format!("{text}[N] Each order has no buyer.\n"));
-    assert_eq!(analysis_codes(&conflict), ["contradiction"]);
-    assert!(conflict["diagnostics"][0]["message"].as_str().unwrap().contains("`A`"), "{conflict}");
+    assert!(analysis_codes(&conflict).contains(&"incompatible".to_string()), "{conflict}");
     assert_eq!(codes_of_the_analysis("[A] The model shall keep the structure.\n    detailed by [MISSING]\n"), ["UNRESOLVED_REFERENCE"]);
 }
 
@@ -107,9 +115,9 @@ fn a_control_declaration_reaches_the_namespaces_that_use_it() {
     let manifest = "[package]\nname = \"p\"\nentry = \"p.trion\"\n";
     let files = |declared: &str, used: &str| {
         let base = format!("package p edition \"1\"\n\nnamespace p.base\n{declared}A helper means a part of the system.\n\nnamespace p.app\n{used}A helper means a part of the application.\n[W] When the helper finishes, the API shall log the result.\n");
-        Fixture::raw(&[("trion.toml", manifest), ("p.trion", &base)]).trion(&["verify", "--json"]).json()
+        Fixture::raw(&[("trion.toml", manifest), ("p.trion", &base)]).verify(&["--json"]).json()
     };
-    let system = |report: &Value| report["environment"]["control"]["system"].as_array().unwrap().iter().any(|a| a.as_str().unwrap().ends_with("app::helper"));
+    let system = |report: &Value| report["control"]["system"].as_array().unwrap().iter().any(|a| a.as_str().unwrap().ends_with("app::helper"));
     // Without a declaration, an actor that a condition waits for is the environment's.
     assert!(!system(&files("", "use p.base\n")));
     // The declaration of the used namespace reaches the term that this namespace defines itself.
@@ -122,7 +130,9 @@ fn a_control_declaration_reaches_the_namespaces_that_use_it() {
 fn a_relation_without_an_object_counts_in_its_role_phrase() {
     let text = "There is a declaration.\n[A] Each declaration belongs to exactly one namespace.\n";
     assert!(codes(text).is_empty());
-    assert_eq!(codes(&format!("{text}[B] Each declaration belongs to at least two namespaces.\n")), ["contradiction"]);
+    // Both counts describe declarations, which no statement gives to the
+    // system: they are assumptions, and together they allow no environment.
+    assert_eq!(codes(&format!("{text}[B] Each declaration belongs to at least two namespaces.\n")), ["incompatible"]);
     assert!(silent(&check(text), "opaque").is_empty());
 }
 

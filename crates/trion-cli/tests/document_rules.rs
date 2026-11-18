@@ -6,7 +6,7 @@ use common::*;
 use serde_json::Value;
 
 fn check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn codes(text: &str) -> Vec<String> {
@@ -146,20 +146,26 @@ fn a_composition_keeps_one_object_across_its_items() {
     let created = model.split("Before(checker|create ").nth(1).and_then(|rest| rest.split(" analysis report").next()).expect("an ordered pair").to_string();
     assert!(created.starts_with("#R@"), "{model}");
     assert!(model.contains(&format!("checker|retain {created} analysis report)")), "{model}");
-    // What holds of every analysis report holds of that one.
-    assert_eq!(codes_of_the_analysis(&format!("{text}[E] The checker shall not retain an analysis report.\n")), ["contradiction"]);
+    // What holds of every analysis report holds of that one. The trigger is
+    // the environment's here: one that the system controls and that nothing
+    // requires leaves the statement vacuous for a system that never takes it.
+    let submitted = text.replace("When the checker completes an analysis A", "When a user submits an analysis A");
+    assert_eq!(codes_of_the_analysis(&format!("{submitted}[E] The checker shall not retain an analysis report.\n")), ["contradiction"]);
     // Two statements that each introduce a report speak of two objects, which may be one or two.
-    let apart = "[D1] When the bell rings, the checker shall create a report R and shall retain R.\n[D2] When the bell rings, the checker shall create a report R and shall not retain R.\n";
+    let apart = "[D1] When the bell rings, the checker shall perform the following actions in order:\n    create a report R;\n    retain R;\n[D2] When the bell rings, the checker shall perform the following actions in order:\n    create a report R;\n    discard R;\n";
     assert!(codes_of_the_analysis(apart).is_empty(), "{:?}", codes_of_the_analysis(apart));
+    // Joined by `and`, the two actions would be sentences of their own, and
+    // the report of the one would not be the report of the other: refused.
+    assert_eq!(codes_of_the_analysis("[D1] When the bell rings, the checker shall create a report R and shall retain R.\n"), ["composite-not-distributive"]);
     // An object of a condition is every such object, as before.
-    let general = "[G1] When the checker completes an analysis A, the checker shall log A.\n[G2] When the checker completes an analysis B, the checker shall not log B.\n";
+    let general = "[G1] When a user submits an analysis A, the checker shall log A.\n[G2] When a user submits an analysis B, the checker shall not log B.\n";
     assert_eq!(codes_of_the_analysis(general), ["contradiction"]);
     // The marks of bound objects are no part of what an author reads.
     assert!(!view(&["glossary"], text).contains('#'));
     // The checker itself creates one report of an analysis, with the revision of what it read.
     let f = Fixture::new(&[("a.trion", "[A] The API shall stop.\n[B] The API shall not stop.\n")]);
-    let kept = f.trion(&["verify", "--json", "a.trion"]).json();
-    assert!(kept["consistency"]["subject_revision"].is_string(), "{kept}");
+    let kept = f.verify(&["--json", "a.trion"]).json();
+    assert!(kept["proof"]["subject"]["revision"].is_string(), "{kept}");
     assert_eq!(analysis_codes(&kept), ["contradiction"]);
 }
 
@@ -199,7 +205,7 @@ fn indentation_decides_what_a_block_holds() {
     assert!(!assume("D").contains("bell"), "{}", assume("D"));
     // The same lines with other indentation are another structure.
     let flat = nested.replace("        [B]", "    [B]");
-    let model = Fixture::new(&[("a.trion", &flat)]).trion(&["verify", "--json", "a.trion"]).json();
+    let model = Fixture::new(&[("a.trion", &flat)]).verify(&["--json", "a.trion"]).json();
     assert_eq!(analysis_codes(&model), ["parse-block"], "an empty block: {model}");
     // `end` is not part of the language.
     assert_eq!(codes_of_the_analysis("When the bell rings:\n    [A] The API shall stop.\nend\n"), ["parse-block"]);
@@ -209,7 +215,7 @@ fn indentation_decides_what_a_block_holds() {
 #[test]
 fn a_citation_inside_a_composition_belongs_to_its_statement() {
     let f = Fixture::new(&[("trion.toml", "[package]\nname = \"p\"\n"), ("req.txt", "Stop and log."), ("a.trion", &format!("{}\n[A] The API shall perform all of the following actions:\n    cite R#ALL\n    stop;\n    log the stop;\n[B] The API shall wait.\n    unsourced \"Not asked for yet.\"\n", source_block("R", "requirement", "req.txt", "Stop and log.", "", &[("ALL", "Stop and log.")])))]);
-    let report = f.trion(&["verify", "--json"]).json()["sources"].clone();
+    let report = f.verify(&["--json"]).json()["sources"].clone();
     // The citation covers the statement of the composition; only the statement that states no source is reported.
     assert_eq!(report_codes(&report), ["unsourced"], "{report}");
     assert_eq!(report["diagnostics"][0]["refs"][0]["id"], "B");
@@ -223,7 +229,7 @@ fn the_flat_form_needs_neither_colon_nor_indentation() {
     let manifest = "[package]\nname = \"chat\"\nentry = \"chat.trion\"\n";
     let outline = |text: &str| {
         let f = Fixture::raw(&[("trion.toml", manifest), ("chat.trion", text)]);
-        let report = f.trion(&["verify", "--json"]).json();
+        let report = f.verify(&["--json"]).json();
         assert!(report_codes(&report).is_empty(), "{report}");
         f.inspect(&["expand"]).stdout
     };
@@ -256,8 +262,8 @@ fn an_indicative_sentence_is_a_description() {
 fn forms_that_the_document_chapters_use_are_read() {
     let two = view(&["model"], "Verification links may be declared on the test or proof artifact and shall support reverse navigation.\n");
     // The permission reaches each alternative of its role phrase, and only the second predicate is required.
-    assert!(two.contains("¬Forbid(Verification link|be declared on test)") && two.contains("¬Forbid(Verification link|be declared on proof artifact)"), "{two}");
-    assert!(two.contains("Act(Verification link|support reverse navigation)"), "{two}");
+    assert!(two.contains("¬Forbid(verification link|be declared on test)") && two.contains("¬Forbid(verification link|be declared on proof artifact)"), "{two}");
+    assert!(two.contains("Act(verification link|support reverse navigation)"), "{two}");
     assert!(!two.contains("Act(Verification links|be declared"), "{two}");
     assert!(codes_of_the_analysis("The path of the file is not part of the qualified name.\n").is_empty());
     let necessary = view(&["expand"], "[A] Each variable shall be available only where the grammar permits a use of that variable.\n");
@@ -278,8 +284,8 @@ fn a_context_holds_statements_and_a_flow_answers_a_trigger() {
 #[test]
 fn a_prohibition_reaches_every_alternative_subject_and_a_relation_keeps_its_roles() {
     // `A or B shall not X` leaves neither of them free to do X.
-    assert_eq!(codes("[A] The parser or the loader shall not guess a binding.\n[B] The loader shall guess a binding.\n"), ["contradiction"]);
-    assert_eq!(codes("[A] The parser or the loader shall not guess a binding.\n[B] The parser shall guess a binding.\n"), ["contradiction"]);
+    assert_eq!(codes("primitive parser, loader, binding\n[A] The parser or the loader shall not guess a binding.\n[B] The loader shall guess a binding.\n"), ["contradiction"]);
+    assert_eq!(codes("primitive parser, loader, binding\n[A] The parser or the loader shall not guess a binding.\n[B] The parser shall guess a binding.\n"), ["contradiction"]);
     // An obligation of one of two subjects is met by either of them.
     assert!(codes("[A] The parser or the loader shall report the error.\n[B] The loader shall not report the error.\n").is_empty());
     // A relation without an object says what holds in its role phrases.
@@ -292,7 +298,7 @@ fn one_namespace_holds_declarations_of_two_files() {
     let manifest = "[package]\nname = \"p\"\nentry = \"p.trion\"\n";
     let entry = "package p edition \"1\"\n\ninclude \"words.trion\"\n\nnamespace p.x:\n    primitive parser\n    [A]\n    The parser shall keep each response.\n    [B]\n    The parser shall not keep a message.\n";
     let words = "namespace p.x:\n    primitive message\n    A response means a message.\n";
-    let report = Fixture::raw(&[("trion.toml", manifest), ("p.trion", entry), ("words.trion", words)]).trion(&["verify", "--json"]).json();
+    let report = Fixture::raw(&[("trion.toml", manifest), ("p.trion", entry), ("words.trion", words)]).verify(&["--json"]).json();
     // The definition of the second file gives the term of the first file its
     // meaning: a response is a message, so the two rules contradict.
     let codes = report_codes(&report);

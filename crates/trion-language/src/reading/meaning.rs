@@ -1454,6 +1454,12 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model) {
         for (origin, mut axioms) in list {
             axioms.dedup();
             let guarantee = if axioms.len() == 1 { axioms.remove(0) } else { Formula::And(axioms) };
+            // A sentence is read as exactly one contract. What a sentence
+            // with a contract of its own says about its terms (the class
+            // that a relative clause restricts, what an exclusion keeps
+            // apart) stands beside that contract.
+            let has_contract = model.constraints.iter().any(|c| matches!(c.kind, ConstraintKind::Spec | ConstraintKind::Permission) && c.refs.first().is_some_and(|at| at.id == origin.id));
+            let kind = if has_contract { ConstraintKind::Carried } else { kind };
             model.constraints.push(Constraint { kind, assume: Formula::True, guarantee, refs: vec![origin] });
         }
     }

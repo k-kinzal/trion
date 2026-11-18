@@ -1,0 +1,10 @@
+unsat
+(
+(assume A (! (xor p q) :named @p_1))
+(assume a1 (! (and p q) :named @p_2))
+(step t0 (cl q) :rule and :premises (a1) :args (1))
+(step t1 (cl (not p) (! (not q) :named @p_3)) :rule xor2 :premises (A))
+(step t2 (cl p) :rule and :premises (a1) :args (0))
+(step t3 (cl @p_3) :rule resolution :premises (t1 t2))
+(step t4 (cl) :rule resolution :premises (t0 t3))
+)

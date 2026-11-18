@@ -1,19 +1,9 @@
-//! The environment of a specification: who controls what each actor does,
-//! and each response that the system cannot give because it would have to
-//! come before something that the environment decides.
+//! The environment of a specification: who controls what each actor does.
 
-use trion_language::SpecRef;
 use trion_language::reading::{ConstraintKind, Model};
 use trion_solver::{Atom, Formula};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-
-/// A guarantee that the system cannot keep against every behaviour of the environment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Unrealizable {
-    pub statement: SpecRef,
-    pub message: String,
-}
 
 /// Who controls what each actor does.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -25,6 +15,13 @@ pub struct Control {
     /// environment has no such standing.
     #[serde(skip)]
     pub declared_environment: BTreeSet<String>,
+    /// The actors that a declaration gives to the system. Only what these
+    /// actors do is the system's by responsibility: a condition about it is
+    /// a condition inside the guarantee. An actor that is only inferred to
+    /// belong to the system has no such standing, and a condition about it
+    /// is read as the situation shows it.
+    #[serde(skip)]
+    pub declared_system: BTreeSet<String>,
 }
 
 fn actor_of(key: &str) -> Option<&str> {
@@ -42,6 +39,69 @@ pub(super) fn event_actions(model: &Model) -> BTreeMap<String, String> {
         }
     }
     out
+}
+
+/// The actors of the system of a document that declares none: each actor
+/// whose action, or a measure of it, a statement with normative force
+/// speaks about, unless the environment controls it.
+/// The actors of the system: those that the document declares, or, where
+/// it declares none, those whose actions its requirements speak about.
+pub(super) fn system_actors(model: &Model, control: &Control, described: &dyn Fn(&trion_language::reading::Constraint) -> bool) -> BTreeSet<String> {
+    if control.declared_system.is_empty() { undeclared_system(model, control, described) } else { control.declared_system.clone() }
+}
+
+/// Whether a statement constrains what only the environment is responsible
+/// for: each action that its guarantee speaks about is done by an actor
+/// that is not the system's, and it speaks about one. Such a statement is
+/// an assumption, normative or not (AGENTS.md, rule 2).
+pub(super) fn of_environment(constraint: &trion_language::reading::Constraint, actors: &BTreeSet<String>) -> bool {
+    let (mut acts, mut foreign) = (0, true);
+    constraint.guarantee.atoms(true, &mut |atom, _| {
+        if let trion_solver::Atom::Act { key } | trion_solver::Atom::Forbid { key } | trion_solver::Atom::Discouraged { key } = atom {
+            let key = key.strip_prefix("disposed to ").unwrap_or(key);
+            if let Some((actor, _)) = key.split_once('|') {
+                acts += 1;
+                foreign &= !actors.contains(actor);
+            }
+        }
+    });
+    acts > 0 && foreign
+}
+
+pub(super) fn undeclared_system(model: &Model, control: &Control, described: &dyn Fn(&trion_language::reading::Constraint) -> bool) -> BTreeSet<String> {
+    let mut actors = BTreeSet::new();
+    for c in model.constraints.iter().filter(|c| matches!(c.kind, ConstraintKind::Spec | ConstraintKind::Permission)) {
+        c.guarantee.atoms(true, &mut |atom, _| {
+            for symbol in atom.symbols() {
+                actors.extend(actor_of(symbol).map(str::to_string));
+            }
+        });
+    }
+    // The holder of a state that a requirement requires, and not only
+    // reads in a condition, is the system's as well: `The room type shall be
+    // secret` makes the room type something that the system keeps.
+    for c in model.constraints.iter().filter(|c| matches!(c.kind, ConstraintKind::Spec) && !described(c)) {
+        required_states(&c.guarantee, &mut actors);
+    }
+    actors.retain(|actor| !control.environment.contains(actor));
+    actors
+}
+
+/// The attributes of the states that a guarantee requires: those that it
+/// asserts or denies in every case (`shall be secret`, `shall not be
+/// open`), and not those of a condition or of an alternative (`only when`
+/// reads as `C ∨ forbidden`).
+fn required_states(formula: &trion_solver::Formula, out: &mut BTreeSet<String>) {
+    use trion_solver::{Atom, Formula};
+    match formula {
+        Formula::Atom(Atom::Val { attr, .. }) => {
+            out.insert(attr.clone());
+        }
+        Formula::Not(inner) if matches!(**inner, Formula::Atom(Atom::Val { .. })) => required_states(inner, out),
+        Formula::And(parts) => parts.iter().for_each(|part| required_states(part, out)),
+        Formula::Implies(_, then) => required_states(then, out),
+        _ => {}
+    }
 }
 
 /// Decides who controls each actor.
@@ -69,6 +129,7 @@ pub(super) fn control(set: &trion_language::document::SpecSet, model: &Model, le
                 out.declared_environment.insert(actor.clone());
                 out.environment.insert(actor);
             } else {
+                out.declared_system.insert(actor.clone());
                 out.system.insert(actor);
             }
         }
@@ -108,6 +169,7 @@ pub(super) fn control(set: &trion_language::document::SpecSet, model: &Model, le
         if by_environment {
             out.environment.insert(actor);
         } else {
+            out.declared_system.insert(actor.clone());
             out.system.insert(actor);
         }
     }
@@ -124,6 +186,32 @@ pub(super) fn control(set: &trion_language::document::SpecSet, model: &Model, le
     out
 }
 
+/// The terms that the system is responsible for: each action of an actor
+/// that a declaration gives to the system, each event of such an action,
+/// and each attribute of such an actor. A term that a declaration gives to
+/// the environment is not one.
+pub(super) fn system_terms(model: &Model, control: &Control, events: &BTreeMap<String, String>, given: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut symbols: BTreeSet<String> = BTreeSet::new();
+    for constraint in &model.constraints {
+        for formula in [&constraint.assume, &constraint.guarantee] {
+            formula.atoms(true, &mut |atom, _| symbols.extend(atom.symbols().into_iter().map(str::to_string)));
+        }
+    }
+    for axiom in &model.background {
+        axiom.atoms(true, &mut |atom, _| symbols.extend(atom.symbols().into_iter().map(str::to_string)));
+    }
+    let of_system = |actor: &str| control.declared_system.contains(actor) && !control.declared_environment.contains(actor);
+    let owned = |name: &str| control.declared_system.iter().any(|actor| of_system(actor) && (name == actor || name.starts_with(&format!("{actor} "))));
+    symbols
+        .into_iter()
+        .filter(|symbol| !given.contains(symbol))
+        .filter(|symbol| match actor_of(symbol) {
+            Some(actor) => of_system(actor),
+            None => events.get(symbol).and_then(|action| actor_of(action)).map_or_else(|| owned(symbol), of_system),
+        })
+        .collect()
+}
+
 /// For each action of the environment that has an event: the event occurs
 /// only when the action is done. The model states the other direction.
 pub(super) fn environment_events(model: &Model, control: &Control) -> Vec<Formula> {
@@ -132,33 +220,5 @@ pub(super) fn environment_events(model: &Model, control: &Control) -> Vec<Formul
         .filter(|(_, action)| actor_of(action).is_some_and(|a| control.environment.contains(a)))
         .map(|(event, action)| Formula::implies(Formula::Atom(Atom::Event { key: event }), Formula::Atom(Atom::Act { key: action })))
         .collect()
-}
-
-/// Finds each response that must be complete before something the
-/// environment decides: the system would need to know what has not happened.
-pub(super) fn unrealizable(model: &Model, control: &Control) -> Vec<Unrealizable> {
-    let mut out = Vec::new();
-    for obligation in &model.temporal {
-        for response in &obligation.responses {
-            for reference in response.references.iter().filter(|r| r.relation == "before" && r.related_kind == "event") {
-                let event = reference.related.trim_start_matches("Event(").trim_end_matches(')');
-                // Only an actor that the environment is known to control makes the order impossible to keep.
-                let Some(actor) = control.environment.iter().find(|a| event.starts_with(&format!("{a} "))) else { continue };
-                let name = actor.rsplit("::").next().unwrap_or(actor);
-                out.push(Unrealizable {
-                    statement: obligation.statement.clone(),
-                    message: format!("`{}` requires a response before `{event}`, and the environment decides when `{name}` acts: whatever moment the system chooses, the environment can act before it, so no system keeps this guarantee; require the response after an event that the system observes", obligation.statement.id),
-                });
-            }
-        }
-    }
-    out
-}
-
-/// What a specification says about its environment.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct Findings {
-    pub control: Control,
-    pub unrealizable: Vec<Unrealizable>,
 }
 

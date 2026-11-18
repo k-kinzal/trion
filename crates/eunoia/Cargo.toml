@@ -1,0 +1,14 @@
+[package]
+name = "eunoia"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.79"
+description = "The Eunoia language of the Ethos proof checker: abstract syntax, a parser and a printer, following the Ethos 0.2.5 user manual."
+readme = "README.md"
+keywords = ["eunoia", "ethos", "proof", "smt", "cvc5"]
+categories = ["parser-implementations", "science", "mathematics"]
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true

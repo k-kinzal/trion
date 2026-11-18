@@ -31,51 +31,45 @@ fn strings(value: Option<&toml::Value>) -> Vec<String> {
     value.and_then(toml::Value::as_array).map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
 
-/// The verdict of a claim of a report: `name`, or `name:subject` for the claim of a block.
-fn claim<'a>(report: &'a Value, key: &str) -> Option<&'a Value> {
-    let (name, subject) = key.split_once(':').map_or((key, None), |(name, subject)| (name, Some(subject)));
-    report["claims"].as_array()?.iter().find(|c| c["claim"] == name && c["subject"].as_str() == subject)
+/// The codes of every error of a report: of the conversion, in each of its
+/// lists, and of the proof.
+fn errors(report: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for list in [&report["diagnostics"], &report["checker"], &report["opaque"], &report["ungrounded"], &report["inexpressible"], &report["sources"]["diagnostics"]] {
+        out.extend(list.as_array().into_iter().flatten().filter(|d| d["severity"] == "error").filter_map(|d| d["code"].as_str().map(str::to_string)));
+    }
+    out
 }
 
 /// Where a run differs from the expectation of its case; empty when it meets it.
+///
+/// - `verified`: the package converts and every obligation of its MMT form
+///   is proved; the exit code says the same.
+/// - `diagnostics`: codes of errors that the conversion or the proof reports.
+/// - `obligations`: the verdict of each named obligation.
 fn differences(expect: &toml::Value, code: i32, report: &Value) -> Vec<String> {
     let mut out = Vec::new();
+    let verdicts = verdicts(report);
+    let errors = errors(report);
     if let Some(verified) = expect.get("verified").and_then(toml::Value::as_bool) {
-        if report["outcome"]["verified"].as_bool() != Some(verified) {
-            out.push(format!("outcome.verified is {} and {verified} is expected", report["outcome"]["verified"]));
+        let found = report["conforms"] == true && !verdicts.is_empty() && verdicts.values().all(|v| v == "proved") && errors.is_empty();
+        if found != verified {
+            out.push(format!("the package is {}verified and {verified} is expected: {:?} {verdicts:?}", if found { "" } else { "not " }, errors));
         }
         // The exit code and the outcome say the same.
         if (code == 0) != verified {
             out.push(format!("the exit code is {code} where verified is expected to be {verified}"));
         }
     }
-    let blockers: Vec<&str> = report["outcome"]["blockers"].as_array().map(|items| items.iter().filter_map(|b| b["code"].as_str()).collect()).unwrap_or_default();
-    for code in strings(expect.get("blockers")) {
-        if !blockers.contains(&code.as_str()) {
-            out.push(format!("no blocker has the code `{code}`: {blockers:?}"));
+    for code in strings(expect.get("diagnostics")) {
+        if !errors.contains(&code) {
+            out.push(format!("no error has the code `{code}`: {errors:?}"));
         }
     }
-    let gate = |name: &str| report["gates"].as_array().and_then(|gates| gates.iter().find(|g| g["name"] == name)).and_then(|g| g["state"].as_str()).unwrap_or("absent").to_string();
-    for name in strings(expect.get("gates_failed")) {
-        if gate(&name) != "failed" {
-            out.push(format!("the gate `{name}` is {} and failed is expected", gate(&name)));
-        }
-    }
-    for name in strings(expect.get("gates_passed")) {
-        if gate(&name) != "passed" {
-            out.push(format!("the gate `{name}` is {} and passed is expected", gate(&name)));
-        }
-    }
-    for (key, verdict) in expect.get("claims").and_then(toml::Value::as_table).into_iter().flatten() {
-        let found = claim(report, key).map(|c| c["verdict"].as_str().unwrap_or_default().to_string());
-        if found.as_deref() != verdict.as_str() {
-            out.push(format!("the claim `{key}` is {found:?} and {verdict} is expected"));
-        }
-    }
-    for (key, vacuous) in expect.get("vacuous").and_then(toml::Value::as_table).into_iter().flatten() {
-        let found = claim(report, key).and_then(|c| c["vacuous"].as_bool());
-        if found != vacuous.as_bool() {
-            out.push(format!("the claim `{key}` has vacuous = {found:?} and {vacuous} is expected"));
+    for (name, verdict) in expect.get("obligations").and_then(toml::Value::as_table).into_iter().flatten() {
+        let found = verdicts.get(name.as_str());
+        if found.map(String::as_str) != verdict.as_str() {
+            out.push(format!("the obligation `{name}` is {found:?} and {verdict} is expected"));
         }
     }
     out
@@ -101,7 +95,7 @@ fn each_acceptance_case_is_met_or_is_listed_as_open_with_the_work_that_closes_it
         copy_tree(&dir.join("package"), work.path());
         let arguments = strings(case.get("args"));
         let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-        let result = trion_in(work.path(), &arguments);
+        let result = verify_in(work.path(), &arguments);
         // A run without a report meets no expectation: a parse error or a missing prover is no refutation.
         let Ok(report) = serde_json::from_str::<Value>(&result.stdout) else {
             failures.push(format!("{name}: the command printed no report (exit code {}): {}", result.code, result.stderr));
@@ -122,21 +116,23 @@ fn each_acceptance_case_is_met_or_is_listed_as_open_with_the_work_that_closes_it
 fn a_report_is_a_success_only_when_every_part_of_it_says_so() {
     // The common assertion of a success reads every list of a report, and
     // not the diagnostics alone.
-    let clean = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[A]\nThe API shall stop.\n")]).trion(&["verify", "--json"]);
+    let clean = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[A]\nThe API shall stop.\n")]).verify(&["--json"]);
     assert_eq!(clean.code, 0, "{}", clean.stdout);
     assert_verified(&clean.json());
-    // A quality that nothing defines leaves the diagnostics of the analysis empty, and it is no success.
-    let quality = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[G]\nThe API shall be secure.\n")]).trion(&["verify", "--json"]);
+    // A quality that nothing defines leaves the diagnostics of the reading
+    // empty, and it is no success: the package does not convert, and nothing is proved.
+    let quality = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[G]\nThe API shall be secure.\n")]).verify(&["--json"]);
     assert_eq!(quality.code, 1, "{}", quality.stdout);
     let report = quality.json();
     assert!(analysis_codes(&report).is_empty(), "{report}");
-    assert_eq!(unverified(&report), ["inexpressible-property", "background_sat", "contract_sat", "situation_total"], "{report}");
-    // The text says the same as the report, and names the claims apart.
-    let text = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[G]\nThe API shall be secure.\n")]).trion(&["verify"]).stdout;
-    assert!(text.contains("claim situation_total: unsupported: unresolved_meaning") && text.contains("gate meaning: failed") && text.trim_end().ends_with("\nnot verified"), "{text}");
-    let text = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[A]\nThe API shall stop.\n")]).trion(&["verify"]).stdout;
-    assert!(text.contains("claim contract_sat: proved within traces of 3 moments") && text.contains("covers: within traces of 3 moments") && text.contains("no result is lifted beyond these bounds") && text.contains("not examined: scenario_satisfiable, scenario_reachable, implementation_conforms, reactive_realizable"), "{text}");
-    assert!(text.trim_end().ends_with("\nverified"), "{text}");
+    assert_eq!(unverified(&report), ["inexpressible-property"], "{report}");
+    assert!(report["proof"].is_null(), "{report}");
+    // The text says the same as the report.
+    let text = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[G]\nThe API shall be secure.\n")]).verify(&[]).stdout;
+    assert!(text.contains("error[inexpressible-property]") && text.trim_end().ends_with("\ndoes not conform"), "{text}");
+    let text = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n\n[A]\nThe API shall stop.\n")]).verify(&[]).stdout;
+    assert!(text.contains("obligation consistency (consistency): proved") && text.contains("within traces of 3 moments") && text.contains("no result holds beyond its bound"), "{text}");
+    assert!(text.trim_end().ends_with("\nproved"), "{text}");
 }
 
 #[test]
@@ -145,7 +141,7 @@ fn a_construct_that_a_rule_names_and_gives_no_meaning_stops_the_verification() {
     // and what it says reached no formula or only a part of a name. The
     // ledger of patterns lists each with the work that gives it a meaning.
     const TERMS: &str = "primitive API\nprimitive client\nprimitive message\nprimitive file\nprimitive header\nprimitive deadline\nprimitive proof\nprimitive token\nprimitive door\nprimitive user\nprimitive profile\nprimitive report\n\n";
-    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{TERMS}{text}"))]).trion(&["verify", "--json"]);
+    let verify = |text: &str| Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("{TERMS}{text}"))]).verify(&["--json"]);
     for (rule, text) in [
         ("role-rate", "[A]\nThe API shall send at most 3 messages per second.\n"),
         ("role-exclusion", "[A]\nThe API shall send the file except the header.\n"),

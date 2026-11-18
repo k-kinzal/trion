@@ -1,0 +1,8 @@
+(set-logic QF_UF)
+(declare-sort U 0)
+(declare-const a U)
+(declare-const b U)
+(define-fun same ((x U) (y U)) Bool (= x y))
+(assert (same a b))
+(assert (! (distinct a b) :named D))
+(check-sat)

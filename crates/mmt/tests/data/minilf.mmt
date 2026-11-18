@@ -1,0 +1,61 @@
+// A stand-in for the parts of MMT/urtheories (source/meta.mmt, source/lf.mmt) that the tests need, written for the tests so that they run without .tools/urtheories: the same URIs, notations and rules, without the theories the tests do not use. The tests that use the real archive are marked as needing it.❚
+
+namespace http://cds.omdoc.org/mmt❚
+
+theory mmt =
+   brackets # ( 1 ) prec -1000005❙
+❚
+
+namespace http://cds.omdoc.org/urtheories❚
+
+import meta http://cds.omdoc.org/mmt❚
+import rules scala://lf.mmt.kwarc.info❚
+
+theory Typed =
+   type❙
+   equality # equality 1 2 ❘ role Eq❙
+   oftype # 1 : 2 prec -9997 ❘ role Type❙
+   definedas # 1 := 2 prec -9998 ❘ role Def❙
+❚
+
+theory Kinded =
+   include ?Typed❙
+   kind❙
+❚
+
+theory LambdaPi =
+   include ?Kinded❙
+   Pi     # { V1T,… } 2 prec -10000❙
+   lambda # [ V1T,… ] 2 prec -10000❙
+   apply  # 1%w…        prec -10❙
+   arrow  # 1⟶…        prec  -9990❙
+❚
+
+theory LF =
+   include meta?mmt❙
+   include ?LambdaPi❙
+   rule rules?UniverseType❙
+   rule rules?TypeInhabitable❙
+   rule rules?UniverseKind❙
+   rule rules?KindInhabitable❙
+   rule rules?UnivTerm❙
+   rule rules?TypeAttributionTerm❙
+   rule rules?DropTypeAttribution❙
+   rule rules?PiType❙
+   rule rules?PiTerm❙
+   rule rules?ApplyTerm❙
+   rule rules?LambdaTerm❙
+   rule rules?Beta❙
+   rule rules?Extensionality❙
+   rule rules?PiCongruence❙
+   rule rules?LambdaCongruence❙
+   rule rules?FlattenCurrying❙
+   rule rules?Solve❙
+   rule rules?SolveType❙
+   rule rules?TheoryTypeWithLF❙
+   rule rules?PiIntroduction❙
+   rule rules?ForwardPiElimination❙
+   rule rules?BackwardPiElimination❙
+   rule rules?PiIrrelevanceRule❙
+   rule rules?LFHOAS❙
+❚

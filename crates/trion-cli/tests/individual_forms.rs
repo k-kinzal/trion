@@ -12,19 +12,31 @@ use serde_json::Value;
 
 const MANIFEST: (&str, &str) = ("trion.toml", "[package]\nname = \"x\"\n");
 
-fn scenario<'a>(report: &'a Value, name: &str) -> &'a Value {
-    report["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}: {}", report["scenarios"]))
+/// Both judges say `word` of the scenario `name`: the reference evaluator
+/// and the formulas of the reading judge the behaviour alike (no
+/// `scenario-differs` names it), and the obligation of the scenario, which
+/// asks the formulas for `word`, is proved.
+fn judged(report: &Value, name: &str, word: &str) {
+    let at = format!("scenario {name}");
+    let differs: Vec<&Value> = report["checker"].as_array().unwrap().iter().filter(|d| d["code"] == "scenario-differs" && d["refs"].as_array().unwrap().iter().any(|r| r["id"] == at)).collect();
+    assert!(differs.is_empty(), "{name}: {differs:?}");
+    let obligation = format!("scenario/{name}");
+    let stated = report["obligations"].as_array().unwrap().iter().find(|o| o["name"] == obligation).unwrap_or_else(|| panic!("no obligation {obligation}: {}", report["obligations"]));
+    let expected = if word == "forbidden" { "breaks a statement" } else { "keeps every statement" };
+    assert!(stated["proposition"].as_str().unwrap().ends_with(expected), "{name}: {stated}");
+    assert_eq!(verdicts(report).get(&obligation).map(String::as_str), Some("proved"), "{name}: {}", report["proof"]);
 }
 
 /// Both judges say `word` of each named scenario.
 fn alike(text: &str, expected: &[(&str, &str)]) -> Value {
     let f = Fixture::new(&[MANIFEST, ("a.trion", text)]);
-    let report = f.trion(&["verify", "--json", "--properties"]).json();
+    let report = f.verify(&["--json", "--properties"]).json();
     for (name, word) in expected {
-        let s = scenario(&report, name);
-        assert_eq!((s["reference"].as_str().unwrap(), s["generated"].as_str().unwrap()), (*word, *word), "{name}: {s}");
+        judged(&report, name, word);
     }
-    assert_eq!(report["variations"]["agreed"], report["variations"]["behaviours"], "{}", report["variations"]);
+    let variations = &report["checked"]["variations"];
+    assert!(variations["behaviours"].as_u64().is_some(), "the variations were not made: {}", report["checked"]);
+    assert_eq!(variations["agreed"], variations["behaviours"], "{variations}");
     report
 }
 
@@ -83,7 +95,20 @@ scenario ALL-ADMINISTRATORS:
 #[test]
 fn advice_chooses_the_individual_that_it_introduces() {
     let text = format!("{WHO}\n[ADVISE]\nWhen a user enters a room, the system should notify a member of the room.\n{}", ENTERED.replace("{one}", "allowed"));
-    let report = agree(&text, &[("NO-ADMINISTRATOR", "allowed"), ("ONE-ADMINISTRATOR", "allowed"), ("ALL-ADMINISTRATORS", "forbidden")]);
+    let report = alike(&text, &[("NO-ADMINISTRATOR", "allowed"), ("ONE-ADMINISTRATOR", "allowed"), ("ALL-ADMINISTRATORS", "forbidden")]);
+    // Nothing keeps the environment from a room whose only member is an
+    // administrator, and there BAN leaves no member to notify: a system
+    // that accepts every input cannot follow the advice, and the advice is
+    // reported, as a requirement would be. Nothing keeps the environment
+    // from a room without members either, and there no member can be
+    // notified at all: the advice of all the instances together is
+    // reported with that room alone.
+    let violations: Vec<&Value> = report["diagnostics"].as_array().unwrap().iter().filter(|d| d["code"] == "recommendation-violation").collect();
+    let message = |d: &&Value| d["message"].as_str().unwrap().to_string();
+    assert!(violations.iter().any(|d| message(d).contains("BAN/")), "{report}");
+    assert!(violations.iter().all(|d| message(d).contains("ADVISE/")), "{report}");
+    let together: Vec<&&Value> = violations.iter().filter(|d| message(d).contains("advice of `together`")).collect();
+    assert!(together.iter().all(|d| !message(d).contains("BAN/") && !message(d).contains(" member(")), "{report}");
     let advise = record(&report, "ADVISE");
     assert_eq!(sites(advise), [("user".to_string(), "condition".to_string()), ("room".to_string(), "condition".to_string()), ("member".to_string(), "chosen".to_string())]);
     assert!(advise["steps"].as_array().unwrap().iter().any(|s| s["rule"] == "variable-some"), "{advise}");
@@ -117,7 +142,7 @@ fn meant(record: &Value) -> Value {
 /// The record of the statement `[S]` of a package of the given declarations.
 fn read_as(head: &str, statement: &str) -> Value {
     let f = Fixture::new(&[MANIFEST, ("a.trion", &format!("{head}\n[S]\n{statement}\n"))]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     meant(record(&report, "S"))
 }
 
@@ -188,7 +213,7 @@ scenario STORED-BEFORE:
     // What stays outside: an event beside the event of the statement, and
     // a state of an individual that the response chooses.
     for outside in ["When a user enters a room, the system shall log each message that the user posts.", "When a user enters a room, the system shall notify a member that is active."] {
-        let other = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\n{outside}\n"))]).trion(&["verify", "--json"]).json();
+        let other = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\n{outside}\n"))]).verify(&["--json"]).json();
         assert!(unverified(&other).contains(&"UNSUPPORTED_SEMANTICS".to_string()), "{outside}: {:?}", unverified(&other));
     }
     // A relative clause before the verb of a condition ends where its
@@ -228,8 +253,8 @@ scenario KEPT:
     );
     agree(&text, &[("ARCHIVED", "forbidden"), ("KEPT", "allowed")]);
     // `no` beside a denied verb denies twice.
-    let twice = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\nNo user shall not archive a room.\n"))]).trion(&["verify", "--json"]).json();
-    assert!(!twice["outcome"]["verified"].as_bool().unwrap());
+    let twice = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\nNo user shall not archive a room.\n"))]).verify(&["--json"]).json();
+    assert!(!unverified(&twice).is_empty(), "{twice}");
 }
 
 /// A count names so many different individuals. Written from the rule
@@ -241,10 +266,11 @@ scenario KEPT:
 #[test]
 fn a_count_names_different_individuals() {
     assert_eq!(read_as(ROOMS, "While two users are members of a room, the system shall not close the room."), read_as(ROOMS, "While a user is a member of a room and a second user is a member of the room, the system shall not close the room."));
-    assert_eq!(
-        read_as(ROOMS, "When a user posts a message to a room, the system shall notify two members of the room."),
-        read_as(ROOMS, "When a user posts a message to a room, the system shall notify a member of the room and notify a second member of the room.")
-    );
+    // Joined by `and`, the two notifications would be sentences of their own,
+    // and the second member of the one would not be counted against the
+    // member of the other: the sentence is refused and not read some other way.
+    let joined = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\nWhen a user posts a message to a room, the system shall notify a member of the room and notify a second member of the room.\n"))]);
+    assert!(report_codes(&joined.verify(&["--json"]).json()).contains(&"composite-not-distributive".to_string()));
     let people = "    given a user U1, a user U2, a user U3, a room R1, a message M1\n";
     let text = format!(
         "{ROOMS}\n[QUORUM]\nWhile two users are members of a room, the system shall not close the room.\n
@@ -295,10 +321,11 @@ scenario ONE-MEMBER:
     );
     let report = agree(&text, &[("TWO-NOTIFIED", "allowed"), ("ONE-NOTIFIED", "forbidden"), ("ONE-MEMBER", "forbidden")]);
     // The contract of each instance, with its choices, is derived again.
-    assert_eq!(report["derivations"]["contracts"], report["derivations"]["of_instances"], "{}", report["derivations"]);
+    let derivations = &report["checked"]["derivations"];
+    assert_eq!(derivations["contracts"], derivations["of_instances"], "{derivations}");
     // A count in the event, before the subject or in what is forbidden names no individuals one by one.
     for outside in ["When two users post a message to a room, the system shall store the message.", "The system shall not notify two members of a room."] {
-        let other = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\n{outside}\n"))]).trion(&["verify", "--json"]).json();
+        let other = Fixture::new(&[MANIFEST, ("a.trion", &format!("{ROOMS}\n[S]\n{outside}\n"))]).verify(&["--json"]).json();
         assert!(unverified(&other).contains(&"UNSUPPORTED_SEMANTICS".to_string()), "{outside}: {:?}", unverified(&other));
     }
 }

@@ -1,0 +1,15 @@
+unsat
+(
+(define @t1 () (or p q))
+(define @t2 () (@list true))
+(define @t3 () (@list r))
+(assume @p1 @t1)
+(assume @p2 (or (not p) r))
+(assume @p3 (or (not q) r))
+(assume @p4 (not r))
+(step @p5 :rule chain_resolution :premises (@p3 @p4) :args (@t2 @t3))
+(step @p6 :rule chain_resolution :premises (@p2 @p4) :args (@t2 @t3))
+(step @p7 :rule cnf_or_pos :args (@t1))
+(step @p8 :rule chain_resolution :premises (@p7 @p6 @p5) :args ((@list true true) (@list p q)))
+(step @p9 false :rule contra :premises (@p1 @p8))
+)

@@ -2,17 +2,15 @@ id = "A17"
 title = "A heavy recommendation does not remove a requirement"
 work = "W02"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
-[H] is a requirement and [S] is advice. However much [S] weighs, the behaviours that keep the package
-are those that keep [H]; [S] is reported as advice that cannot be followed, apart from the claims
-about the requirements.
+[H] is a requirement and [S] is advice with a weight. A weight would let one statement change the
+contract of another, and the contracts of a specification are a conjunction: adding a statement only
+removes behaviours, so a default, an override or a priority cannot be a meaning. The weight does not
+conform to the language and the package is not converted; the exception belongs in the statement that
+has it.
 """
 
 [expect]
 verified = false
-blockers = ["recommendation-violation"]
-
-[expect.claims]
-contract_sat = "proved"
-situation_total = "proved"
+diagnostics = ["priority-unsupported"]

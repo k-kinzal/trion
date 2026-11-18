@@ -819,15 +819,21 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
     let mut populated: BTreeMap<String, ()> = BTreeMap::new();
     for stated in &all {
         let Some(formula) = grounder.formula(&stated.form, lex) else { continue };
+        model.over_instances.insert(stated.origin.id.clone());
         if let Form::Related { kind, .. } | Form::Populated { kind, .. } | Form::Counted { kind, .. } | Form::Condition { kind, .. } | Form::Part { kind, .. } | Form::Distinct { kind, .. } = &stated.form {
             populated.insert(kind.clone(), ());
         }
-        // A statement that distinguishes individuals says so itself: its
-        // formula over the domain is a part of its own reading. A statement
-        // that is read over individuals only because another statement speaks
-        // about the same relation carries that reading as a relation.
-        let kind = if seed(&stated.form) { ConstraintKind::Axiom } else { ConstraintKind::Carried };
-        model.constraints.push(Constraint { kind, assume: Formula::True, guarantee: formula, refs: vec![stated.origin.clone()] });
+        // What a statement says of the individuals of the set depends on
+        // which individuals the set has: it is no part of the contract of
+        // the sentence. It stands beside the contract, as what follows from
+        // the claim of the sentence over those individuals. A statement
+        // without a contract of its sentence keeps the reading as before:
+        // its own when it distinguishes individuals itself.
+        let (kind, assume) = match crate::reading::model::claim_of(model, &stated.origin.id) {
+            Some(claim) => (ConstraintKind::Carried, claim),
+            None => (if seed(&stated.form) { ConstraintKind::Axiom } else { ConstraintKind::Carried }, Formula::True),
+        };
+        model.constraints.push(Constraint { kind, assume, guarantee: formula, refs: vec![stated.origin.clone()] });
     }
     // The total of a quantity is the sum over the individuals that exist.
     for stated in &all {

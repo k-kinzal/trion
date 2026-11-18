@@ -4,7 +4,7 @@ mod common;
 use common::*;
 
 fn check(text: &str) -> serde_json::Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn model(text: &str) -> String {

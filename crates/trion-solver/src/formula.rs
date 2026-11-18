@@ -5,13 +5,13 @@
 //! event occurs) or a linear comparison of integer quantities. Everything
 //! after the reading of the sentences works on these formulas only.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Numbers are stored in thousandths so that decimals stay exact integers.
 pub const NUMERIC_SCALE: i64 = 1000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Cmp {
     Eq,
     Ge,
@@ -53,7 +53,7 @@ impl Cmp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Atom {
     /// The value belongs to the attribute's domain.
     Dom { attr: String, value: String },
@@ -122,7 +122,7 @@ impl fmt::Display for Atom {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Formula {
     True,
     Atom(Atom),

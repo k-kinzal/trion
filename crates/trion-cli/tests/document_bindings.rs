@@ -10,9 +10,9 @@ fn fixture(text: &str) -> Fixture {
 }
 
 fn check(text: &str, flags: &[&str]) -> Value {
-    let mut args = vec!["verify", "--json"];
+    let mut args = vec!["--json"];
     args.extend(flags);
-    fixture(text).trion(&args).json()
+    fixture(text).verify(&args).json()
 }
 
 fn model(text: &str) -> String {
@@ -48,7 +48,7 @@ fn two_bindings_do_not_require_two_objects() {
     let text = "primitive place\n\nA room means a place.\n\nThere is a room A.\n\nThere is a room B.\n\nThere is at most 1 room.\n";
     let report = check(text, &[]);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["consistency"]["status"], "satisfiable", "{report}");
+    assert_eq!(verdicts(&report)["consistency"], "proved", "{report}");
 }
 
 #[test]

@@ -1,0 +1,42 @@
+namespace trion:
+    use formal
+    use software
+
+    section "A proof is about contracts":
+        The mapping of a statement means the contract that the language rules give to the statement.
+        No proof obligation states the mapping of a statement.
+        A person reads a statement as English.
+
+        [LIMIT-SELF-HOSTING]
+        The trioc command shall not report a result about the specification of trion as a proof of the language rules.
+
+    section "Correctness reaches the references and no further":
+        A real need means a need that a person has outside each specification.
+
+        [LIMIT-NO-VALIDITY]
+        The trioc command shall not report a result as a proof of the validity of a specification.
+
+        A vacuous trigger means a trigger that the system controls and that no statement requires.
+        Each response that avoids a vacuous trigger satisfies each contract of the vacuous trigger.
+
+    section "A contract judges one behavior at a time":
+        A hyperproperty means a property that compares behaviors.
+        A possibility means a property that requires an ability of a system.
+        No contract states a hyperproperty.
+        No contract states a possibility.
+        No statement adds a behavior to the behaviors that a specification allows.
+
+    section "One contract for each sentence":
+        A context-dependent expression means an expression whose meaning depends on the surrounding sentences.
+        No statement holds a context-dependent expression.
+
+    section "A term has only the relations that a specification states":
+        No term has a relation that no statement of the specification states.
+
+    section "Some proof obligations stay open":
+        An open proof obligation means a proof obligation that the trioc command fails to decide.
+        Some specifications have an open proof obligation.
+
+    section "The system is declared":
+        No proof obligation checks a system declaration.
+        Each contract frames exactly one system.

@@ -204,6 +204,19 @@ impl Lexicon {
     }
 
     /// This lexicon as seen from one namespace block.
+    /// This lexicon without its aliases: every name is read as it is
+    /// written. The reading of a sentence uses it, so that the contracts of
+    /// a sentence follow from the sentence alone; that two names name one
+    /// term is said beside the contracts, when they are verified.
+    pub fn without_aliases(&self) -> Self {
+        Self { members: Arc::new(BTreeMap::new()), visible: Vec::new(), ..self.clone() }
+    }
+
+    /// `true` when a namespace of the set declares an alias.
+    pub fn has_aliases(&self) -> bool {
+        self.members.values().any(|aliases| !aliases.is_empty())
+    }
+
     pub fn in_document(&self, doc: &Document) -> Self {
         self.scoped(&doc.namespace, doc.imports.iter().map(|i| i.namespace.clone()).collect())
     }
@@ -234,8 +247,8 @@ impl Lexicon {
     }
 
     /// The spelling that a word of a name has in a key: a plural is its
-    /// singular, and a capital that only opens a sentence is dropped. A
-    /// declared spelling stays, and a plural of a declared word is that word.
+    /// singular, and a word with a capital stays as it is written. A plural
+    /// of a declared word is that word.
     pub fn number(&self, word: &str) -> String {
         if word.len() < 4 || word.contains("::") {
             return word.to_string();
@@ -253,13 +266,10 @@ impl Lexicon {
         let first = chars.next().unwrap_or(' ');
         let rest = chars.as_str();
         let lowered = if first.is_ascii_uppercase() && rest.chars().all(|c| c.is_ascii_lowercase()) {
-            let lowered = format!("{}{rest}", first.to_ascii_lowercase());
-            // `Clients` at the start of a sentence is `clients`; `English` stays.
-            let plural = singular_by_ending(&lowered) != lowered;
-            if declared(last) || !(declared(&lowered) || plural || singular_candidates(&lowered).iter().any(|c| declared(c))) {
-                return word.to_string();
-            }
-            lowered
+            // A capital inside a sentence is part of the word, whatever the
+            // other statements declare: `Closed` stays. The capital that
+            // only opens a sentence is dropped where the sentence is read.
+            return word.to_string();
         } else if last.chars().all(|c| c.is_ascii_lowercase()) {
             last.to_string()
         } else {

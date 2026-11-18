@@ -1,0 +1,5 @@
+namespace x
+primitive API
+
+[A]
+The API shall stop.

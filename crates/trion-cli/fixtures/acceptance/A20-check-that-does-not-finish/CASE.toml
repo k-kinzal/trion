@@ -1,0 +1,17 @@
+id = "A20"
+title = "A required check that did not finish is no success"
+work = "W02"
+status = "closed"
+args = ["--json", "--decision-limit", "0"]
+reason = """
+Each obligation is proved by trion's own solver, and its answer is accepted by the independent checker.
+A query that ends at its decision limit answers nothing, so the obligation is reported as not proved,
+and the package is not verified.
+"""
+
+[expect]
+verified = false
+diagnostics = ["obligation-unproved"]
+
+[expect.obligations]
+consistency = "unproved"

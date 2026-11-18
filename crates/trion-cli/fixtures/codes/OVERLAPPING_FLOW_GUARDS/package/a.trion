@@ -1,4 +1,5 @@
 namespace main
+primitive checker, result, success, failure, count
 [F] When the checker receives a result R, the checker shall follow this flow:
     step inspect: read R;
     step good: publish the success for R;

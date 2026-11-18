@@ -11,8 +11,8 @@ const MANIFEST: &str = "[package]\nname = \"p\"\n";
 fn render_with(namespace: &str, terms: &[&str], spec: &str) -> String {
     let declared: String = terms.iter().map(|term| format!("primitive {term}\n")).collect();
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", spec), ("terms.trion", &format!("namespace {namespace}\n{declared}"))]);
-    let r = f.trion(&["doc"]);
-    assert_eq!(r.code, 0, "{}{}", r.stderr, f.trion(&["verify"]).stdout);
+    let r = f.document(&[]);
+    assert_eq!(r.code, 0, "{}{}", r.stderr, f.verify(&[]).stdout);
     r.stdout
 }
 
@@ -81,7 +81,7 @@ fn explicit_scopes_and_action_lists_keep_their_nesting() {
 
 #[test]
 fn a_term_links_to_its_definition_and_shows_it() {
-    let spec = "[ROOM] A room means a space with a door.\n[OPEN] The API shall open the rooms.\n    detailed by [SHUT]\n[SHUT] The API shall close the room.\n";
+    let spec = "[ROOM] A room means a space with a door.\n[OPEN] The API shall open the rooms.\n[SHUT] When the API opens the room, the API shall log the room.\n";
     let html = render(&[], spec);
     // Every occurrence links to the defining statement and carries its text.
     let link = "<a class=\"term defined\" href=\"#ROOM\" title=\"A room means a space with a door.\">";
@@ -148,14 +148,14 @@ fn a_figure_stands_beside_the_controlled_english_it_means() {
 fn a_statement_shows_its_warnings_and_sources() {
     let requirement = "The API stops.\n";
     let source = source_block("R", "requirement", "r.txt", requirement, "", &[("STOP", "The API stops.")]);
-    let spec = format!("{source}primitive API\n[A] The API shall stop.\n    cite R#STOP\n[B] The API shall start.\n    unsourced \"Nobody asked.\"\n");
+    let spec = format!("{source}system API\nprimitive API\n[A] The API shall stop.\n    cite R#STOP\n[B] The API shall start.\n    unsourced \"Nobody asked.\"\n");
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &spec), ("r.txt", requirement)]);
-    let r = f.trion(&["doc"]);
-    assert_eq!(r.code, 0, "{}{}", r.stderr, f.trion(&["verify"]).stdout);
+    let r = f.document(&[]);
+    assert_eq!(r.code, 0, "{}{}", r.stderr, f.verify(&[]).stdout);
     let html = r.stdout;
-    // The verdict of the whole package, with the bounds of the result.
+    // The conformance of the whole package, with the bounds of its obligations.
     let status = html.split("id=\"status\"").nth(1).expect("a status").split("</section>").next().unwrap();
-    assert!(status.starts_with("><strong>consistent</strong>: 2 statements shown; the package is verified with 1 warnings"), "{status}");
+    assert!(status.starts_with("><strong>converted</strong>: 2 statements shown; the package conforms to the language with 1 warnings, and nothing here is proved"), "{status}");
     assert!(text_of(status).contains("within traces of 3 moments"), "{status}");
     assert!(status.contains("source R: 100.00% cited"), "{status}");
     // A warning stands on its statement, and on no other.
@@ -198,23 +198,23 @@ fn each_element_names_its_file_and_line() {
 #[test]
 fn one_file_can_be_rendered_and_written_to_a_file() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\nprimitive bell\n[A] The API shall stop.\n"), ("sub/b.trion", "[B] The bell shall ring.\n")]);
-    let whole = f.trion(&["doc"]).stdout;
+    let whole = f.document(&[]).stdout;
     assert!(whole.contains("id=\"A\"") && whole.contains("id=\"B\""), "{whole}");
     // Files follow the order of their includes.
     assert!(whole.find("id=\"file-a-trion\"").unwrap() < whole.find("id=\"file-sub-b-trion\"").unwrap());
-    let r = f.trion(&["doc", "--file", "sub/b.trion", "--out", "out/b.html"]);
-    assert_eq!((r.code, r.stdout.as_str()), (0, ""), "{}", r.stderr);
-    let one = f.read("out/b.html");
+    let r = f.convert(&["--file", "sub/b.trion", "--out", "out", "--format", "html"]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    let one = f.read("out/specification.html");
     assert!(one.contains("id=\"B\"") && !one.contains("id=\"A\""), "{one}");
     assert!(one.contains("<title>p: sub/b.trion</title>"));
-    let missing = f.trion(&["doc", "--file", "nowhere.trion"]);
+    let missing = f.document(&["--file", "nowhere.trion"]);
     assert_eq!(missing.code, 2, "{}", missing.stderr);
     assert!(missing.stderr.contains("no file of package `p` is `nowhere.trion`"), "{}", missing.stderr);
 }
 
 #[test]
 fn a_refinement_is_linked_from_both_of_its_sides() {
-    let spec = "[TOP] The API shall keep each record.\n    detailed by [SAVE], [LOAD]\n[SAVE] The API shall save each record.\n[LOAD] The API shall load each record.\n";
+    let spec = "[TOP] The API shall save each record.\n    detailed by [SAVE], [LOAD]\n[SAVE] The API shall save each record.\n[LOAD] The API shall load each record.\n";
     let html = render(&[], spec);
     let top = html.split("id=\"TOP\"").nth(1).unwrap().split("</p>").next().unwrap();
     assert!(top.contains("detailed by <a href=\"#SAVE\">SAVE</a>, <a href=\"#LOAD\">LOAD</a>"), "{top}");
@@ -236,42 +236,30 @@ fn the_glossary_names_primitives_and_the_statements_that_relate_a_term() {
 }
 
 #[test]
-fn a_package_that_is_not_verified_has_no_document() {
-    // A contradiction and a statement that constrains nothing: neither is shown as if it were verified.
-    for spec in ["primitive API\n[A] The API shall stop.\n[B] The API shall not stop.\n", "[LONE] The gadget shall frobnicate the widget.\n"] {
+fn a_package_that_does_not_conform_has_no_document_and_a_contradiction_has_one() {
+    // A statement that constrains nothing, and a priority line, do not conform to the language.
+    for spec in ["[LONE] The gadget shall frobnicate the widget.\n", "primitive API\n[D] The API shall accept the request.\n    default\n"] {
         let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", spec)]);
-        let r = f.trion(&["doc", "--out", "out/p.html"]);
-        assert_eq!((r.code, r.stdout.as_str()), (2, ""), "{}", r.stderr);
-        // The gates that failed are named: the check, and the claims or the meaning that it leaves unproved.
-        assert!(r.stderr.contains("the package is not verified (gate check, ") && r.stderr.contains("claims"), "{}", r.stderr);
-        assert!(!f.path().join("out/p.html").exists(), "a document was written");
+        let r = f.convert(&["--out", "out", "--format", "html"]);
+        assert_eq!(r.code, 1, "{}", r.stdout);
+        assert!(r.stderr.contains("nothing is written: the package does not conform to the language"), "{}", r.stderr);
+        assert!(!f.path().join("out/specification.html").exists(), "a document was written");
     }
-}
-
-#[test]
-fn a_priority_is_shown_on_the_winner_and_on_the_loser() {
-    let spec = "[OPEN] The door shall be open.\n[ALARM] While the alarm is active, the door shall be closed.\n    overrides [OPEN]\n[S] The API should log the call.\n    weight 3\n[D] The API shall accept the request.\n    default\n";
-    let html = render(&["API", "call", "request"], spec);
-    let of = |id: &str| html.split(&format!("id=\"{id}\"")).nth(1).unwrap().split("</p>").next().unwrap().to_string();
-    assert!(of("ALARM").contains("overrides <a href=\"#OPEN\">OPEN</a>"), "{}", of("ALARM"));
-    assert!(of("OPEN").contains("overridden by <a href=\"#ALARM\">ALARM</a>"), "{}", of("OPEN"));
-    // The condition under which the loser yields is told with the mark.
-    assert!(of("OPEN").contains("does not apply where Val(alarm, active)"), "{}", of("OPEN"));
-    assert!(of("S").contains(">weight 3<"), "{}", of("S"));
-    assert!(of("D").contains(">default<"), "{}", of("D"));
+    // A contradiction is a result of the proof: the document is written, and claims nothing.
+    let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "primitive API\n[A] The API shall stop.\n[B] The API shall not stop.\n")]);
+    let html = f.document(&[]).stdout;
     let status = html.split("id=\"status\"").nth(1).unwrap().split("</section>").next().unwrap();
-    assert!(status.contains("priorities: ALARM overrides OPEN"), "{status}");
-    // The priority lines are no sentences of the document.
-    let text = text_of(&html);
-    assert!(!text.contains("overrides [OPEN]. ") && !text.contains("default. "), "{text}");
+    assert!(status.contains("<strong>converted</strong>") && status.contains("nothing here is proved"), "{status}");
+    assert!(status.contains("proof obligation <code>consistency</code>") && status.contains("not proved here"), "{status}");
 }
 
 #[test]
-fn the_status_says_how_far_the_situations_were_examined() {
+fn the_status_names_each_proof_obligation_and_claims_none() {
     let apart = "[J1] When a user sends a message, the API shall store the message.\n[J2] When a user deletes a message, the API shall log the message.\n";
     let html = render(&["user", "message", "API"], apart);
     let status = html.split("id=\"status\"").nth(1).unwrap().split("</section>").next().unwrap().to_string();
-    assert!(status.contains("situations: every situation was examined through") && status.contains("the statements can all be kept in each situation"), "{status}");
+    assert!(status.contains("proof obligation <code>consistency</code> (consistency): within traces of 3 moments, domains of one individual of each type: ") && status.contains("proof obligation <code>compatibility</code>"), "{status}");
+    assert!(!status.contains("verified") && !status.contains("claim "), "{status}");
     // The control declarations are shown as declarations.
     let declared = "environment user\nsystem API\n[E2] When the user sends a message, the API shall store the message.\n";
     let html = render(&["user", "message", "API"], declared);

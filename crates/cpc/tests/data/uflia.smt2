@@ -1,0 +1,10 @@
+; QF_UFLIA: a = b, but g(f(a, 3)) /= g(f(b, 1 + 2)).
+(set-logic QF_UFLIA)
+(declare-sort S 0)
+(declare-fun f (S Int) S)
+(declare-fun g (S) Int)
+(declare-fun a () S)
+(declare-fun b () S)
+(assert (= a b))
+(assert (not (= (g (f a 3)) (g (f b (+ 1 2))))))
+(check-sat)

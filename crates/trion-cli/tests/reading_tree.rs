@@ -8,7 +8,7 @@ use common::*;
 const HEAD: &str = "primitive server\nprimitive message\nprimitive client\nprimitive block\nprimitive header\n\n";
 
 fn check(text: &str) -> serde_json::Value {
-    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", &format!("{HEAD}{text}"))]).verify(&["--json", "a.trion"]).json()
 }
 
 fn model(text: &str) -> String {
@@ -90,7 +90,11 @@ fn an_adverb_before_the_verb_is_the_manner_of_the_verb() {
     let model = model("[A]\nThe server shall securely store the message.\n\n[B]\nThe server shall not store the message.\n");
     assert!(model.contains("store securely message"), "{model}");
     assert!(!model.contains("securely store"), "{model}");
+    // `securely` is a quality without a measure, so that package does not
+    // convert; an adverb that is no quality shows that storing in a manner is storing.
     let report = check("[A]\nThe server shall securely store the message.\n\n[B]\nThe server shall not store the message.\n");
+    assert!(report_codes(&report).contains(&"inexpressible-property".to_string()), "{report}");
+    let report = check("[A]\nThe server shall locally store the message.\n\n[B]\nThe server shall not store the message.\n");
     assert!(report_codes(&report).contains(&"contradiction".to_string()), "{report}");
     // A verb in `-ly` stays a verb.
     assert!(model_of_apply().contains("apply"), "{}", model_of_apply());

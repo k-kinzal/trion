@@ -1,0 +1,17 @@
+unsat
+(
+(assume a0 (! (= same (lambda ((x U) (y U)) (= x y))) :named @p_1))
+(assume a1 (! (same a b) :named @p_2))
+(assume D (! (distinct a b) :named @p_3))
+(step t0 (cl (not (! (= @p_2 (! (= a b) :named @p_4)) :named @p_7)) (not @p_2) @p_4) :rule equiv_pos2)
+(step t1 (cl (= a a)) :rule refl)
+(step t2 (cl (= b b)) :rule refl)
+(step t3 (cl (= @p_2 (! ((lambda ((x U) (y U)) (= x y)) a b) :named @p_8))) :rule ho_cong :premises (a0 t1 t2))
+(step t4 (cl (= @p_8 @p_4)) :rule hole :args ("untranslated rewrite"))
+(step t5 (cl @p_7) :rule trans :premises (t3 t4))
+(step t6 (cl @p_4) :rule resolution :premises (t0 t5 a1))
+(step t7 (cl (not (! (= @p_3 (! (not @p_4) :named @p_5)) :named @p_6)) (not @p_3) @p_5) :rule equiv_pos2)
+(step t8 (cl @p_6) :rule hole :args ("untranslated rewrite"))
+(step t9 (cl @p_5) :rule resolution :premises (t7 t8 D))
+(step t10 (cl) :rule resolution :premises (t6 t9))
+)

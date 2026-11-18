@@ -2,7 +2,7 @@
 name = "trion-cli"
 version.workspace = true
 edition.workspace = true
-description = "The trion command: verifies a package, writes it as a document and serves editors."
+description = "The trion command, which converts a package into its MMT form and its documents, and the trioc command, which proves the obligations of that form."
 
 [lib]
 name = "trion_cli"
@@ -12,11 +12,16 @@ path = "src/lib.rs"
 name = "trion"
 path = "src/main.rs"
 
+[[bin]]
+name = "trioc"
+path = "src/bin/trioc.rs"
+
 [dependencies]
 trion-language.workspace = true
 trion-solver.workspace = true
 trion-verification.workspace = true
 trion-checker.workspace = true
+trioc-cli.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 clap.workspace = true

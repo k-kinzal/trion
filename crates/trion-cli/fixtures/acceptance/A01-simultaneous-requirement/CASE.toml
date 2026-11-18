@@ -2,7 +2,7 @@ id = "A01"
 title = "A simultaneous requirement after `while <gerund>` is read or the statement is stopped"
 work = "W02"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 `while retaining the origin` says that the origin is retained while the request is forwarded: with [B] the
 two statements cannot both be kept. An implementation that leaves the phrase out sees [A] and [B] as
@@ -12,8 +12,7 @@ acceptable outcomes are a conflict of [A] and [B], or a stop that names the phra
 
 [expect]
 verified = false
-blockers = ["UNSUPPORTED_SEMANTICS"]
-gates_failed = ["meaning"]
+diagnostics = ["UNSUPPORTED_SEMANTICS"]
 
 [baseline]
 commit = "24cab2aa"

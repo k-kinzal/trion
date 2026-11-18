@@ -1,0 +1,150 @@
+// A fixture that exercises every construct of the grammar.
+package chat edition "2026-11-09"
+
+include "parts/more.trion"
+
+namespace chat.api:
+    use grpc
+    cite R#INTENT
+    cite LANGUAGE-DRAFT
+    term API: entity
+    alias endpoint = API
+    bind API as grpc.service.
+    extend API with Auditable, Pageable.
+    classify sentences as Security.
+    predicate reachable(node, node)
+    primitive message
+    measure requests
+    environment user
+    system API
+
+    diagram kind transition:
+        element "$from -> $event -> $to;"
+        types "$from: value, $event: value, $to: value"
+        expansion "While the door is $from, when the bell is $event, the light shall be $to."
+        preserves "Each element means exactly its expansion sentence."
+
+    compatibility BASE-SENTENCES:
+        source R
+        revision "abc123"
+        form Event-driven
+
+    source R:
+        title "The first \"request\" of the session"
+        kind requirement
+        transcript first
+        minimum 80%
+        quote INTENT "仕様記述言語を作成します。"
+        quote OLD-FORM """
+# not a comment, "quoted" and // not a comment either
+end
+"""
+        title "After the quote"
+
+    role service:
+        activate: The $subject shall use gRPC communication.
+        form METHOD-NAME: The $subject $operation shall $action. where $operation matches /^\/[A-Z][a-z]*\/[A-Z]+$/ when $operation does not match /^(\/|[A-Z]+ \/)/
+        required HEALTH: The $subject shall report health.
+
+    section "Requests and responses":
+        unsourced "The session leaves the API unspecified."
+        ratified by alice on 2026-11-09
+
+        [EARS-1]
+        Where tracing is enabled, while the link is up, when a request arrives,
+        the API shall respond within 500 ms, unless the queue is full.
+            cite R#INTENT
+            detailed by [EARS-2], [EARS-3]
+            overrides [EARS-4], [EARS-5]
+            default
+            weight 3
+
+        [EARS-2] If the token is invalid, then the API must not return `GET /foo` or `unless`.
+        [EARS-3] The API should never retry. // a trailing comment
+        [EARS-4] A session may close.
+        [TERM-1] A request means a message that a client sends.
+        [CMP-1] The timeout is at most 30 seconds and at least one retry is exactly 1,000 ms.
+        [CMP-2] Each user is every member and no guest.
+        [CMP-3] The size is greater than 1.5 GB, less than 80%, equal to 5, between 1 and 2 and up to 9.
+        [ENUM] room_type is one of Private, Public and Either.
+        [QUAL] The trion.vocabulary namespace is either A or both B.
+        [bad id!] The API shall work.
+        Before the deadline, After the launch, Once the job ends, Upon login, Until restart, During sync, the API shall log.
+        The is-active flag and may-fail state are no-op values.
+
+        [DELIVERY]
+        When the checker produces a diagnostic D,
+        the checker shall perform all of the following actions:
+            [DELIVERY/identity] retain the source identities of D;
+            [DELIVERY/channels] perform one or more of the following actions:
+                [DELIVERY/display] present D in the reader;
+                emit D as a structured diagnostic;
+
+        For each composition C:
+            When the formalizer expands C:
+                The formalizer shall retain C.
+
+        [PIPELINE]
+        When the compiler receives a specification S,
+        the compiler shall follow this flow:
+            [PIPELINE/model] step model: construct the model of S;
+            step verify: check the model of S;
+            step report: publish the report for S;
+            start model
+            model -> verify
+            choose after verify:
+                when S is consistent -> report
+                otherwise -> model
+            finish report
+
+        [MODEL] concept:
+            [MODEL/statements] each specification -> contains -> zero or more normative statements;
+
+        check PIPELINE-EQUIVALENCE:
+            relation equivalent
+            left [DELIVERY], [PIPELINE]
+            right [MODEL]
+            using definitions
+
+        example SYNTAX-CASE:
+            kind syntax
+            form statement
+            input """
+namespace inner:
+    [NOT-AN-ID] When this ends, it is data.
+end
+"""
+            expect rejected "MISSING_PREDICATE"
+
+        example COMPARISON-CASE:
+            kind comparison
+            base [DELIVERY]
+            candidate [PIPELINE/model]
+            expect trace-to [EARS-1]
+
+        example READING-CASE:
+            kind reading
+            input "The API shall return foo."
+            expect "assume: ⊤"
+
+        note "Statements read as one specification."
+        ref [EARS-1]
+
+    trace EARS-TEST:
+        artifact "cargo:syntax::accepts_every_ears_pattern"
+        verifies chat#EARS-1
+
+// The flat form: no colon and no indentation.
+namespace chat.room
+
+section "Room types"
+
+[ROOM-KINDS] The room type is private or public.
+
+A room means a space for messages. Each room has
+exactly one owner. The owner uses gRPC.
+
+section "Room members"
+
+For each room R:
+    The owner of R may invite a member.

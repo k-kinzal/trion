@@ -2,20 +2,17 @@ id = "A14"
 title = "Statements without normative force that have no model verify nothing"
 work = "W02"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
-[K1] and [K2] cannot both hold, so no situation can occur. Each of no situations has a response: the
-claim about the situations holds of nothing and must not count as a success, and the result must say
-that it is the background that has no model.
+[K1] and [K2] describe the door, which no statement gives to the system: they are assumptions, and
+together they allow no environment. Consistency then holds of nothing: for each of no environments a
+system exists. That must not count as a success, so compatibility is its own obligation, and it is
+refuted: no environment meets the assumptions, and the result says so with `incompatible`.
 """
 
 [expect]
 verified = false
+diagnostics = ["incompatible"]
 
-[expect.claims]
-background_sat = "refuted"
-contract_sat = "refuted"
-situation_total = "proved"
-
-[expect.vacuous]
-situation_total = true
+[expect.obligations]
+compatibility = "refuted"

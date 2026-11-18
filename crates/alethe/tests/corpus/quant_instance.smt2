@@ -1,0 +1,7 @@
+(set-logic UFLRA)
+(declare-sort U 0)
+(declare-fun P (U) Bool)
+(declare-const a U)
+(assert (forall ((x U)) (P x)))
+(assert (not (P a)))
+(check-sat)

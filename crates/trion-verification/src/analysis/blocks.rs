@@ -1,5 +1,6 @@
-//! The `check` and `example` blocks of a set: each is a question asked in an
-//! environment over the unrolled formulas of the package.
+//! The `example` blocks of a set that demonstrate the conversion, and what
+//! the obligations of the `check` blocks and of the comparisons are stated
+//! with: the environment of a question and the contracts that it names.
 
 use super::*;
 
@@ -25,12 +26,6 @@ pub(super) struct Operand<'a> {
     pub guarantee: &'a Formula,
     /// The statement of the operand, which is no premise of its own question.
     pub id: Option<&'a str>,
-}
-
-impl<'a> Operand<'a> {
-    fn of(c: &'a Constraint) -> Self {
-        Self { assume: &c.assume, guarantee: &c.guarantee, id: c.refs.first().map(|r| r.id.as_str()) }
-    }
 }
 
 impl<'a> Environment<'a> {
@@ -120,12 +115,12 @@ impl<'a> Environment<'a> {
     }
 
     /// The formula over the trace of an axiom of the model. A refinement is
-    /// no part of the trace of the package, since every party of it stands
-    /// there already; as a premise it holds at every moment.
+    /// a proof obligation and no axiom: the details are not assumed to say
+    /// what the statement says, so it is no premise.
     fn premise_of(&self, axiom: usize) -> usize {
         let c = &self.model.constraints[axiom];
         if c.kind == ConstraintKind::Refinement {
-            return self.instance.add(&trion_language::reading::unroll_axiom(&c.guarantee, self.bounds.trace_length));
+            return self.instance.add(&Formula::True);
         }
         self.instance.group(axiom)
     }
@@ -134,66 +129,6 @@ impl<'a> Environment<'a> {
     pub(super) fn query(&self, formulas: &[usize]) -> Vec<usize> {
         self.instance.background().iter().chain(&self.premises).chain(formulas).copied().collect()
     }
-
-    /// Asks a question in this environment and keeps it with its answer.
-    pub(super) fn ask(&self, formulas: &[usize]) -> Question {
-        Question::ask(self.instance, self.query(formulas))
-    }
-
-    /// What the search establishes for the formulas in this environment.
-    pub(super) fn status(&self, formulas: &[usize]) -> Status {
-        self.ask(formulas).status()
-    }
-
-    /// The formulas of the given contracts over the trace as a list of
-    /// formulas whose conjunction says the same. A contract over a trace is
-    /// a conjunction over its moments, and what a condition requires is a
-    /// conjunction of responses: `a → (b ∧ c)` is listed as `a → b` and
-    /// `a → c`. A question about a side is then asked one formula at a time.
-    pub(super) fn conjuncts(&self, contracts: &[usize]) -> Vec<usize> {
-        fn flatten(formula: &Formula, out: &mut Vec<Formula>) {
-            match formula {
-                Formula::And(items) => items.iter().for_each(|item| flatten(item, out)),
-                Formula::True => {}
-                Formula::Implies(condition, response) => {
-                    let mut parts = Vec::new();
-                    flatten(response, &mut parts);
-                    out.extend(parts.into_iter().map(|part| Formula::Implies(condition.clone(), Box::new(part))));
-                }
-                other => out.push(other.clone()),
-            }
-        }
-        let all = self.instance.formulas();
-        let mut out = Vec::new();
-        for &contract in contracts {
-            let id = self.instance.group(contract);
-            match &all[id] {
-                formula @ (Formula::And(_) | Formula::Implies(..)) => {
-                    let mut parts = Vec::new();
-                    flatten(formula, &mut parts);
-                    out.extend(parts.iter().map(|part| self.instance.add(part)));
-                }
-                Formula::True => {}
-                _ => out.push(id),
-            }
-        }
-        out
-    }
-
-    /// The negation of each of the formulas, as new formulas.
-    pub(super) fn negations(&self, formulas: &[usize]) -> Vec<usize> {
-        let all = self.instance.formulas();
-        formulas.iter().map(|&id| self.instance.add(&Formula::not(all[id].clone()))).collect()
-    }
-
-    pub(super) fn record(&self, name: &str, kind: &str) -> EnvironmentRecord {
-        EnvironmentRecord { name: name.to_string(), kind: kind.to_string(), bounds: used_bounds(self.model, self.bounds), background: self.instance.background().to_vec(), premises: self.premises.clone() }
-    }
-}
-
-/// The bounds as the reader used them.
-pub(super) fn used_bounds(model: &Model, bounds: Bounds) -> UsedBounds {
-    UsedBounds { moments: bounds.trace_length.max(2), individuals: model.instance_scope, decisions: bounds.decisions }
 }
 
 fn constraints_of(model: &Model, id: &str) -> Vec<usize> {
@@ -202,7 +137,7 @@ fn constraints_of(model: &Model, id: &str) -> Vec<usize> {
 }
 
 /// Why the operands of a question have no formulas.
-enum OperandError {
+pub(super) enum OperandError {
     /// No statement has the identifier.
     Unresolved,
     /// The statement is accepted and has no formal interpretation.
@@ -210,7 +145,7 @@ enum OperandError {
 }
 
 /// The contracts of the named statements, by their index in the model.
-fn operand_formulas(set: &SpecSet, model: &Model, ids: &[String]) -> Result<Vec<usize>, OperandError> {
+pub(super) fn operand_formulas(set: &SpecSet, model: &Model, ids: &[String]) -> Result<Vec<usize>, OperandError> {
     let mut all = Vec::new();
     for id in ids {
         let found = constraints_of(model, id);
@@ -224,178 +159,18 @@ fn operand_formulas(set: &SpecSet, model: &Model, ids: &[String]) -> Result<Vec<
 }
 
 /// Reports why an obligation cannot be examined.
-fn operand_diagnostic(error: &OperandError, obligation: &str, at: SpecRef) -> Diagnostic {
+pub(super) fn operand_diagnostic(error: &OperandError, obligation: &str, at: SpecRef) -> Diagnostic {
     match error {
         OperandError::Unresolved => Diagnostic::error("UNRESOLVED_REFERENCE", format!("the {obligation} names a statement that does not exist"), vec![at]),
         OperandError::Unsupported(id) => Diagnostic::error("UNSUPPORTED_SEMANTICS", format!("[{id}] has no supported formal interpretation, so the {obligation} cannot be established"), vec![at]),
     }
 }
 
-/// Asks, for each formula of `other`, whether the environment and `side`
-/// hold without it. `Err` holds a witness: the side does not imply the
-/// other. `Ok(None)` means that a question stayed open. Otherwise every
-/// question is refuted: the side implies each formula of the other, and so
-/// their conjunction. One refutation for each formula keeps each search
-/// within one conjunct; a single refutation of the negated conjunction
-/// would have to enumerate the cases of all of them at once.
-fn implies(env: &Environment, side: &[usize], negated: &[usize]) -> Result<Option<Vec<Question>>, Question> {
-    let mut refutations = Vec::new();
-    let mut open = false;
-    for &not in negated {
-        let question = env.ask(&side.iter().copied().chain([not]).collect::<Vec<_>>());
-        match question.status() {
-            Status::Satisfiable => return Err(question),
-            Status::Unknown => open = true,
-            Status::Unsatisfiable => refutations.push(question),
-        }
-    }
-    Ok((!open).then_some(refutations))
-}
-
-/// Decides an equivalence in an environment, over the unrolled formulas of
-/// both sides: proved, refuted or unknown, or that the environment itself
-/// has no interpretation and so proves nothing. The result holds the
-/// certificates of its row. With it come the negations of the formulas of
-/// the right side and of the left side.
-pub(super) fn prove_equivalence(env: &Environment, left: &[usize], right: &[usize]) -> (CheckResult, Vec<usize>, Vec<usize>) {
-    let (not_right, not_left) = (env.negations(right), env.negations(left));
-    let environment = env.ask(&[]);
-    match environment.status() {
-        Status::Unsatisfiable => return (CheckResult::EnvironmentInconsistent { refutation: environment }, not_right, not_left),
-        Status::Unknown => return (CheckResult::Unknown, not_right, not_left),
-        Status::Satisfiable => {}
-    }
-    let result = match (implies(env, left, &not_right), implies(env, right, &not_left)) {
-        (Err(witness), _) | (_, Err(witness)) => CheckResult::Refuted { witness },
-        (Ok(Some(forward)), Ok(Some(backward))) => CheckResult::Proved { environment, forward, backward },
-        _ => CheckResult::Unknown,
-    };
-    (result, not_right, not_left)
-}
-
-pub(super) fn run_checks(set: &SpecSet, model: &Model, inst: &Instance, bounds: Bounds, out: &mut Vec<Diagnostic>, claims: &mut Vec<CheckClaim>) -> Vec<CheckOutcome> {
-    let mut outcomes = Vec::new();
-    for check in set.packages.iter().flat_map(|p| &p.documents).flat_map(|d| &d.checks) {
-        let at = SpecRef::point(&check.file, check.line, &check.name);
-        let obligation = format!("check {}", check.name);
-        let undecided = |result: &str| CheckOutcome { name: check.name.clone(), relation: check.relation.clone(), result: result.to_string(), file: check.file.clone(), line: check.line };
-        // A check without a relation that this edition decides, without a
-        // side or without its `using` field asks nothing: the block is
-        // reported where it is read, and nothing is proved of it.
-        if check.malformed {
-            outcomes.push(undecided("invalid"));
-            continue;
-        }
-        let (left, right) = match (operand_formulas(set, model, &check.left), operand_formulas(set, model, &check.right)) {
-            (Ok(left), Ok(right)) => (left, right),
-            (Err(error), _) | (_, Err(error)) => {
-                // The check was asked for and is not decided: it stays among the outcomes.
-                outcomes.push(undecided(if matches!(error, OperandError::Unresolved) { "invalid" } else { "unsupported" }));
-                out.push(operand_diagnostic(&error, &obligation, at));
-                continue;
-            }
-        };
-        // The operands prove nothing about each other: only the background and
-        // the selected definitions stand behind this question.
-        let operands: Vec<Operand> = left.iter().chain(&right).map(|&i| Operand::of(&model.constraints[i])).collect();
-        // A proof from the nearest axioms is a proof; a refutation counts only
-        // with every axiom that reaches the operands.
-        let mut claim = None;
-        for steps in [1, 2, 4, usize::MAX] {
-            let env = Environment::of(model, inst, bounds).using_definitions_within(&operands, steps);
-            let started = std::time::Instant::now();
-            let (left_parts, right_parts) = (env.conjuncts(&left), env.conjuncts(&right));
-            let (result, not_right, not_left) = prove_equivalence(&env, &left_parts, &right_parts);
-            if std::env::var("TRION_PROFILE").is_ok() {
-                eprintln!("profile: check {} steps {steps}: {} premises, {}, {:.3}s", check.name, env.premises.len(), result.name(), started.elapsed().as_secs_f64());
-            }
-            let done = matches!(result, CheckResult::Proved { .. } | CheckResult::EnvironmentInconsistent { .. }) || env.complete;
-            claim = Some(CheckClaim { environment: env.record(&check.name, "check"), left: left_parts, right: right_parts, not_right, not_left, result });
-            if done {
-                break;
-            }
-        }
-        let Some(claim) = claim else { continue };
-        let result = match &claim.result {
-            CheckResult::Refuted { .. } => {
-                out.push(Diagnostic::error("check-refuted", format!("the check {} is refuted: its two sides have different interpretations", check.name), vec![at]));
-                "refuted"
-            }
-            CheckResult::EnvironmentInconsistent { .. } => {
-                out.push(Diagnostic::error("check-environment-inconsistent", format!("the check {} is not proved: its selected definitions have no interpretation, so they would prove anything", check.name), vec![at]));
-                "unknown"
-            }
-            CheckResult::Unknown => {
-                out.push(Diagnostic::warning("check-unknown", format!("the check {} is neither proved nor refuted within the analysis bounds: it remains an unresolved obligation", check.name), vec![at]));
-                "unknown"
-            }
-            CheckResult::Proved { .. } => "proved",
-        };
-        claims.push(claim);
-        outcomes.push(CheckOutcome { name: check.name.clone(), relation: check.relation.clone(), result: result.to_string(), file: check.file.clone(), line: check.line });
-    }
-    outcomes
-}
-
-/// A comparison keeps operands apart and forces their conditions when it asks
-/// about conflict: two rules with one trigger conflict when that trigger
-/// occurs. The base and the candidate are contracts of the model, read over
-/// the trace in the one environment given; a question the bounds leave open
-/// makes the whole comparison unknown. The conditions of the base that are
-/// forced join the premises of the claim.
-pub(super) fn compare(env: &Environment, name: &str, base: &[usize], candidate: &[usize]) -> ComparisonClaim {
-    let inst = env.instance;
-    let guards = |items: &[usize]| items.iter().filter_map(|&i| inst.guard(i)).map(|g| g as usize).collect::<Vec<_>>();
-    let formulas = |items: &[usize]| items.iter().map(|&i| inst.group(i)).collect::<Vec<_>>();
-    let (base_formulas, candidate_formulas) = (formulas(base), formulas(candidate));
-    let not_candidate = env.negations(&env.conjuncts(candidate));
-    let mut env = env.clone();
-    let claim = |env: &Environment, candidate_conditions: Vec<usize>, result: ComparisonResult| ComparisonClaim { environment: env.record(name, "comparison"), base: base_formulas.clone(), candidate: candidate_formulas.clone(), candidate_conditions, not_candidate: not_candidate.clone(), expected: None, result };
-    // Conditions that cannot occur together, such as two values of one
-    // attribute, are not forced: nothing happens under all of them.
-    let conditions = guards(base);
-    match env.status(&conditions) {
-        Status::Unsatisfiable => {}
-        Status::Unknown => return claim(&env, Vec::new(), ComparisonResult::Unknown),
-        Status::Satisfiable => env.premises.extend(conditions),
-    }
-    let base_alone = env.ask(&base_formulas);
-    match base_alone.status() {
-        Status::Unsatisfiable => return claim(&env, Vec::new(), ComparisonResult::BaseInconsistent { refutation: base_alone }),
-        Status::Unknown => return claim(&env, Vec::new(), ComparisonResult::Unknown),
-        Status::Satisfiable => {}
-    }
-    let candidate_conditions = match env.status(&guards(candidate)) {
-        Status::Unsatisfiable => Vec::new(),
-        Status::Unknown => return claim(&env, Vec::new(), ComparisonResult::Unknown),
-        Status::Satisfiable => guards(candidate),
-    };
-    let together = env.ask(&base_formulas.iter().chain(&candidate_formulas).chain(&candidate_conditions).copied().collect::<Vec<_>>());
-    match together.status() {
-        Status::Unsatisfiable => return claim(&env, candidate_conditions, ComparisonResult::Conflict { base: base_alone, refutation: together }),
-        Status::Unknown => return claim(&env, candidate_conditions, ComparisonResult::Unknown),
-        Status::Satisfiable => {}
-    }
-    let result = match implies(&env, &base_formulas, &not_candidate) {
-        Ok(Some(refutations)) => ComparisonResult::Redundant { base: base_alone, refutations },
-        Err(without) => ComparisonResult::Extension { with: together, without },
-        Ok(None) => ComparisonResult::Unknown,
-    };
-    claim(&env, candidate_conditions, result)
-}
-
 fn normalized_expect(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The claims of the examples that the solver decides.
-#[derive(Default)]
-pub(super) struct ExampleClaims {
-    pub(super) comparisons: Vec<ComparisonClaim>,
-    pub(super) consistency: Vec<ExampleClaim>,
-}
-
-fn run_example(set: &SpecSet, doc: &Document, pkg: &Package, engine: Option<(&Model, &Instance)>, bounds: Bounds, example: &trion_language::document::Example, claims: &mut ExampleClaims, shared: &ExampleContext) -> Result<String, Diagnostic> {
+fn run_example(doc: &Document, pkg: &Package, example: &trion_language::document::Example, shared: &ExampleContext) -> Result<String, Diagnostic> {
     let at = || SpecRef::point(&example.file, example.line, &example.name);
     let invalid = |message: String| Diagnostic::error("example-invalid", format!("the example {} cannot run: {message}", example.name), vec![at()]);
     let input = example.input.as_deref().unwrap_or_default();
@@ -412,35 +187,6 @@ fn run_example(set: &SpecSet, doc: &Document, pkg: &Package, engine: Option<(&Mo
                 Some(first) => format!("rejected \"{}\"", first.code),
             })
         }
-        "consistency" => {
-            let (mut parsed, diags) = parse_statement(input);
-            if let Some(error) = diags.iter().find(|d| d.severity == Severity::Error) {
-                return Err(invalid(format!("the input does not parse: {}", error.message)));
-            }
-            parsed.namespace = doc.namespace.clone();
-            parsed.imports = doc.imports.clone();
-            // The input is read with the declarations and with the
-            // definitions of the terms that it names, as a statement is
-            // read alone.
-            let isolated = shared.isolation.set_naming(&pkg.name, vec![parsed], input);
-            let lex = Lexicon::of(&isolated);
-            let mini = trion_language::reading::compile(&isolated, &lex, bounds.scope);
-            // The example is decided as the package is: over its own unrolled
-            // formulas, by the rows of the status.
-            let (trace, control) = trace_of(&isolated, &mini, &lex, bounds.trace_length);
-            let own = Instance::new(&trace.background, &trace.groups, bounds.decisions);
-            let authored = Authored::new(&isolated, &lex);
-            let found = conflicts::search(&mini, &own, &conflicts::Situated::of(&mini, &control), &authored, &mut Vec::new());
-            let hard: Vec<(usize, usize)> = (0..mini.constraints.len()).filter(|&i| !authored.is_recommendation(&mini.constraints[i])).map(|i| (i, own.group(i))).collect();
-            let status = proof::status_outcome(&own, own.background(), &hard);
-            // A satisfiable example is consistent only when its statements
-            // can be kept under each condition and in each situation.
-            let satisfiable = status.status() == Status::Satisfiable;
-            let conditions = if satisfiable { proof::conditions(&own, &background_of(&mini, &own), &members_of(&entries_of(&mini, &own, &authored)), &[]) } else { Vec::new() };
-            let situations = found.situations.as_ref().filter(|_| satisfiable).and_then(|s| s.questions(&own)).unwrap_or_default();
-            claims.consistency.push(ExampleClaim { name: example.name.clone(), expected: example.expect.clone(), bounds: used_bounds(&mini, bounds), pool: std::sync::Arc::new(own.formulas()), background: own.background().to_vec(), hard: hard.iter().map(|(_, f)| *f).collect(), status, conditions, situations });
-            Ok(found.verdict().to_string())
-        }
         // A reading example compares what the reader makes of its input
         // with an entry that a person wrote: the contract, the temporal
         // shape and the background axioms.
@@ -456,7 +202,36 @@ fn run_example(set: &SpecSet, doc: &Document, pkg: &Package, engine: Option<(&Mo
             // those of the terms that the input names.
             let compile = |documents: Vec<Document>| shared.isolation.compile_naming(&pkg.name, documents, input);
             let baseline = compile(Vec::new());
+            let specs = parsed.specs.clone();
             let mini = compile(vec![parsed]);
+            // The pattern of the example holds the two rules: each simple
+            // sentence is exactly one contract, and each sentence of the
+            // expansion of a composite sentence, read alone from its own
+            // text, is the contract that the composite sentence has for it.
+            for spec in specs.iter().filter(|spec| !matches!(spec.sentence.core, trion_language::syntax::ast::Core::Definition { .. })) {
+                let id = spec.display_id();
+                let count = super::properties::contracts_of(&mini, &id) + usize::from(super::properties::fault("one-contract"));
+                if count != 1 {
+                    return Err(Diagnostic::error("sentence-not-one-contract", format!("the example {} reads the simple sentence `{}` as {count} contracts, and a simple sentence is exactly one", example.name, spec.sentence.source), vec![at()]));
+                }
+                if spec.abbreviates.is_some() {
+                    let (alone, diags) = parse_statement(&spec.sentence.source);
+                    let reread = alone.specs.first().filter(|_| diags.iter().all(|d| d.severity != Severity::Error)).cloned();
+                    let here = reread.map(|mut reread| {
+                        if super::properties::fault("expansion") {
+                            return vec!["seeded: a contract that only the composite sentence has".to_string()];
+                        }
+                        reread.id = spec.id.clone();
+                        reread.abbreviates = spec.abbreviates.clone();
+                        let mut document = Document { namespace: doc.namespace.clone(), imports: doc.imports.clone(), file: doc.file.clone(), ..Document::default() };
+                        document.specs.push(reread);
+                        super::local_reading(&compile(vec![document]), &id)
+                    });
+                    if here.as_ref() != Some(&super::local_reading(&mini, &id)) {
+                        return Err(Diagnostic::error("composite-not-its-expansion", format!("the example {}: `{}`, read alone, is not what the composite sentence says of it", example.name, spec.sentence.source), vec![at()]));
+                    }
+                }
+            }
             // `form unrolled`: the formulas of the input over a trace of two
             // moments and the rest, which is what the solver decides.
             if example.form.as_deref() == Some("unrolled") {
@@ -470,25 +245,41 @@ fn run_example(set: &SpecSet, doc: &Document, pkg: &Package, engine: Option<(&Mo
             }
             Ok(lines.join("\n"))
         }
-        "comparison" => {
-            let (model, inst) = engine.expect("a comparison is decided in the environment of the package");
-            let obligation = format!("comparison {}", example.name);
-            let (base, candidate) = match (operand_formulas(set, model, &example.base), operand_formulas(set, model, &example.candidate)) {
-                (Ok(base), Ok(candidate)) => (base, candidate),
-                (Err(OperandError::Unresolved), _) | (_, Err(OperandError::Unresolved)) => return Err(invalid("the comparison names a statement that does not exist".to_string())),
-                (Err(error), _) | (_, Err(error)) => return Err(operand_diagnostic(&error, &obligation, at())),
-            };
-            // One environment and one set of bounds serve the base and the candidate.
-            let operands: Vec<Operand> = base.iter().chain(&candidate).map(|&i| Operand::of(&model.constraints[i])).collect();
-            let env = Environment::of(model, inst, bounds).using_definitions(&operands);
-            let mut claim = compare(&env, &example.name, &base, &candidate);
-            claim.expected = Some(example.expect.clone());
-            let observed = claim.result.name().to_string();
-            claims.comparisons.push(claim);
-            Ok(observed)
-        }
         other => Err(invalid(format!("the kind `{other}` is not known"))),
     }
+}
+
+/// Each example of consistency of a set, with its input read alone: the
+/// set of the input with the declarations of its package and the
+/// definitions of the terms that it names, its lexicon and its model.
+pub(super) fn consistency_examples(set: &SpecSet, scope: usize) -> Vec<(&trion_language::document::Example, Result<(SpecSet, Lexicon, Model), String>)> {
+    let isolation = Isolation::of(set, scope);
+    let mut out = Vec::new();
+    for pkg in &set.packages {
+        for doc in &pkg.documents {
+            for example in doc.examples.iter().filter(|e| e.kind == "consistency") {
+                let input = example.input.as_deref().unwrap_or_default();
+                let (mut parsed, diags) = parse_statement(input);
+                if let Some(error) = diags.iter().find(|d| d.severity == Severity::Error) {
+                    out.push((example, Err(format!("the input does not parse: {}", error.message))));
+                    continue;
+                }
+                parsed.namespace = doc.namespace.clone();
+                parsed.imports = doc.imports.clone();
+                let mut isolated = isolation.set_naming(&pkg.name, vec![parsed], input);
+                // The input is a document of its own: which of its actors are
+                // the system is read from its statements, not from the
+                // boundary of the package that holds the example.
+                for doc in isolated.packages.iter_mut().flat_map(|p| p.documents.iter_mut()) {
+                    doc.controls.clear();
+                }
+                let lex = Lexicon::of(&isolated);
+                let mini = trion_language::reading::compile(&isolated, &lex, scope);
+                out.push((example, Ok((isolated, lex, mini))));
+            }
+        }
+    }
+    out
 }
 
 /// What every example of a set is read with.
@@ -496,47 +287,33 @@ struct ExampleContext {
     isolation: Isolation,
 }
 
-pub(super) fn run_examples(set: &SpecSet, model: &Model, inst: &Instance, bounds: Bounds, out: &mut Vec<Diagnostic>, claims: &mut ExampleClaims) -> Vec<ExampleOutcome> {
+/// The examples of the kinds that `kinds` accepts: of syntax and of a
+/// reading, which demonstrate the conversion and decide nothing.
+pub(super) fn run_examples_of(set: &SpecSet, bounds: Bounds, kinds: &(dyn Fn(&str) -> bool + Sync), out: &mut Vec<Diagnostic>) -> Vec<ExampleOutcome> {
     let mut outcomes = Vec::new();
-    let work: Vec<(&Package, &Document, &trion_language::document::Example)> = set.packages.iter().flat_map(|pkg| pkg.documents.iter().flat_map(move |doc| doc.examples.iter().map(move |example| (pkg, doc, example)))).collect();
+    let work: Vec<(&Package, &Document, &trion_language::document::Example)> = set.packages.iter().flat_map(|pkg| pkg.documents.iter().flat_map(move |doc| doc.examples.iter().filter(|example| kinds(&example.kind)).map(move |example| (pkg, doc, example)))).collect();
     let baselines = ExampleContext { isolation: Isolation::of(set, bounds.scope) };
     // The examples are independent of each other: they run side by side, and
     // their results are gathered in the order of the package.
     let next = std::sync::atomic::AtomicUsize::new(0);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8).min(work.len().max(1));
-    let mut results: Vec<Option<(Result<String, Diagnostic>, ExampleClaims)>> = Vec::new();
+    let mut results: Vec<Option<Result<String, Diagnostic>>> = Vec::new();
     results.resize_with(work.len(), || None);
     let results = std::sync::Mutex::new(results);
-    // A comparison is decided in the environment of the package, which one
-    // thread holds; every other example compiles its own input.
-    let alone = |example: &trion_language::document::Example| example.kind != "comparison";
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| loop {
                 let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let Some((pkg, doc, example)) = work.get(index) else { break };
-                if !alone(example) {
-                    continue;
-                }
-                let mut own = ExampleClaims::default();
-                let observed = run_example(set, doc, pkg, None, bounds, example, &mut own, &baselines);
-                results.lock().unwrap()[index] = Some((observed, own));
+                let observed = run_example(doc, pkg, example, &baselines);
+                results.lock().unwrap()[index] = Some(observed);
             });
         }
     });
-    let mut results = results.into_inner().unwrap();
-    for (index, (pkg, doc, example)) in work.iter().enumerate() {
-        if !alone(example) {
-            let mut own = ExampleClaims::default();
-            let observed = run_example(set, doc, pkg, Some((model, inst)), bounds, example, &mut own, &baselines);
-            results[index] = Some((observed, own));
-        }
-    }
+    let results = results.into_inner().unwrap();
     for ((_, _, example), result) in work.iter().zip(results) {
         let at = SpecRef::point(&example.file, example.line, &example.name);
-        let (observed, mut own) = result.expect("every example was run");
-        claims.comparisons.append(&mut own.comparisons);
-        claims.consistency.append(&mut own.consistency);
+        let observed = result.expect("every example was run");
         let observed = match observed {
             Ok(observed) => observed,
             Err(diagnostic) => {
@@ -554,46 +331,3 @@ pub(super) fn run_examples(set: &SpecSet, model: &Model, inst: &Instance, bounds
     outcomes
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use trion_solver::Atom;
-
-    fn event(key: &str) -> Formula {
-        Formula::Atom(Atom::Event { key: key.to_string() })
-    }
-
-    #[test]
-    fn an_inconsistent_environment_proves_no_equivalence() {
-        let model = Model::default();
-        // The formulas of a question are formulas of the instance that the environment reads.
-        let instance = Instance::new(&[], &[], None);
-        let (a, b) = (instance.add(&event("a")), instance.add(&event("b")));
-        let verdict = |env: &Environment, left: usize, right: usize| prove_equivalence(env, &[left], &[right]).0.name();
-        // In a consistent environment the two different sides are refuted.
-        let env = Environment::of(&model, &instance, Bounds::default());
-        assert_eq!(verdict(&env, a, b), "refuted");
-        assert_eq!(verdict(&env, a, a), "proved");
-        // Premises without an interpretation would entail both directions; the
-        // equivalence is still not reported as proved.
-        let mut broken = Environment::of(&model, &instance, Bounds::default());
-        broken.premises = vec![instance.add(&event("p")), instance.add(&Formula::not(event("p")))];
-        assert_eq!(verdict(&broken, a, b), "environment-inconsistent");
-        assert_eq!(verdict(&broken, a, a), "environment-inconsistent");
-    }
-
-    #[test]
-    fn an_equivalence_that_needs_more_than_the_bounds_is_unknown() {
-        let model = Model::default();
-        let both = |x: &str, y: &str| Formula::Or(vec![Formula::And(vec![event(x), event(y)]), Formula::And(vec![Formula::not(event(x)), Formula::not(event(y))])]);
-        // `a` exactly when `b`, written in both orders: no side follows by propagation alone.
-        let (a, b) = (both("a", "b"), both("b", "a"));
-        let verdict = |bounds: Bounds| {
-            let instance = Instance::new(&[], &[], bounds.decisions);
-            let (left, right) = (instance.add(&a), instance.add(&b));
-            prove_equivalence(&Environment::of(&model, &instance, bounds), &[left], &[right]).0.name()
-        };
-        assert_eq!(verdict(Bounds::default()), "proved");
-        assert_eq!(verdict(Bounds { decisions: Some(0), ..Bounds::default() }), "unknown");
-    }
-}

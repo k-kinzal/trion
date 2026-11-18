@@ -10,14 +10,14 @@ fn fixture(text: &str) -> Fixture {
 }
 
 fn codes(text: &str) -> Vec<String> {
-    report_codes(&fixture(text).trion(&["verify", "--json", "a.trion"]).json())
+    report_codes(&fixture(text).verify(&["--json", "a.trion"]).json())
 }
 
 /// As `codes`, reading the diagnostics of the analysis alone: no finding of
 /// another list of the report is read, so an empty result is no success.
 #[allow(dead_code)]
 fn codes_of_the_analysis(text: &str) -> Vec<String> {
-    analysis_codes(&fixture(text).trion(&["verify", "--json", "a.trion"]).json())
+    analysis_codes(&fixture(text).verify(&["--json", "a.trion"]).json())
 }
 
 /// The text of `trion model`.
@@ -66,13 +66,17 @@ fn every_action_response_has_an_activation_policy() {
 }
 
 #[test]
-fn an_untriggered_requirement_applies_to_each_invocation_of_its_declared_operation() {
-    let text = "predicate respond(request)\n[A] The gateway shall respond within 2 seconds.\n";
-    assert!(codes_of_the_analysis(text).is_empty(), "{:?}", codes_of_the_analysis(text));
-    let shape = shape(text, "A");
-    assert_eq!(shape["activation"], serde_json::json!({"kind": "invocation", "operation": "respond", "declared": true, "inputs": ["request"], "boundary": "each invocation of respond"}));
-    assert_eq!(shape["responses"][0]["deadline"]["origin"]["kind"], "invocation");
-    assert!(model(text).contains("declared operation respond(request)"));
+fn an_untriggered_requirement_applies_to_each_invocation_of_its_action() {
+    // The deadline of a response without a trigger is measured from the
+    // invocation of its action. The reading follows from the sentence
+    // alone: a declaration of the operation changes nothing of it.
+    for text in ["predicate respond(request)\n[A] The gateway shall respond within 2 seconds.\n", "[A] The gateway shall respond within 2 seconds.\n"] {
+        assert!(codes_of_the_analysis(text).is_empty(), "{:?}", codes_of_the_analysis(text));
+        let shape = shape(text, "A");
+        assert_eq!(shape["activation"], serde_json::json!({"kind": "invocation", "operation": "respond", "boundary": "each invocation of respond"}));
+        assert_eq!(shape["responses"][0]["deadline"]["origin"]["kind"], "invocation");
+        assert!(model(text).contains("each invocation of respond; operation respond"), "{}", model(text));
+    }
 }
 
 #[test]
@@ -88,15 +92,17 @@ fn an_untriggered_state_requirement_holds_without_an_activation() {
 
 #[test]
 fn a_deadline_without_an_origin_is_reported() {
-    assert_eq!(codes_of_the_analysis("[A] The gateway shall respond within 2 seconds.\n"), ["UNRESOLVED_TEMPORAL_SCOPE"]);
+    // A state that is required within a time names no action to measure from.
     assert_eq!(codes_of_the_analysis("[A] The valve shall be closed within 5 seconds.\n"), ["UNRESOLVED_TEMPORAL_SCOPE"]);
+    // An action is measured from its invocation.
+    assert!(codes_of_the_analysis("[A] The gateway shall respond within 2 seconds.\n").is_empty());
     // An explicit origin, a trigger or a state scope gives the deadline its origin.
     assert!(codes_of_the_analysis("[A] The gateway shall respond within 2 seconds after the request arrives.\n").is_empty());
     assert!(codes_of_the_analysis("[A] When a request arrives, the gateway shall respond within 2 seconds.\n").is_empty());
     // A place is no deadline, and a duration measures its own action.
     assert!(codes_of_the_analysis("[A] Each name shall resolve within the current package.\n").is_empty());
     assert!(codes_of_the_analysis("[A] The pump shall run for 5 seconds.\n").is_empty());
-    let report = fixture("[A] The gateway shall respond within 2 seconds.\n").trion(&["verify", "--json", "a.trion"]).json();
+    let report = fixture("[A] The valve shall be closed within 5 seconds.\n").verify(&["--json", "a.trion"]).json();
     assert_eq!(report["diagnostics"][0]["refs"][0]["id"], "A");
 }
 
@@ -177,9 +183,10 @@ fn a_flow_instance_has_one_occurrence_of_each_step_one_sampling_and_no_verdict()
     let orders = shape(FLOW, "F")["orders"].to_string();
     assert!(orders.contains("start(checker|publish result)") && orders.contains("start(checker|reject result)"), "{orders}");
     // A finish step named `fail` completes the instance and fails nothing.
-    let report = fixture(FLOW).trion(&["verify", "--json", "a.trion"]).json();
+    // A package is proved only when it conforms: its terms are declared.
+    let report = fixture(&format!("primitive checker, result\n{FLOW}")).verify(&["--json", "a.trion"]).json();
     assert!(analysis_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["consistency"]["status"], "satisfiable");
+    assert_eq!(verdicts(&report).get("consistency").map(String::as_str), Some("proved"), "{report}");
 }
 
 #[test]
@@ -187,23 +194,28 @@ fn guards_are_judged_from_invariants_definitions_and_the_path_never_from_the_flo
     let flow = |arms: &str| format!("[STATUS] The result status is valid or invalid.\n[F] When a result arrives, the checker shall follow this flow:\n    step inspect: inspect the result;\n    step accept: publish the result;\n    step fail: reject the result;\n    start inspect\n    choose after inspect:\n{arms}    finish accept\n    finish fail\n");
     // The closed domain of the status covers the two guards without `otherwise`.
     let covered = flow("        when the result status is valid -> accept\n        when the result status is invalid -> fail\n");
-    let report = fixture(&covered).trion(&["verify", "--json", "a.trion"]).json();
+    let report = fixture(&covered).verify(&["--json", "a.trion"]).json();
     assert!(analysis_codes(&report).is_empty(), "{report}");
-    let obligation = &report["guards"][0];
-    assert_eq!(obligation["statement"], "F");
-    assert_eq!(obligation["instant"], "completion of step inspect");
-    assert_eq!(obligation["covered"], "unsatisfiable");
-    assert_eq!(obligation["exclusive"], "unsatisfiable");
-    let premises: Vec<&str> = obligation["premises"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
-    assert!(premises.contains(&"the closed domains of the guards"), "{premises:?}");
-    assert!(premises.iter().all(|p| !p.contains("invariant F")), "the flow is no premise of its own obligation: {premises:?}");
+    // The guards are proof obligations of the MMT form, read at the
+    // instant of the choice from the premises that their propositions name.
+    let choices: Vec<&Value> = report["proof"]["results"].as_array().unwrap().iter().filter(|r| r["obligation"].as_str().unwrap().starts_with("choice/F/inspect/")).collect();
+    let names: Vec<&str> = choices.iter().map(|r| r["obligation"].as_str().unwrap()).collect();
+    assert_eq!(names, ["choice/F/inspect/exclusive/1-2", "choice/F/inspect/covered"], "{report}");
+    for choice in &choices {
+        assert_eq!(choice["verdict"], "proved", "{report}");
+        let proposition = choice["proposition"].as_str().unwrap();
+        assert!(proposition.contains("the closed domains of the guards"), "{proposition}");
+        assert!(!proposition.contains("invariant F"), "the flow is no premise of its own obligation: {proposition}");
+    }
     // Without the domain the same guards leave a gap.
-    let open = covered.replace("[STATUS] The result status is valid or invalid.\n", "");
-    assert_eq!(codes_of_the_analysis(&open), ["INCOMPLETE_FLOW_CHOICE"]);
+    let open = covered.replace("[STATUS] The result status is valid or invalid.\n", "primitive checker, result\n");
+    let gap = fixture(&open).verify(&["--json", "a.trion"]).json();
+    assert_eq!(analysis_codes(&gap), ["INCOMPLETE_FLOW_CHOICE"], "{gap}");
     // An invariant of the package is a premise.
     let invariant = format!("[LEVEL] The level is at most 5.\n{}", flow("        when the level is at most 5 -> accept\n        when the level is greater than 5 -> fail\n"));
-    let report = fixture(&invariant).trion(&["verify", "--json", "a.trion"]).json();
-    assert!(report["guards"][0]["premises"].to_string().contains("invariant LEVEL"), "{report}");
+    let report = fixture(&invariant).verify(&["--json", "a.trion"]).json();
+    let stated = report["obligations"].as_array().unwrap().iter().find(|o| o["name"] == "choice/F/inspect/covered").map(|o| o["proposition"].to_string()).unwrap_or_default();
+    assert!(stated.contains("invariant LEVEL"), "{report}");
 }
 
 #[test]
@@ -221,10 +233,17 @@ fn each_ears_pattern_gets_the_scope_and_timing_of_this_edition() {
 
 #[test]
 fn a_result_names_the_trace_length_it_holds_for() {
-    let f = fixture("[A] When the bell rings, the API shall stop.\n");
-    let report = f.trion(&["verify", "--json", "a.trion"]).json();
-    assert_eq!(report["consistency"]["bounds"]["trace_length"], 3);
-    let longer = f.trion(&["verify", "--json", "--trace-length", "5", "a.trion"]).json();
-    assert_eq!(longer["consistency"]["bounds"]["trace_length"], 5);
-    assert!(f.trion(&["verify", "a.trion"]).stdout.contains("bounds: traces of 3 moments"));
+    let f = fixture("primitive API, bell\n[A] When the bell rings, the API shall stop.\n");
+    // Each obligation states its bound, and so does each result of the proof.
+    let bounded = |report: &Value, moments: usize| {
+        let bound = format!("within traces of {moments} moments");
+        let stated = report["obligations"].as_array().unwrap();
+        assert!(!stated.is_empty() && stated.iter().all(|o| o["proposition"].as_str().unwrap().starts_with(&bound)), "{report}");
+        let proved = report["proof"]["results"].as_array().unwrap();
+        assert!(!proved.is_empty() && proved.iter().all(|r| r["proposition"].as_str().unwrap().starts_with(&bound)), "{report}");
+    };
+    bounded(&f.verify(&["--json", "a.trion"]).json(), 3);
+    bounded(&f.verify(&["--json", "--trace-length", "5", "a.trion"]).json(), 5);
+    let text = f.verify(&["a.trion"]).stdout;
+    assert!(text.contains("within traces of 3 moments") && text.contains("no result holds beyond its bound"), "{text}");
 }

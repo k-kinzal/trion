@@ -1,382 +1,235 @@
-//! The commands of `trion`: `verify` verifies a package, `doc` writes a
-//! verified package as a document, and `lsp` serves editors. The exit code
-//! tells whether the command failed.
+//! The `trion` command: it converts a package. It reads the package as
+//! contracts, reports what does not conform to the language, and into the
+//! directory that `--out` names it writes the MMT form of the package with
+//! its proof obligations and each document that `--format` names. It proves
+//! nothing, and a document does not wait for a proof: `trioc prove` proves
+//! the obligations of the MMT form. The exit code tells whether the package
+//! conforms to the language.
+//!
+//! An extension format is added by a program outside the trion processor
+//! (spec/tool.trion): `--format NAME` for a name that is no format of its
+//! own runs the program `trion-format-NAME`, found next to the `trion`
+//! executable or on the `PATH`. The program reads the JSON report of the
+//! conversion on its standard input (the report of `--json`: the contracts
+//! by responsibility, the actors of the system and of the environment, the
+//! proof obligations and the readings), takes the directory of `--out` as
+//! its one argument, writes its files into it, and prints the path of each
+//! file that it wrote, one on each line. Model code and test code are such
+//! formats (`crates/trion-format-rust-test`).
 
+use crate::convert::{convert, Converted};
 use crate::project::{self, Project};
-use crate::verify::{self, Settings, Verification};
-use clap::{Args, Parser, Subcommand};
-use serde::Serialize;
+use clap::Parser;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use trion_language::{Diagnostic, Severity};
-use trion_verification::Analysis;
+use trioc_cli::check::written;
+use trion_verification::Bounds;
 
-#[derive(Parser)]
-#[command(name = "trion", version, about = "Verify specifications written in the trion language")]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
+/// A format that a package is converted into.
+#[derive(Clone, PartialEq, Eq)]
+enum Format {
+    /// The MMT form: the contracts and the proof obligations, as an MMT archive.
+    Mmt,
+    Markdown,
+    Html,
+    /// An extension format: the program `trion-format-NAME` writes it.
+    Extension(String),
 }
 
-/// How a package is verified. Each argument takes the place of the field of
-/// the same name under `[verify]` in trion.toml.
-#[derive(Args)]
-struct VerifyArgs {
-    /// Examine traces of this many moments; a result holds within that bound.
-    #[arg(long, value_name = "K")]
-    trace_length: Option<usize>,
-    /// Read the statements about individuals over this many individuals of
-    /// each type; a result holds within that bound. With 0 no statement is
-    /// read over individuals.
-    #[arg(long, value_name = "N")]
-    scope: Option<usize>,
-    /// Stop each solver query after this many decisions; a result that the
-    /// limit leaves open is reported as unknown. A limit above the default
-    /// of 400000 also raises, in the same proportion, the work that the
-    /// queries of one analysis may make together.
-    #[arg(long, value_name = "N")]
-    decision_limit: Option<u64>,
-    /// Check the properties of the reading: context independence, relation
-    /// locality, order independence and round trip.
-    #[arg(long)]
-    properties: bool,
-    /// Decide the package again with each bound raised, and report each
-    /// outcome that depends on the bounds.
-    #[arg(long)]
-    stability: bool,
-    /// Write the queries of the result into this directory as SMT-LIB, for
-    /// another solver.
-    #[arg(long, value_name = "DIR")]
-    smt: Option<PathBuf>,
-    /// Ask this external prover each query of the result, in place of
-    /// `z3 -in`: a command that reads SMT-LIB on its standard input.
-    #[arg(long, value_name = "COMMAND")]
-    prover: Option<String>,
-    /// Compare with a saved JSON report of an earlier verification: the
-    /// verification fails when that report is about another text, another
-    /// version of the rules or of the programs, or other settings.
-    #[arg(long, value_name = "REPORT")]
-    against: Option<PathBuf>,
-}
-
-impl VerifyArgs {
-    /// The settings of a project with the arguments in place of what they name.
-    fn settings(&self, project: &Project) -> Settings {
-        let mut settings = Settings::of(project);
-        if let Some(length) = self.trace_length {
-            settings.bounds.trace_length = length.max(2);
-        }
-        if let Some(scope) = self.scope {
-            settings.bounds.scope = scope.min(6);
-        }
-        if self.decision_limit.is_some() {
-            settings.bounds.decisions = self.decision_limit;
-        }
-        settings.properties |= self.properties;
-        settings.stability |= self.stability;
-        if let Some(dir) = &self.smt {
-            settings.smt = Some(dir.clone());
-        }
-        if let Some(command) = &self.prover {
-            settings.prover = command.split_whitespace().map(str::to_string).collect();
-        }
-        settings.against = self.against.clone();
-        settings
-    }
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Verify a package: find contradictions, form violations, missing cases
-    /// and vocabulary problems, ask an external prover each question that
-    /// the result rests on, and check the sources of the statements.
-    Verify {
-        #[arg(default_value = ".")]
-        path: PathBuf,
-        /// Print a JSON report instead of text.
-        #[arg(long)]
-        json: bool,
-        #[command(flatten)]
-        verify: VerifyArgs,
-    },
-    /// Write a verified package as one HTML document: prose, figures, terms
-    /// and the status of each statement. A package that is not verified has
-    /// no document.
-    Doc {
-        #[arg(default_value = ".")]
-        path: PathBuf,
-        /// Write only this file of the package.
-        #[arg(long)]
-        file: Option<String>,
-        /// Write the document to this file instead of standard output.
-        #[arg(long)]
-        out: Option<PathBuf>,
-        #[command(flatten)]
-        verify: VerifyArgs,
-    },
-    /// Start the language server on standard input and output.
-    Lsp,
-}
-
-/// How a diagnostic is written: its level and code, its message, and the
-/// places that it is about.
-fn written(d: &Diagnostic) -> String {
-    let level = match d.severity {
-        Severity::Error => "error",
-        Severity::Warning => "warning",
-        Severity::Info => "info",
-    };
-    let mut out = format!("{level}[{}]: {}\n", d.code, d.message);
-    for r in &d.refs {
-        out.push_str(&format!("  {}:{} [{}] {}\n", r.file, r.line, r.id, r.text));
-    }
-    out
-}
-
-fn print_diagnostics(diags: &[Diagnostic]) {
-    for d in diags {
-        print!("{}", written(d));
-    }
-}
-
-fn to_json<T: Serialize>(value: &T) -> String {
-    serde_json::to_string_pretty(value).unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"))
-}
-
-/// Prints what each conflict set rests on, the conditions that hold emptily
-/// and the consistency result with its method and bounds.
-fn print_verification(analysis: &Analysis) {
-    for conflict in &analysis.conflicts {
-        let size = if conflict.minimal { "minimal" } else { "sufficient, not proved minimal" };
-        // A conflict under two conditions together has no row of certificates.
-        println!("conflict [{}] ({size}):", conflict.code);
-        if let Some(condition) = &conflict.condition {
-            println!("  under the condition: {condition}");
-        }
-        for element in &conflict.elements {
-            println!("  [{}] {}", element.reference.id, element.expansion);
-            if !element.scopes.is_empty() {
-                println!("    scopes: {}", element.scopes.join("; "));
-            }
-            if !element.terms.is_empty() {
-                println!("    terms: {}", element.terms.join(", "));
-            }
-        }
-        for step in &conflict.derivation {
-            println!("  derivation {}: {} => {}", step.origin, step.assume, step.guarantee);
-        }
-        for definition in &conflict.definitions {
-            println!("  definition [{}] {}", definition.id, definition.text);
+impl Format {
+    /// The file of a format of its own in the directory of `--out`.
+    fn file(&self) -> Option<&'static str> {
+        match self {
+            Format::Mmt => Some(trioc_cli::mmt::FILE),
+            Format::Markdown => Some("specification.md"),
+            Format::Html => Some("specification.html"),
+            Format::Extension(_) => None,
         }
     }
-    // Which statement wins where two statements conflict.
-    for priority in &analysis.model.priorities {
-        let scope = if priority.condition == "⊤" { "everywhere".to_string() } else { format!("where {}", priority.condition) };
-        let how = match priority.kind.as_str() {
-            "default" => format!("[{}] is a default and yields to [{}]", priority.yields.id, priority.to.id),
-            "narrows" => format!("[{}] restricts the permission [{}]", priority.to.id, priority.yields.id),
-            _ => format!("[{}] overrides [{}]", priority.to.id, priority.yields.id),
-        };
-        println!("priority: {how} {scope}");
-    }
-    if let Some(preference) = &analysis.preference {
-        let names = |refs: &[trion_language::SpecRef]| refs.iter().map(|r| format!("[{}]", r.id)).collect::<Vec<_>>().join(", ");
-        let reach = if preference.optimal { "no other set weighs more" } else { "chosen by weight, greatest first; not proved best" };
-        println!("recommendations: keep {} (weight {}); drop {} (weight {}); {reach}", names(&preference.kept), preference.kept_weight, names(&preference.dropped), preference.dropped_weight);
-    }
-    for vacuous in &analysis.coverage.vacuous {
-        println!("coverage: [{}] holds only because its condition is {}: {}", vacuous.reference.id, vacuous.reason, vacuous.condition);
-    }
-    let c = &analysis.consistency;
-    let decisions = c.bounds.decisions.map_or(String::new(), |n| format!("{n} decisions for each query, "));
-    // The domain bound is part of the result only when a statement relates individuals.
-    let domains = analysis.model.instance_scope.map_or(String::new(), |n| format!(", domains of {n} individuals"));
-    let bounds = format!("{decisions}traces of {} moments{domains}", c.bounds.trace_length);
-    let reach = if c.exhaustive { "the search within the bounds was exhaustive" } else { "the bounds ended the search" };
-    println!("consistency: {} (status {}; revision {}; bounds: {bounds}; {reach})", c.verdict, c.status.as_str(), c.subject_revision.as_deref().map_or("unknown", |r| &r[..r.len().min(12)]));
-    if let Some(situations) = &c.situations {
-        println!("  situations: {situations}");
-    }
-    println!("  method: {}", c.method);
-    println!("  profile: {}", c.profile);
-    println!("  assumptions: {}", c.assumptions.join("; "));
 }
 
-/// More findings of one kind than this are counted, not listed; the JSON report lists each.
-const LISTED: usize = 10;
-
-fn count(diags: &[Diagnostic], severity: Severity) -> usize {
-    diags.iter().filter(|d| d.severity == severity).count()
-}
-
-/// The report of a verification as JSON.
-fn report(verification: &Verification) -> serde_json::Value {
-    let analysis = &verification.analysis;
-    serde_json::json!({
-        "diagnostics": verification.diagnostics,
-        "consistency": analysis.consistency,
-        "conflicts": analysis.conflicts,
-        "coverage": analysis.coverage,
-        "guards": analysis.guards,
-        "relations": analysis.relations,
-        "checks": analysis.checks,
-        "examples": analysis.examples,
-        "opaque": analysis.silence.opaque,
-        "ungrounded": analysis.silence.ungrounded,
-        "inexpressible": analysis.silence.inexpressible,
-        "priorities": analysis.model.priorities,
-        "preference": analysis.preference,
-        "environment": analysis.environment,
-        "weight": verification.weight,
-        "sources": verification.sources,
-        "prover": verification.prover,
-        "properties": verification.properties,
-        "stability": verification.stability,
-        "gates": verification.gates,
-        "checker": verification.checked.diagnostics,
-        "scenarios": verification.checked.scenarios,
-        "witness": verification.checked.witness,
-        "variations": verification.checked.variations,
-        "derivations": verification.checked.derivations,
-        "individuals": analysis.model.individuals,
-        "readings": analysis.model.individuals.iter().flat_map(|i| &i.meanings).map(|m| serde_json::json!({"statement": m.statement, "version": m.version, "lines": m.lines()})).collect::<Vec<_>>(),
-        "claims": analysis.claims.claims,
-        "obligations": analysis.claims.obligations,
-        "outcome": verification.outcome,
+/// `mmt`, `markdown`, `html`, or the name of an extension format: lower
+/// case letters, digits and hyphens, beginning with a letter.
+fn format_of(text: &str) -> Result<Format, String> {
+    Ok(match text {
+        "mmt" => Format::Mmt,
+        "markdown" => Format::Markdown,
+        "html" => Format::Html,
+        name if name.starts_with(|c: char| c.is_ascii_lowercase()) && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') => Format::Extension(name.to_string()),
+        other => return Err(format!("`{other}` is neither `mmt`, `markdown` nor `html`, nor the name of an extension format (lower case letters, digits and hyphens)")),
     })
 }
 
-/// Prints the report of a verification as text.
-fn print_report(project: &Project, verification: &Verification) {
-    let analysis = &verification.analysis;
-    print_diagnostics(&verification.diagnostics);
-    print_verification(analysis);
-    // How much the word `consistent` covers.
-    println!("  weight: {}", verification.weight.line());
-    let silence = &analysis.silence;
-    print_diagnostics(&silence.opaque);
-    print_diagnostics(&silence.ungrounded);
-    // A property that no check of one model can read is always shown.
-    print_diagnostics(&silence.inexpressible);
-    // The sources: each error, the first statements without a source, and the coverage of each source.
-    let sources = &verification.sources;
-    let (unsourced, other): (Vec<&Diagnostic>, Vec<&Diagnostic>) = sources.diagnostics.iter().partition(|d| d.code == "unsourced");
-    for diagnostic in other.iter().chain(unsourced.iter().take(LISTED)) {
-        print!("{}", written(diagnostic));
+/// The program of an extension format: next to this executable, or on the `PATH`.
+fn extension_program(name: &str) -> Option<PathBuf> {
+    let file = format!("trion-format-{name}{}", std::env::consts::EXE_SUFFIX);
+    let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join(&file)));
+    let on_path = std::env::var_os("PATH").into_iter().flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).map(|dir| dir.join(&file));
+    beside.into_iter().chain(on_path).find(|candidate| candidate.is_file())
+}
+
+/// Runs the program of an extension format with the JSON report on its
+/// standard input and the directory of `--out` as its argument; the paths
+/// that it prints are the files that it wrote.
+fn run_extension(name: &str, report: &serde_json::Value, dir: &std::path::Path) -> Result<Vec<PathBuf>, String> {
+    use std::io::Write;
+    let program = extension_program(name).ok_or_else(|| format!("the format `{name}` is no format of trion, and no program `trion-format-{name}` is next to `trion` or on the PATH"))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    let mut child = std::process::Command::new(&program).arg(dir).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().map_err(|e| format!("cannot run {}: {e}", program.display()))?;
+    let input = serde_json::to_vec(report).map_err(|e| e.to_string())?;
+    child.stdin.take().ok_or("no standard input")?.write_all(&input).map_err(|e| format!("cannot write to {}: {e}", program.display()))?;
+    let output = child.wait_with_output().map_err(|e| format!("{}: {e}", program.display()))?;
+    if !output.status.success() {
+        return Err(format!("the program of the format `{name}`, {}, failed with {}", program.display(), output.status));
     }
-    if unsourced.len() > LISTED {
-        println!("unsourced: {} statements name no source (`--json` lists them)", unsourced.len());
+    Ok(String::from_utf8_lossy(&output.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(PathBuf::from).collect())
+}
+
+/// Convert a package: report what does not conform to the language, and
+/// write the MMT form of the package and its documents. Nothing is proved;
+/// `trioc prove` proves the obligations of the MMT form.
+#[derive(Parser)]
+#[command(name = "trion", version)]
+struct Cli {
+    #[arg(default_value = ".")]
+    path: PathBuf,
+    /// Print a JSON report instead of text.
+    #[arg(long)]
+    json: bool,
+    /// Write each format that `--format` names into this directory; without
+    /// `--format`, the MMT form.
+    #[arg(long, value_name = "DIR")]
+    out: Option<PathBuf>,
+    /// A format to write into the directory of `--out`: `mmt`, `markdown`,
+    /// `html`, or an extension format that the program `trion-format-NAME`
+    /// writes.
+    #[arg(long, value_parser = format_of, value_name = "FORMAT", requires = "out")]
+    format: Vec<Format>,
+    /// Write only this file of the package as the document.
+    #[arg(long, requires = "format")]
+    file: Option<String>,
+    /// The obligations are about traces of this many moments.
+    #[arg(long, value_name = "K")]
+    trace_length: Option<usize>,
+    /// The obligations read the statements about individuals over this many
+    /// individuals of each type.
+    #[arg(long, value_name = "N")]
+    scope: Option<usize>,
+    /// Examine the properties of the reader as well: context independence,
+    /// relation locality, order independence, the round trip, and the
+    /// behaviours next to each scenario.
+    #[arg(long)]
+    properties: bool,
+}
+
+/// The bounds that the obligations are about: the manifest says them, and
+/// an argument takes the place of what it names.
+fn bounds(cli: &Cli, project: &Project) -> Bounds {
+    let stated = &project.manifest.verify;
+    let default = Bounds::default();
+    Bounds { decisions: stated.decision_limit, trace_length: cli.trace_length.or(stated.trace_length).unwrap_or(default.trace_length).max(2), scope: cli.scope.or(stated.scope).unwrap_or(default.scope).min(6) }
+}
+
+fn write(path: &std::path::Path, text: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
     }
-    for source in &sources.sources {
-        println!("source coverage of {}: {:.2}%", source.id, source.percent);
-    }
-    print_diagnostics(&verification.checked.diagnostics);
-    // How each statement about individuals was read, so that an author can
-    // set the reading beside the sentence.
-    if let Some(individuals) = &analysis.model.individuals {
-        println!("individuals: semantic version {}; domains of {} individuals of each declared type ({})", individuals.version, individuals.scope, individuals.types.iter().filter(|(noun, declared)| noun == declared).map(|(noun, _)| noun.as_str()).collect::<Vec<_>>().join(", "));
-        for meaning in &individuals.meanings {
-            println!("reading [{}]:", meaning.statement);
-            for line in meaning.lines() {
-                println!("  {line}");
-            }
-        }
-        for fact in &individuals.domain {
-            println!("reading [{}]: a statement about the domain ({})", fact.statement, serde_json::to_value(&fact.fact).ok().and_then(|v| v["form"].as_str().map(str::to_string)).unwrap_or_default());
-        }
-    }
-    let derivations = &verification.checked.derivations;
-    if derivations.of_statements > 0 {
-        println!("reading over individuals: the record of {} of {} typed statements and the contract of {} of {} instances were derived again and agree; {} statements or instances hold a form that the check does not derive", derivations.statements, derivations.of_statements, derivations.contracts, derivations.of_instances, derivations.not_derived.len());
-    }
-    if derivations.of_texts > 0 {
-        println!("text of the statements: the tree of {} of {} statements about individuals was read again from the text by a grammar apart from the parser and agrees; {} hold a form outside that grammar", derivations.texts, derivations.of_texts, derivations.not_read.len());
-        for (statement, why) in &derivations.not_read {
-            println!("  not read from the text [{statement}]: {why}");
-        }
-    }
-    if let Some(witness) = &verification.checked.witness {
-        println!("behaviour that keeps every contract ({}): {}", witness.state, witness.what);
-    }
-    if let Some(variations) = &verification.checked.variations {
-        println!("variations of the scenarios: {} behaviours, each next to a scenario by one fact; the reference evaluator and the formulas of the reading judge {} of them alike, and {} are not decided", variations.behaviours, variations.agreed, variations.undecided.len());
-        println!("situations of the scenarios: {} situations that the statements without normative force allow; the formulas of the reading give a response to {} of them, and the reference evaluator accepts each of these; {} have no response within their moments, and {} are not decided", variations.situations, variations.answered, variations.unanswered.len(), variations.open.len());
-        println!("situations of the statements: {} statements and pairs of statements with a condition; the statements without normative force keep {} of them apart, and to a situation of {} the formulas of the reading give a response that the reference evaluator accepts; {} have no response, and {} are not decided", variations.together, variations.apart, variations.together_answered, variations.together_unanswered.len(), variations.together_open.len());
-    }
-    for scenario in &verification.checked.scenarios {
-        let undefined = if scenario.undefined.is_empty() { String::new() } else { format!("; the share of {} has no value in it and is not counted as met", scenario.undefined.iter().map(|(statement, _)| format!("[{statement}]")).collect::<Vec<_>>().join(", ")) };
-        println!("scenario {}: {} for the reference evaluator, {} for the formulas of the reading (expected: {}){undefined}", scenario.name, scenario.reference, scenario.generated, if scenario.expect.is_empty() { "nothing" } else { &scenario.expect });
-    }
-    print_diagnostics(&verification.prover);
-    print_diagnostics(&verification.properties);
-    print_diagnostics(&verification.stability);
-    let all: Vec<Diagnostic> = verification.diagnostics.iter().chain(&sources.diagnostics).chain(&verification.prover).chain(&verification.properties).chain(&verification.stability).cloned().collect();
-    let specs: usize = project.set.packages.iter().flat_map(|p| &p.documents).map(|d| d.specs.len()).sum();
-    let proved = analysis.checks.iter().filter(|c| c.result == "proved").count();
-    println!("checked {specs} specifications: {} errors, {} warnings; {proved}/{} checks proved, {} examples run", count(&all, Severity::Error) + verification.unread().len(), count(&all, Severity::Warning), analysis.checks.len(), analysis.examples.len());
-    // Each claim apart: what one says is not what another says.
-    for claim in &analysis.claims.claims {
-        let subject = claim.subject.as_ref().map_or(String::new(), |subject| format!(" ({subject})"));
-        let reason = claim.reason.as_ref().map_or(String::new(), |reason| format!(": {reason}"));
-        let vacuous = if claim.vacuous { ", of nothing" } else { "" };
-        let range = if matches!(claim.verdict, trion_verification::Verdict::Proved | trion_verification::Verdict::Refuted) { format!(" within {}", claim.range.phrase()) } else { String::new() };
-        println!("claim {}{subject}: {}{vacuous}{reason}{range}", claim.claim, claim.verdict.as_str());
-    }
-    for gate in &verification.gates {
-        println!("gate {}: {}", gate.name, gate.state);
-    }
-    let outcome = &verification.outcome;
-    for blocker in outcome.blockers.iter().take(LISTED) {
-        let statement = blocker.statement.as_ref().map_or(String::new(), |id| format!(" [{id}]"));
-        println!("blocked by {} ({}){statement}", blocker.gate, blocker.code);
-    }
-    if outcome.blockers.len() > LISTED {
-        println!("blocked by {} more findings (`--json` lists them)", outcome.blockers.len() - LISTED);
-    }
-    println!("covers: {}", outcome.covers);
-    if !outcome.not_examined.is_empty() {
-        println!("not examined: {}", outcome.not_examined.iter().map(|what| what.split(':').next().unwrap_or(what)).collect::<Vec<_>>().join(", "));
-    }
-    for declared in &outcome.declared {
-        println!("declared, not checked: {declared}");
-    }
-    println!("{}", if verification.failed() { "not verified" } else { "verified" });
+    std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+fn report(converted: &Converted, written: &[PathBuf]) -> serde_json::Value {
+    let analysis = &converted.analysis;
+    serde_json::json!({
+        "conforms": !converted.failed(),
+        "diagnostics": converted.diagnostics,
+        // What a normative statement says and no rule reads, gives a meaning, or can express.
+        "opaque": analysis.silence.opaque,
+        "ungrounded": analysis.silence.ungrounded,
+        "inexpressible": analysis.silence.inexpressible,
+        "checker": converted.checker,
+        // What the package declares and nothing checks.
+        "declared": converted.declared,
+        "sources": converted.sources,
+        "relations": analysis.relations,
+        "individuals": analysis.model.individuals,
+        "readings": analysis.model.individuals.iter().flat_map(|i| &i.meanings).map(|m| serde_json::json!({"statement": m.statement, "version": m.version, "lines": m.lines()})).collect::<Vec<_>>(),
+        "control": converted.control,
+        "contracts": converted.contracts,
+        // The examples that demonstrate the conversion: each observed what it expects, or the package does not convert.
+        "demonstrations": converted.demonstrated,
+        // What the checker showed of the reading: each difference is an error above.
+        "checked": converted.checked,
+        "obligations": converted.obligations.obligations.iter().map(|o| serde_json::json!({"name": o.name, "property": o.property, "proposition": o.proposition, "statements": o.statements})).collect::<Vec<_>>(),
+        "written": written,
+        "proved": false,
+    })
 }
 
 fn dispatch(cli: Cli) -> Result<bool, String> {
-    match cli.command {
-        Command::Verify { path, json, verify } => {
-            let project = project::load(&path)?;
-            let verification = verify::verify(&project, &verify.settings(&project))?;
-            if json {
-                println!("{}", to_json(&report(&verification)));
-            } else {
-                print_report(&project, &verification);
-            }
-            Ok(verification.failed())
-        }
-        Command::Doc { path, file, out, verify } => {
-            let project = project::load(&path)?;
-            let verification = verify::verify(&project, &verify.settings(&project))?;
-            // A document states a verified specification: what is not verified has none.
-            if verification.failed() {
-                let failed: Vec<&str> = verification.gates.iter().filter(|gate| gate.state == "failed").map(|gate| gate.name).collect();
-                return Err(format!("the package is not verified (gate {}): `trion verify` reports what fails, and a package that is not verified has no document", failed.join(", ")));
-            }
-            let html = crate::doc::render(&project, &verification, file.as_deref())?;
-            match out {
-                Some(target) => {
-                    if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
-                        std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
-                    }
-                    std::fs::write(&target, html).map_err(|e| format!("cannot write {}: {e}", target.display()))?
+    let project = project::load(&cli.path)?;
+    let properties = cli.properties || project.manifest.verify.properties;
+    let converted = convert(&project, bounds(&cli, &project), properties);
+    let mut paths = Vec::new();
+    // A package that does not conform to the language is not converted.
+    if let (Some(dir), false) = (&cli.out, converted.failed()) {
+        let formats = if cli.format.is_empty() { vec![Format::Mmt] } else { cli.format.clone() };
+        for format in formats {
+            let text = match &format {
+                // The form is read back before it is written: one that does
+                // not read back as itself is an error of trion, and it is not
+                // written. Its typing in LF is MMT's verdict (tests/mmt_form.rs).
+                Format::Mmt => converted.form(&project).write().map_err(|e| format!("internal error of trion: the MMT form of the package is not written: {e}"))?,
+                Format::Markdown => crate::markdown::render(&project, &converted, cli.file.as_deref())?,
+                Format::Html => crate::doc::render(&project, &converted, cli.file.as_deref())?,
+                Format::Extension(name) => {
+                    paths.extend(run_extension(name, &report(&converted, &[]), dir)?);
+                    continue;
                 }
-                None => print!("{html}"),
+            };
+            let Some(file) = format.file() else { continue };
+            let path = dir.join(file);
+            write(&path, &text)?;
+            paths.push(path);
+            // The MMT form is an archive: its manifest names it to MMT.
+            if format == Format::Mmt {
+                let manifest = dir.join(trioc_cli::mmt::MANIFEST);
+                write(&manifest, &converted.form(&project).manifest())?;
+                paths.push(manifest);
             }
-            Ok(false)
         }
-        Command::Lsp => crate::lsp::run().map(|()| false),
+    } else if cli.out.is_some() {
+        eprintln!("nothing is written: the package does not conform to the language");
     }
+    if cli.json {
+        println!("{}", serde_json::to_string_pretty(&report(&converted, &paths)).unwrap_or_default());
+    } else {
+        for diagnostic in converted.all() {
+            print!("{}", written(diagnostic));
+        }
+        for declared in &converted.declared {
+            println!("declared, not checked: {declared}");
+        }
+        // The reading of each statement over individuals, as the JSON report
+        // and the document show it.
+        if let Some(individuals) = &converted.analysis.model.individuals {
+            let types: std::collections::BTreeSet<&str> = individuals.types.iter().map(|(_, carrier)| carrier.as_str()).collect();
+            println!("individuals: semantic version {}; domains of {} individuals of each declared type ({})", individuals.version, individuals.scope, types.into_iter().collect::<Vec<_>>().join(", "));
+            for meaning in &individuals.meanings {
+                println!("reading [{}]:", meaning.statement);
+                for line in meaning.lines() {
+                    println!("  {line}");
+                }
+            }
+        }
+        for obligation in &converted.obligations.obligations {
+            println!("obligation {} ({}): not proved here: {}", obligation.name, obligation.property, obligation.proposition);
+        }
+        for path in &paths {
+            println!("wrote {}", path.display());
+        }
+        println!("{}", if converted.failed() { "does not conform" } else { "converted" });
+    }
+    Ok(converted.failed())
 }
 
 /// Runs the command that the arguments of the process name.

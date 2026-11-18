@@ -1,0 +1,16 @@
+unsat
+(
+(assume a0 (forall ((x Int)) (> x c)))
+(step t0 (cl (not (! (= (forall ((x Int)) (> x c)) false) :named @p_1)) (not (forall ((x Int)) (> x c))) false) :rule equiv_pos2)
+(anchor :step t1 :args ((x Int) (:= (x Int) x)))
+(step t1.t0 (cl (= (! (> x c) :named @p_4) (! (not (! (<= x c) :named @p_5)) :named @p_6))) :rule hole :args ("untranslated rewrite"))
+(step t1.t1 (cl (= @p_5 (! (>= (+ c (* -1 x)) 0) :named @p_2))) :rule hole :args ("untranslated rewrite"))
+(step t1.t2 (cl (= @p_6 (! (not @p_2) :named @p_3))) :rule cong :premises (t1.t1))
+(step t1.t3 (cl (= @p_4 @p_3)) :rule trans :premises (t1.t0 t1.t2))
+(step t1 (cl (= (forall ((x Int)) (> x c)) (forall ((x Int)) (not (>= (+ c (* -1 x)) 0))))) :rule bind)
+(step t2 (cl (= (forall ((x Int)) (not (>= (+ c (* -1 x)) 0))) false)) :rule hole :args ("untranslated rewrite"))
+(step t3 (cl @p_1) :rule trans :premises (t1 t2))
+(step t4 (cl false) :rule resolution :premises (t0 t3 a0))
+(step t5 (cl (not false)) :rule false)
+(step t6 (cl) :rule resolution :premises (t4 t5))
+)

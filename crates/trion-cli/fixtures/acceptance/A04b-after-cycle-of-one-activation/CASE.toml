@@ -2,7 +2,7 @@ id = "A04b"
 title = "Two completions of one activation cannot each come after the other"
 work = "W06"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 One expiry of the timer activates both statements. [A] requires the log that answers this expiry to
 come after the report that answers it, and [B] requires that report to come after that log: the two
@@ -17,10 +17,10 @@ strictly between the expiry and itself, and no finite order gives that.
 
 [expect]
 verified = false
-blockers = ["contradiction"]
+diagnostics = ["contradiction"]
 
-[expect.claims]
-situation_total = "refuted"
+[expect.obligations]
+consistency = "refuted"
 
 [baseline]
 commit = "24cab2aa"

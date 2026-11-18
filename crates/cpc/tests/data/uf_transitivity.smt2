@@ -1,0 +1,12 @@
+; QF_UF: a = b, b = c, g(a, c) /= g(c, a), with a predicate.
+(set-logic QF_UF)
+(declare-sort U 0)
+(declare-fun g (U U) U)
+(declare-fun P (U) Bool)
+(declare-fun a () U)
+(declare-fun b () U)
+(declare-fun c () U)
+(assert (= a b))
+(assert (= b c))
+(assert (or (not (= (g a c) (g c a))) (and (P a) (not (P c)))))
+(check-sat)

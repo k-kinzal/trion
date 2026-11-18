@@ -11,7 +11,7 @@ const REQUIRED: [&str; 11] = ["id", "group", "surface", "parser", "parse", "mean
 const PARSE: [&str; 3] = ["accepted", "rejected", "partial"];
 const MEANING: [&str; 4] = ["rule", "nonnormative", "unresolved", "rejected"];
 const CLAIMS: [&str; 5] = ["background_sat", "contract_sat", "situation_total", "property_entails", "scenario_satisfiable"];
-/// The rows of the table in section 3 of `docs/practical/plan.md`.
+/// The groups that a pattern may belong to.
 const GROUPS: [&str; 18] = [
     "packages",
     "vocabulary",

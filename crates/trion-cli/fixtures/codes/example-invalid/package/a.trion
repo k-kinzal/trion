@@ -1,6 +1,5 @@
 namespace main
 example E:
-    form statement
+    kind consistency
     input "The API shall stop."
-    expect accepted
-
+    expect proved

@@ -6,7 +6,7 @@ use common::*;
 use trion_language::document::Meta;
 use trion_language::syntax::ast::{Core, Purpose, VpGroup};
 use trion_language::{parse_document, parse_sentence, ParsedFile, VocabularyMode};
-use trion_verification::{analyze, Options};
+use trion_verification::{Options};
 
 // Diagrams, flows, conformance examples, EARS and the package overview.
 
@@ -105,7 +105,7 @@ fn a_parsed_specification_can_still_fail_resolution_and_verification() {
     let src = "[A] The API shall return foo.\n[B] The API shall not return foo.\n";
     let (_, parse_codes) = c_parse(src);
     assert!(parse_codes.is_empty(), "{parse_codes:?}");
-    let analysis = analyze(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, src)], VocabularyMode::Declared), &Options::default());
     let codes = codes(&analysis);
     assert!(codes.contains(&"contradiction".to_string()), "{codes:?}");
     assert!(codes.contains(&"UNRESOLVED_TERM".to_string()), "{codes:?}");
@@ -150,7 +150,8 @@ fn coordinated_clauses_keep_their_own_subject_and_speech_act() {
     // The prohibition belongs to the bell, not to the API.
     assert!(run_codes(&format!("{both}[B] The API shall ring.\n")).is_empty());
     // Each clause keeps its own quantifier.
-    assert_eq!(run_codes("There is a pump P.\n[A] Each pump is red and each valve is blue.\n[B] Each pump is never red.\n"), ["contradiction"]);
+    // Descriptions are assumptions: two that exclude each other leave no environment.
+    assert_eq!(run_codes("There is a pump P.\n[A] Each pump is red and each valve is blue.\n[B] Each pump is never red.\n"), ["incompatible"]);
 }
 
 #[test]
@@ -163,22 +164,24 @@ fn a_negated_action_list_denies_the_list_as_a_whole() {
 
 #[test]
 fn a_description_holds_in_its_stated_scope() {
-    assert_eq!(run_codes("The pump is red.\nThe pump is never red.\n"), ["contradiction"]);
-    // Under a condition the two descriptions say that the condition never holds.
-    assert_eq!(run_codes("While the valve is open, the pump is red.\nWhile the valve is open, the pump is never red.\n"), ["condition-unreachable"]);
+    // Descriptions are assumptions: two that exclude each other leave no environment.
+    assert_eq!(run_codes("The pump is red.\nThe pump is never red.\n"), ["incompatible"]);
+    // Under a condition the two descriptions say that the condition never
+    // holds, and an environment in which the valve is never open exists.
+    assert!(run_codes("While the valve is open, the pump is red.\nWhile the valve is open, the pump is never red.\n").is_empty());
     assert!(run_codes("While the valve is open, the pump is red.\nWhile the valve is closed, the pump is never red.\n").is_empty());
 }
 
 #[test]
 fn a_universal_phrase_applies_to_each_instance() {
-    assert_eq!(run_codes("There is a user U.\nEach user has at most one account.\nThe user has at least two accounts.\n"), ["contradiction"]);
+    assert_eq!(run_codes("There is a user U.\nEach user has at most one account.\nThe user has at least two accounts.\n"), ["incompatible"]);
     assert!(run_codes("There is a user U.\nThe user has at least two accounts.\n").is_empty());
     assert_eq!(run_codes("Each pump shall stop.\nThe pump shall not stop.\n"), ["contradiction"]);
 }
 
 #[test]
 fn numbers_compare_only_in_compatible_dimensions() {
-    assert_eq!(run_codes("The timeout is at most 30 seconds.\nThe timeout is at least 1 minute.\n"), ["contradiction"]);
+    assert_eq!(run_codes("The timeout is at most 30 seconds.\nThe timeout is at least 1 minute.\n"), ["incompatible"]);
     assert!(run_codes("The timeout is at most 2 minutes.\nThe timeout is at least 90 seconds.\n").is_empty());
     assert_eq!(run_codes("The limit is at most 3 seconds.\nThe limit is at least 5 bytes.\n"), ["unit-mismatch"]);
 }
@@ -196,7 +199,7 @@ fn a_term_with_one_well_typed_interpretation_is_accepted() {
     // An explicit definition, a referenced domain, a declared primitive and a derivation.
     let src = "use lib\nterm API: entity\nA room means a shared channel.\nThe API shall open a room.\nThe gateway shall forward the request.\n";
     let library = "term gateway: entity\n";
-    let analysis = analyze(&set_of(&[("main", true, src), ("lib", false, library)], VocabularyMode::Inferred), &Options::default());
+    let analysis = proved(&set_of(&[("main", true, src), ("lib", false, library)], VocabularyMode::Inferred), &Options::default());
     assert!(analysis.diagnostics.is_empty(), "{:?}", analysis.diagnostics);
     // A term whose uses do not fit its declared type has no well-typed interpretation.
     assert_eq!(run_codes("term API: entity\nThe status is API.\n"), ["vocabulary-kind-conflict"]);

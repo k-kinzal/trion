@@ -1,12 +1,12 @@
-//! trion-verification: whether the contracts of a specification can all
-//! hold, and what each result rests on.
+//! trion-verification: the contracts of a specification and the proof
+//! obligations of a correct specification, and their decision.
 //!
-//! [`analyze`] reads a set with `trion-language`, states its contracts over
-//! a trace of moments and decides, within [`Bounds`], whether they can all
-//! hold. Its [`Analysis`] holds every diagnostic, the vocabulary, the model
-//! and the consistency result. [`Proof`] is what a decided result rests on:
-//! every question with the certificate of its answer; [`Proof::query_groups`]
-//! gives the questions as another solver can be asked them.
+//! [`analyze`] reads a set with `trion-language`: its [`Analysis`] holds
+//! every diagnostic of the language, the vocabulary and the model.
+//! [`proof_obligations`] states the obligations of a correct specification
+//! over a trace of moments within [`Bounds`], and
+//! [`ProofObligations::decide`] decides one of them with the built-in
+//! solver, for `trioc`; nothing in `trion` decides an obligation.
 //!
 //! This crate reads no file and runs no process.
 
@@ -22,5 +22,4 @@ extern crate self as trion_verification;
 #[cfg(test)]
 mod tests;
 
-pub use analysis::{analyze, check_properties, check_stability, smt2, temporal_forms, Analysis, AnalysisRange, Bounds, CheckOutcome, Claim, Claims, Obligation, Verdict, ConflictElement, ConflictExplanation, ConsistencyResult, Control, CoverageExplanation, DerivationStep, EnvironmentFindings, ExampleOutcome, GuardObligation, Isolation, Options, RelationReport, Unrealizable, VacuousCondition};
-pub use proof::{Proof, Query, QueryGroup, UsedBounds};
+pub use analysis::{analyze, check_properties, temporal_forms, Analysis, Bounds, Control, ExampleOutcome, RefinementOutcome, proof_obligations, demonstrations, inferred_system, stated_contracts, Counterexample, Scope, StatedContract, Asked, Decision, ObligationQuestion, ObligationVerdict, ProofObligation, ProofObligations, Isolation, Options, RelationReport};

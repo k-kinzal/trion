@@ -1,0 +1,19 @@
+[package]
+name = "alethe"
+version.workspace = true
+edition.workspace = true
+# The oldest toolchain the library and its doctests have been built and run
+# with (1.79.0, the rust-version of smtlib); older ones cannot build smtlib.
+# The tests use proptest, which may need a newer toolchain.
+rust-version = "1.79"
+description = "The Alethe proof format: reading and writing the concrete syntax of proofs, and reading the proofs in solver output."
+repository = "https://github.com/k-kinzal/trion"
+readme = "README.md"
+keywords = ["alethe", "smt", "proof", "smt-lib", "parser"]
+categories = ["parser-implementations", "science"]
+
+[dependencies]
+smtlib.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

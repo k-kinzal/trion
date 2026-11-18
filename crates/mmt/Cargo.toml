@@ -1,0 +1,18 @@
+[package]
+name = "mmt"
+version.workspace = true
+edition.workspace = true
+# The oldest toolchain this crate has been built and tested with
+# (`cargo +1.90 test -p mmt`). It uses u64::is_multiple_of (1.87); older
+# toolchains were not tried.
+rust-version = "1.90"
+description = "Reading and writing the MMT language of MMT v27.0.0 without a JVM: the surface syntax of .mmt files and archives, MMT URIs, OpenMath-style objects, and objects read and printed by the notations that theories declare."
+repository = "https://github.com/k-kinzal/trion"
+readme = "README.md"
+keywords = ["mmt", "omdoc", "parser", "formal-methods", "logical-framework"]
+categories = ["parser-implementations", "science"]
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true

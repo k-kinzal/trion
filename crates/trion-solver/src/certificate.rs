@@ -24,14 +24,14 @@
 
 use super::arith::{decide_certified, AtMost, Derivation, Outcome, Source, Unequal};
 use crate::formula::{Atom, Cmp, Formula};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// What one solver query established. A consistency result has exactly one
 /// of these statuses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     /// Some admissible interpretation was found.
@@ -62,7 +62,7 @@ pub(super) const WORK_LIMIT: u64 = 300_000_000;
 pub(super) const QUERY_DECISIONS: u64 = 400_000;
 
 /// An atom or its negation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Literal {
     pub atom: Atom,
     pub positive: bool,
@@ -73,14 +73,14 @@ pub type Quantity = (String, String);
 
 /// One part of a witness: the atoms and quantities of formulas that share
 /// nothing with the other parts. Queries that agree on a part share it.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct WitnessPart {
     pub atoms: Vec<(Atom, bool)>,
     pub quantities: Vec<(Quantity, i64)>,
 }
 
 /// A truth value for each atom of a query and an integer for each quantity.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Witness {
     pub parts: Vec<Arc<WitnessPart>>,
 }
@@ -98,14 +98,14 @@ impl Witness {
 }
 
 /// Which inequality a numeric literal gives: `sum ≤ n` or `sum ≥ n`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Side {
     Upper,
     Lower,
 }
 
 /// An inequality of a linear lemma.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinearSource {
     /// The inequality that the negation of the literal at this index of the
     /// clause gives on this side.
@@ -115,18 +115,36 @@ pub enum LinearSource {
 }
 
 /// Why the negations of the literals of a clause have no integer solution.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinearDerivation {
     /// The inequalities, each multiplied by its non-negative integer, add up
     /// to `0 ≤ c` with a negative `c`.
-    Leaf { multipliers: Vec<(LinearSource, i128)> },
+    Leaf {
+        #[serde(with = "wide")]
+        multipliers: Vec<(LinearSource, i128)>,
+    },
     /// The negation of the literal at this index is a disequality `s ≠ v`:
     /// `below` refutes with `s ≤ v − 1` added, `above` with `s ≥ v + 1`.
     Split { literal: usize, below: Box<LinearDerivation>, above: Box<LinearDerivation> },
 }
 
+/// Multipliers as they are written in a certificate: each as a decimal
+/// string, because a JSON number does not hold every integer of this width.
+mod wide {
+    use super::LinearSource;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(multipliers: &[(LinearSource, i128)], serializer: S) -> Result<S::Ok, S::Error> {
+        multipliers.iter().map(|(source, by)| (*source, by.to_string())).collect::<Vec<_>>().serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<(LinearSource, i128)>, D::Error> {
+        Vec::<(LinearSource, String)>::deserialize(deserializer)?.into_iter().map(|(source, by)| by.parse().map(|by| (source, by)).map_err(serde::de::Error::custom)).collect()
+    }
+}
+
 /// Why a clause of a refutation holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Justification {
     /// Unit propagation over the clauses of the query, the clauses before
     /// this one and the negation of each literal of this one reaches a conflict.
@@ -135,7 +153,7 @@ pub enum Justification {
     Linear(LinearDerivation),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Step {
     /// The literals of the clause that are about atoms.
     pub clause: Vec<Literal>,
@@ -146,7 +164,7 @@ pub struct Step {
 }
 
 /// How the parts of a subformula stand together.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Connective {
     /// The formula that holds.
     True,
@@ -158,14 +176,14 @@ pub enum Connective {
 
 /// A part of a subformula: an atom, or a subformula that an earlier
 /// definition names; each as it stands or denied.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Operand {
     Atom(Literal),
     Formula { definition: usize, positive: bool },
 }
 
 /// The name of one subformula of the query.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Definition {
     pub connective: Connective,
     pub operands: Vec<Operand>,
@@ -173,13 +191,13 @@ pub struct Definition {
 
 /// Clauses over the atoms and the named subformulas of a query, the last of
 /// which is empty.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Refutation {
     pub steps: Vec<Step>,
     pub definitions: Vec<Definition>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Certificate {
     Witness(Witness),
     Refutation(Arc<Refutation>),
@@ -188,7 +206,7 @@ pub enum Certificate {
 }
 
 /// A status with what shows it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Answer {
     pub status: Status,
     pub certificate: Certificate,

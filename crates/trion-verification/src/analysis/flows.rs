@@ -1,4 +1,5 @@
-//! The choices of a flow: their guards exclude each other and cover every case.
+//! The choices of a flow: the obligations that their guards exclude each
+//! other and cover every case.
 
 use super::*;
 
@@ -15,21 +16,6 @@ fn interpreted(formula: &Formula) -> bool {
     let mut all = true;
     formula.atoms(true, &mut |a, _| all &= matches!(a, trion_solver::Atom::Val { .. } | trion_solver::Atom::Num { .. }));
     all
-}
-
-/// The proof obligation of one choice: what was asked, at which instant and
-/// from which premises.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct GuardObligation {
-    pub statement: String,
-    pub after: String,
-    /// The instant at which the guards are evaluated.
-    pub instant: String,
-    /// What the proof may use: invariants, definitions and the conditions of
-    /// the path that leads to the choice. The flow itself is never among them.
-    pub premises: Vec<String>,
-    pub exclusive: Status,
-    pub covered: Status,
 }
 
 /// The condition under which a flow reaches a step: the guards chosen on the way.
@@ -66,16 +52,27 @@ fn path_condition(flow: &trion_language::syntax::ast::Flow, step: &str, lex: &Le
     }
 }
 
-/// A choice needs exclusive guards and, without `otherwise`, exhaustive ones.
-/// The guards are evaluated once, at the completion of the step before the
-/// choice, over the states that can hold there: the invariants of the package,
-/// the definitions of the domains the guards mention and the conditions of the
-/// path to the choice. A state that only gated the activation may have changed
-/// by then, and the flow is no premise of its own obligation. The instant of
-/// the choice is one moment of the trace: the guards and the path are read at
-/// the first moment, where every invariant holds as at any other.
-pub(super) fn check_flow_guards(set: &SpecSet, model: &Model, lex: &Lexicon, inst: &Instance, bounds: Bounds, out: &mut Vec<Diagnostic>, claims: &mut Vec<ChoiceClaim>) -> Vec<GuardObligation> {
-    let mut obligations = Vec::new();
+/// The questions of one choice as proof obligations: for each pair of
+/// guards, that they cannot hold together; and without `otherwise`, that
+/// they cannot all be false. Each is unsatisfiable when it holds.
+pub(super) struct ChoiceQuestion {
+    pub statement: SpecRef,
+    pub after: String,
+    /// `exclusive` for a pair of guards, `covered` for all of them.
+    pub kind: &'static str,
+    /// The guards that the question names, by their place in the choice.
+    pub guards: Vec<usize>,
+    pub query: Vec<usize>,
+    /// What the question may use, in words.
+    pub premises: Vec<String>,
+}
+
+/// The questions of every choice of a flow, added to `inst`, and a finding
+/// for each choice whose guards no formula interprets: its questions say
+/// nothing about the guards and are not asked. `group` holds the formula of
+/// each contract of the model in `inst`.
+pub(super) fn choice_questions(set: &SpecSet, model: &Model, lex: &Lexicon, inst: &Instance, group: &[usize], bounds: Bounds, out: &mut Vec<Diagnostic>) -> Vec<ChoiceQuestion> {
+    let mut questions = Vec::new();
     for doc in set.packages.iter().flat_map(|p| &p.documents) {
         let scoped = lex.in_document(doc);
         for spec in &doc.specs {
@@ -87,12 +84,16 @@ pub(super) fn check_flow_guards(set: &SpecSet, model: &Model, lex: &Lexicon, ins
             for flow in &flows {
                 for choice in &flow.choices {
                     let guards: Vec<Formula> = choice.arms.iter().map(|(guard, _)| trion_language::reading::group_formula(guard, &scoped)).collect();
+                    if !guards.iter().all(interpreted) {
+                        out.push(Diagnostic::warning("flow-guard-obligation", format!("the guards of the choice after `{}` are not all states or quantities: whether they exclude each other and cover every case is neither proved nor refuted", choice.after), vec![at.clone()]));
+                        continue;
+                    }
                     let mut env = Environment::of(model, inst, bounds);
                     let mut premises = Vec::new();
                     for (index, c) in model.constraints.iter().enumerate() {
                         let Some(reference) = c.refs.first() else { continue };
                         if c.kind == ConstraintKind::Spec && !c.has_guard() && !own(&reference.id) && interpreted(&c.guarantee) {
-                            env.premises.push(inst.group(index));
+                            env.premises.push(group[index]);
                             premises.push(format!("invariant {}", reference.id));
                         }
                     }
@@ -107,55 +108,20 @@ pub(super) fn check_flow_guards(set: &SpecSet, model: &Model, lex: &Lexicon, ins
                         env.premises.push(inst.add(&trion_language::reading::at_first_moment(&path)));
                     }
                     let placed: Vec<usize> = guards.iter().map(|g| inst.add(&trion_language::reading::at_first_moment(g))).collect();
-                    let mut exclusive = Status::Unsatisfiable;
-                    let mut refutations = Vec::new();
-                    let mut overlap = None;
-                    for (i, a) in guards.iter().enumerate() {
-                        for (j, b) in guards.iter().enumerate().skip(i + 1) {
-                            let question = env.ask(&[placed[i], placed[j]]);
-                            let found = question.status();
-                            if found == Status::Unsatisfiable {
-                                refutations.push(question);
-                                continue;
-                            }
-                            exclusive = if exclusive == Status::Satisfiable { exclusive } else { found };
-                            if found == Status::Satisfiable && overlap.is_none() {
-                                overlap = Some(Exclusivity::Overlap { first: i, second: j, witness: question });
-                            }
-                            let (code, message): (&str, &str) = if found == Status::Satisfiable && interpreted(a) && interpreted(b) { ("OVERLAPPING_FLOW_GUARDS", "two guards of this choice can hold together") } else { ("flow-guard-obligation", "the exclusivity of these guards is neither proved nor refuted") };
-                            let diagnostic = if code == "OVERLAPPING_FLOW_GUARDS" { Diagnostic::error(code, message, vec![at.clone()]) } else { Diagnostic::warning(code, message, vec![at.clone()]) };
-                            out.push(diagnostic);
+                    for i in 0..guards.len() {
+                        for j in i + 1..guards.len() {
+                            let query = env.query(&[placed[i], placed[j]]);
+                            questions.push(ChoiceQuestion { statement: at.clone(), after: choice.after.clone(), kind: "exclusive", guards: vec![i, j], query, premises: premises.clone() });
                         }
                     }
-                    let exclusivity = match (exclusive, overlap) {
-                        (Status::Unsatisfiable, _) => Exclusivity::Exclusive { refutations },
-                        (_, Some(overlap)) => overlap,
-                        _ => Exclusivity::Unknown,
-                    };
-                    let none = inst.add(&trion_language::reading::at_first_moment(&Formula::And(guards.iter().map(|g| Formula::not(g.clone())).collect())));
-                    let mut covered = Status::Unsatisfiable;
-                    let mut coverage = None;
                     if choice.otherwise.is_none() {
-                        let question = env.ask(&[none]);
-                        covered = question.status();
-                        if covered != Status::Unsatisfiable {
-                            if covered == Status::Satisfiable && guards.iter().all(interpreted) {
-                                out.push(Diagnostic::error("INCOMPLETE_FLOW_CHOICE", "the guards of this choice can all be false; add `otherwise`", vec![at.clone()]));
-                            } else {
-                                out.push(Diagnostic::warning("flow-guard-obligation", "the coverage of these guards is neither proved nor refuted", vec![at.clone()]));
-                            }
-                        }
-                        coverage = Some(match covered {
-                            Status::Unsatisfiable => Coverage::Covered { refutation: question },
-                            Status::Satisfiable => Coverage::Missing { witness: question },
-                            Status::Unknown => Coverage::Unknown,
-                        });
+                        let none = inst.add(&trion_language::reading::at_first_moment(&Formula::And(guards.iter().map(|g| Formula::not(g.clone())).collect())));
+                        let query = env.query(&[none]);
+                        questions.push(ChoiceQuestion { statement: at.clone(), after: choice.after.clone(), kind: "covered", guards: (0..guards.len()).collect(), query, premises: premises.clone() });
                     }
-                    claims.push(ChoiceClaim { environment: env.record(&format!("{} after {}", at.id, choice.after), "choice"), statement: at.id.clone(), after: choice.after.clone(), guards: placed, none, otherwise: choice.otherwise.is_some(), exclusive: exclusivity, covered: coverage });
-                    obligations.push(GuardObligation { statement: at.id.clone(), after: choice.after.clone(), instant: format!("completion of step {}", choice.after), premises, exclusive, covered });
                 }
             }
         }
     }
-    obligations
+    questions
 }

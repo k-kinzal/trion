@@ -1,0 +1,4 @@
+namespace p
+system API
+primitive API, message
+[A] The API shall store the message and log the message.

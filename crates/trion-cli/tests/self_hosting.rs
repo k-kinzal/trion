@@ -6,41 +6,91 @@ use std::fs;
 use trion_cli::project;
 
 fn repo(args: &[&str]) -> Result {
-    trion_in(&repo_root(), args)
+    verify_in(&repo_root(), args)
 }
 
-/// `trion verify` on the repository, run once for the tests of this file.
+/// `trioc check` on the repository, run once for the tests of this file.
 fn verified() -> &'static Result {
     static RUN: std::sync::OnceLock<Result> = std::sync::OnceLock::new();
-    RUN.get_or_init(|| repo(&["verify"]))
+    RUN.get_or_init(|| repo(&[]))
 }
 
 fn read(path: &str) -> String {
     fs::read_to_string(repo_root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-// Until work item W10 the workspace held four packages and this test
-// counted four. The fifth, `trion-checker`, holds the checks that share
-// neither the reading rules nor the search with the packages that produce a
-// result (plan section 5): the test now states which package may depend on
-// which, so that the checker cannot come to depend on the verification that
-// it checks.
+/// The packages that a manifest depends on, in any of its dependency
+/// sections (`name = …`, `name.workspace = true`, `[dependencies.name]`).
+fn dependencies(manifest: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut section = "";
+    for line in manifest.lines().map(str::trim) {
+        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            section = header;
+            if let Some(name) = ["dependencies.", "dev-dependencies.", "build-dependencies."].iter().find_map(|p| header.strip_prefix(p)) {
+                names.push(name.to_string());
+            }
+            continue;
+        }
+        if section.ends_with("dependencies") && !line.is_empty() && !line.starts_with('#') {
+            let name = line.split(['=', '.']).next().unwrap_or("").trim();
+            names.push(name.trim_matches('"').to_string());
+        }
+    }
+    names
+}
+
+/// The format crates: each models one format of formal methods (its
+/// grammar, reader and printer) and knows nothing of trion.
+const FORMATS: [&str; 6] = ["smtlib", "moxi", "alethe", "eunoia", "cpc", "mmt"];
+
+// The workspace holds the packages that produce a result, the package that
+// checks apart from them, one package for each command, and the format
+// crates: `trion` writes what `trioc` verifies, and `trion-lsp` serves
+// editors with the light check of `trioc`. This test states which package
+// may depend on which, so that neither the checker nor `trioc` can come to
+// depend on what it checks, and no format crate can come to depend on trion.
 #[test]
-fn the_workspace_holds_its_five_packages_and_the_checker_stands_apart() {
+fn the_workspace_holds_its_packages_and_its_formats_and_what_checks_stands_apart() {
     let workspace = read("Cargo.toml");
-    for package in ["trion-solver", "trion-language", "trion-verification", "trion-checker", "trion-cli"] {
+    let trion_packages = ["trion-solver", "trion-language", "trion-verification", "trion-checker", "trion-cli", "trioc-cli", "trion-lsp", "trion-format-rust-test"];
+    for package in trion_packages.iter().chain(&FORMATS) {
         assert!(workspace.contains(&format!("crates/{package}")), "{package}");
         assert!(read(&format!("crates/{package}/Cargo.toml")).contains(&format!("name = \"{package}\"")), "{package}");
     }
     // The workspace consists of these and of no other package.
     let members = fs::read_dir(repo_root().join("crates")).unwrap().flatten().filter(|entry| entry.path().join("Cargo.toml").is_file()).count();
-    assert_eq!(members, 5);
+    assert_eq!(members, trion_packages.len() + FORMATS.len());
+    // A format crate depends on no trion crate, and on another format crate
+    // only where one format is built on another: MoXI, Alethe and CPC on
+    // SMT-LIB, CPC on Eunoia. trion's commands may depend on any of them.
+    let allowed: [(&str, &[&str]); 6] = [("smtlib", &[]), ("moxi", &["smtlib"]), ("alethe", &["smtlib"]), ("eunoia", &[]), ("cpc", &["smtlib", "eunoia"]), ("mmt", &[])];
+    for (format, may) in allowed {
+        for dependency in dependencies(&read(&format!("crates/{format}/Cargo.toml"))) {
+            let in_workspace = trion_packages.contains(&dependency.as_str()) || FORMATS.contains(&dependency.as_str());
+            assert!(!in_workspace || may.contains(&dependency.as_str()), "the format crate {format} depends on {dependency}");
+            assert!(!dependency.starts_with("trion") && !dependency.starts_with("trioc"), "the format crate {format} depends on {dependency}");
+        }
+    }
+    // An extension format is a program outside the trion processor: it
+    // reads the report of the conversion and depends on no part of trion
+    // that reads or proves (spec/tool.trion).
+    let extension = read("crates/trion-format-rust-test/Cargo.toml");
+    assert!(["trion-language", "trion-verification", "trion-cli", "trioc-cli", "trion-checker"].iter().all(|p| !extension.contains(p)), "{extension}");
     // The checker reads the language and decides with the solver; it does
     // not depend on the verification, and the verification does not depend on it.
     let checker = read("crates/trion-checker/Cargo.toml");
-    assert!(!checker.contains("trion-verification") && !checker.contains("trion-cli"), "{checker}");
+    assert!(!checker.contains("trion-verification") && !checker.contains("trion-cli") && !checker.contains("trioc-cli"), "{checker}");
     assert!(!read("crates/trion-verification/Cargo.toml").contains("trion-checker"));
     assert!(!read("crates/trion-language/Cargo.toml").contains("trion-checker"));
+    // `trioc` verifies what `trion` writes: it does not depend on `trion`.
+    let trioc = read("crates/trioc-cli/Cargo.toml");
+    assert!(!trioc.contains("trion-cli") && !trioc.contains("trion-lsp"), "{trioc}");
+    // The checker of certificates shares no code with the search.
+    let certificates = read("crates/trion-checker/src/certificate.rs");
+    for word in ["decide", "Instance", "Prover", "trion_verification", "trion_language"] {
+        assert!(!certificates.lines().filter(|l| !l.trim_start().starts_with("//")).any(|l| l.contains(word)), "the checker of certificates names `{word}`");
+    }
     // The reference evaluator builds no formula and asks no solver.
     let evaluator = read("crates/trion-checker/src/eval.rs");
     for word in ["trion_solver", "Formula", "Atom::", "unroll", "compile("] {
@@ -49,17 +99,22 @@ fn the_workspace_holds_its_five_packages_and_the_checker_stands_apart() {
 }
 
 #[test]
-fn the_cli_package_builds_the_trion_command() {
-    let manifest = read("crates/trion-cli/Cargo.toml");
-    assert!(manifest.contains("[[bin]]\nname = \"trion\""), "{manifest}");
-    let help = repo(&["--help"]);
+fn each_command_package_builds_its_command() {
+    // `trion` and `trioc` are built by one package, so that each test of
+    // one can run the other; the library of `trioc` builds no command.
+    for (package, command) in [("trion-cli", "trion"), ("trion-cli", "trioc"), ("trion-lsp", "trion-lsp")] {
+        let manifest = read(&format!("crates/{package}/Cargo.toml"));
+        assert!(manifest.contains(&format!("[[bin]]\nname = \"{command}\"")), "{manifest}");
+    }
+    assert!(!read("crates/trioc-cli/Cargo.toml").contains("[[bin]]"));
+    let help = convert_in(&repo_root(), &["--help"]);
     assert_eq!(help.code, 0);
-    assert!(help.stdout.contains("trion"), "{}", help.stdout);
+    assert!(help.stdout.contains("Usage: trion [OPTIONS] [PATH]"), "{}", help.stdout);
 }
 
 #[test]
 fn the_workspace_is_rust() {
-    for root in ["crates/trion-solver/src/lib.rs", "crates/trion-language/src/lib.rs", "crates/trion-verification/src/lib.rs", "crates/trion-checker/src/lib.rs", "crates/trion-cli/src/main.rs"] {
+    for root in ["crates/trion-solver/src/lib.rs", "crates/trion-language/src/lib.rs", "crates/trion-verification/src/lib.rs", "crates/trion-checker/src/lib.rs", "crates/trion-cli/src/main.rs", "crates/trion-cli/src/bin/trioc.rs", "crates/trioc-cli/src/lib.rs", "crates/trion-lsp/src/main.rs"] {
         assert!(repo_root().join(root).is_file(), "{root}");
     }
 }
@@ -71,14 +126,33 @@ fn the_syntax_layer_derives_from_spec_oracle() {
     assert!(trion_language::syntax::parse("The pump shall stop.").is_ok());
 }
 
+/// The obligations that `trion` stated, and the verdict of each that `trioc` gave.
+fn obligations(stdout: &str) -> (Vec<String>, Vec<(String, String)>) {
+    let mut stated = Vec::new();
+    let mut proved = Vec::new();
+    for line in stdout.lines().filter_map(|line| line.strip_prefix("obligation ")) {
+        let Some((name, rest)) = line.split_once(" (") else { continue };
+        let Some((_, verdict)) = rest.split_once("): ") else { continue };
+        if verdict.starts_with("not proved here") {
+            stated.push(name.to_string());
+        } else {
+            proved.push((name.to_string(), verdict.split(':').next().unwrap_or(verdict).to_string()));
+        }
+    }
+    (stated, proved)
+}
+
 #[test]
 fn the_repository_passes_its_own_check_and_requirements() {
+    // The specification of trion conforms to its language, and every obligation of its MMT form is proved.
     let result = verified();
     assert_eq!(result.code, 0, "{}{}", result.stdout, result.stderr);
-    for gate in ["check", "meaning", "claims", "sources", "prover", "properties", "stability"] {
-        assert!(result.stdout.contains(&format!("gate {gate}: passed")), "{}", result.stdout);
-    }
-    assert!(result.stdout.trim_end().ends_with("\nverified"), "{}", result.stdout);
+    assert!(result.stdout.lines().any(|line| line == "converted"), "{}", result.stdout);
+    let (stated, proved) = obligations(&result.stdout);
+    assert!(stated.iter().any(|name| name == "consistency") && stated.iter().any(|name| name == "compatibility"), "{stated:?}");
+    assert!(proved.iter().all(|(_, verdict)| verdict == "proved"), "{proved:?}");
+    assert!(result.stdout.lines().any(|line| line.ends_with(" proved, 0 refuted, 0 unproved; no result holds beyond its bound")), "{}", result.stdout);
+    assert!(result.stdout.trim_end().ends_with("\nproved"), "{}", result.stdout);
 }
 
 #[test]
@@ -160,13 +234,13 @@ fn every_statement_of_the_specification_has_a_formal_reading() {
 }
 
 #[test]
-fn the_verify_command_states_the_completion_as_gates() {
+fn the_command_states_each_obligation_and_its_verdict() {
     let result = verified();
-    // Each condition of the completion is a gate with a state of its own.
-    for gate in ["check", "meaning", "claims", "sources", "prover", "properties", "stability"] {
-        assert!(result.stdout.lines().any(|line| line.starts_with(&format!("gate {gate}: "))), "no state of the gate `{gate}`:\n{}", result.stdout);
-    }
-    // The last line says whether the package is verified, and the exit code says the same.
+    // `trioc` gives one verdict for each obligation that `trion` wrote into the MMT form, in its order.
+    let (stated, proved) = obligations(&result.stdout);
+    assert!(!stated.is_empty());
+    assert_eq!(stated, proved.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>(), "{}", result.stdout);
+    // The last line says whether every obligation is proved, and the exit code says the same.
     let last = result.stdout.lines().last().unwrap_or_default();
-    assert_eq!(last == "verified", result.code == 0, "{last}");
+    assert_eq!(last == "proved", result.code == 0, "{last}");
 }

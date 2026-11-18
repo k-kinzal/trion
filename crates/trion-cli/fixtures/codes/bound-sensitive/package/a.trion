@@ -1,5 +1,0 @@
-namespace p
-primitive room
-primitive owner
-[R1] Some room has no owner.
-[R2] Some room has an owner.

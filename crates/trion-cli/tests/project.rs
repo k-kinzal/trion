@@ -6,19 +6,29 @@ fn grpc_dep() -> String {
     format!("[package]\nname = \"p\"\n\n[dependencies]\ngrpc = {{ path = \"{}\" }}\n", repo_root().join("stdlib/grpc").display())
 }
 
-const GRPC_SPECS: &str = "use grpc\nbind API as grpc.service.\nThe API shall use gRPC communication.\nThe API GET /foo shall return foo.\n";
+const GRPC_SPECS: &str = "use grpc\nprimitive API\nprimitive API GET /foo\nprimitive gRPC communication\nprimitive foo\nbind API as grpc.service.\nThe API shall use gRPC communication.\nThe API GET /foo shall return foo.\n";
+
+/// The number of statements that the conversion read: the statements with
+/// a contract, which are those of the files that the entry includes.
+fn statements(report: &serde_json::Value) -> usize {
+    let mut ids: Vec<&str> = report["contracts"].as_array().unwrap().iter().filter(|c| c["role"] != "axiom").filter_map(|c| c["statement"]["id"].as_str()).collect();
+    ids.sort();
+    ids.dedup();
+    ids.len()
+}
 
 fn codes_of(f: &Fixture) -> Vec<String> {
-    report_codes(&f.trion(&["verify", "--json"]).json())
+    report_codes(&f.verify(&["--json"]).json())
 }
 
 #[test]
 fn reads_the_files_the_entry_includes() {
     let entry = "package p edition \"1\"\ninclude \"spec/a.trion\"\ninclude \"spec/b.trion\"\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("spec/a.trion", "The API shall stop.\n"), ("spec/b.trion", "The API shall not stop.\n"), ("other/c.trion", "The API shall run.\n")]);
-    let r = f.trion(&["verify"]);
+    let r = f.verify(&["--json"]);
     assert_eq!(r.code, 1, "{}", r.stdout);
-    assert!(r.stdout.contains("checked 2 specifications"), "{}", r.stdout);
+    assert_eq!(statements(&r.json()), 2, "{}", r.stdout);
+    assert_eq!(report_codes(&r.json()), ["contradiction"], "{}", r.stdout);
 }
 
 #[test]
@@ -32,9 +42,9 @@ fn an_include_is_relative_to_the_including_file() {
 fn the_entry_file_can_be_named_in_the_manifest() {
     let manifest = "[package]\nname = \"p\"\nentry = \"spec/main.trion\"\n";
     let f = Fixture::new(&[("trion.toml", manifest), ("spec/main.trion", "package p edition \"1\"\ninclude \"a.trion\"\n"), ("spec/a.trion", "primitive API\nThe API shall stop.\n")]);
-    let r = f.trion(&["verify"]);
+    let r = f.verify(&["--json"]);
     assert_eq!(r.code, 0, "{}", r.stdout);
-    assert!(r.stdout.contains("checked 1 specifications"), "{}", r.stdout);
+    assert_eq!(statements(&r.json()), 1, "{}", r.stdout);
 }
 
 #[test]
@@ -86,31 +96,33 @@ fn a_namespace_begins_with_the_package_name() {
 
 #[test]
 fn composes_specifications_across_files() {
+    // The two descriptions are about no actor of the system: they are
+    // assumptions, and together they allow no environment.
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("spec/a.trion", "kind is A and B.\n"), ("spec/b.trion", "kind is C.\n")]);
-    let r = f.trion(&["verify", "--json"]);
-    assert_eq!(report_codes(&r.json()), ["contradiction"]);
+    let r = f.verify(&["--json"]);
+    assert_eq!(report_codes(&r.json()), ["incompatible"]);
     assert_eq!(r.code, 1);
 }
 
 #[test]
 fn checks_a_single_file_without_a_project() {
     let f = Fixture::new(&[("a.trion", "primitive API\nThe API shall stop.\n")]);
-    let r = f.trion(&["verify", "a.trion"]);
+    let r = f.verify(&["a.trion"]);
     assert_eq!(r.code, 0, "{}", r.stdout);
 }
 
 #[test]
 fn finds_the_project_from_a_subdirectory() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("spec/a.trion", "primitive API\nThe API shall stop.\n")]);
-    let r = trion_in(&f.path().join("spec"), &["verify", "."]);
+    let r = verify_in(&f.path().join("spec"), &[".", "--json"]);
     assert_eq!(r.code, 0, "{}{}", r.stdout, r.stderr);
-    assert!(r.stdout.contains("checked 1 specifications"));
+    assert_eq!(statements(&r.json()), 1, "{}", r.stdout);
 }
 
 #[test]
 fn reports_a_missing_project_as_a_usage_error() {
     let f = Fixture::new(&[]);
-    let r = f.trion(&["verify"]);
+    let r = f.verify(&[]);
     assert_eq!(r.code, 2);
     assert!(r.stderr.contains("trion.toml"), "{}", r.stderr);
 }
@@ -118,20 +130,20 @@ fn reports_a_missing_project_as_a_usage_error() {
 #[test]
 fn rejects_an_unknown_manifest_field() {
     let f = Fixture::new(&[("trion.toml", "[package]\nname = \"p\"\nspecs = [\"*.trion\"]\n")]);
-    assert_eq!(f.trion(&["verify"]).code, 2, "file lists are gone: the entry file includes its files");
+    assert_eq!(f.verify(&[]).code, 2, "file lists are gone: the entry file includes its files");
 }
 
 #[test]
 fn a_used_specification_set_detects_a_foreign_operation() {
     let f = Fixture::new(&[("trion.toml", &grpc_dep()), ("a.trion", GRPC_SPECS)]);
-    let r = f.trion(&["verify", "--json"]);
+    let r = f.verify(&["--json"]);
     assert_eq!(analysis_codes(&r.json()), ["shape-violation"], "{}", r.stdout);
 }
 
 #[test]
 fn without_a_use_the_same_sentences_are_consistent() {
     let f = Fixture::new(&[("trion.toml", &grpc_dep()), ("a.trion", "primitive API\nprimitive API GET /foo\nprimitive gRPC communication\nprimitive foo\nThe API shall use gRPC communication.\nThe API GET /foo shall return foo.\n")]);
-    let r = f.trion(&["verify"]);
+    let r = f.verify(&[]);
     assert_eq!(r.code, 0, "{}", r.stdout);
 }
 
@@ -145,7 +157,7 @@ fn a_use_absent_from_the_manifest_is_an_error() {
 fn a_dependency_with_a_bad_path_is_a_usage_error() {
     let manifest = "[package]\nname = \"p\"\n\n[dependencies]\nx = { path = \"nowhere\" }\n";
     let f = Fixture::new(&[("trion.toml", manifest), ("a.trion", "use x\n")]);
-    assert_eq!(f.trion(&["verify"]).code, 2);
+    assert_eq!(f.verify(&[]).code, 2);
 }
 
 #[test]
@@ -161,7 +173,7 @@ fn dependencies_resolve_transitively_once() {
         ("lower/trion.toml", lower),
         ("lower/l.trion", "term API: entity\nThe API shall not stop.\n"),
     ]);
-    let r = f.trion(&["verify", "--json"]);
+    let r = f.verify(&["--json"]);
     assert_eq!(report_codes(&r.json()), ["contradiction"], "{}", r.stdout);
 }
 
@@ -169,7 +181,7 @@ fn dependencies_resolve_transitively_once() {
 fn the_vocabulary_mode_comes_from_the_manifest() {
     let manifest = "[package]\nname = \"p\"\n\n[vocabulary]\nmode = \"declared\"\n";
     let f = Fixture::new(&[("trion.toml", manifest), ("a.trion", "term API: entity\nterm stop: action\nThe API shall stop.\nThe log shall rotate.\n")]);
-    let r = f.trion(&["verify", "--json"]);
+    let r = f.verify(&["--json"]);
     assert_eq!(analysis_codes(&r.json()), ["UNRESOLVED_TERM"], "{}", r.stdout);
 }
 
@@ -183,7 +195,7 @@ fn an_unknown_vocabulary_mode_is_an_error() {
 #[test]
 fn a_parse_error_fails_the_check_and_names_the_line() {
     let f = Fixture::raw(&[("a.trion", "namespace main:\n    The API shall stop.\n    The API for gRPC.\n")]);
-    let r = f.trion(&["verify", "a.trion"]);
+    let r = f.verify(&["a.trion"]);
     assert_eq!(r.code, 1);
     assert!(r.stdout.contains("a.trion:3"), "{}", r.stdout);
 }
@@ -191,7 +203,7 @@ fn a_parse_error_fails_the_check_and_names_the_line() {
 #[test]
 fn warnings_do_not_fail_the_check() {
     let f = Fixture::new(&[("a.trion", "primitive API\nprimitive api\nThe API shall stop.\nThe api shall start.\n")]);
-    let r = f.trion(&["verify", "a.trion"]);
+    let r = f.verify(&["a.trion"]);
     assert_eq!(r.code, 0);
     assert!(r.stdout.contains("warning[vocabulary-similar]"), "{}", r.stdout);
 }
@@ -210,7 +222,10 @@ fn model_prints_smt2() {
     let f = Fixture::new(&[("a.trion", "kind is A and B.\nkind is C.\n")]);
     let r = f.inspect(&["model", "a.trion", "--smt2"]);
     assert!(r.stdout.contains("(check-sat)"), "{}", r.stdout);
-    assert!(r.stdout.contains("(declare-const |Dom(kind, A)| Bool)"), "{}", r.stdout);
+    // Read as SMT-LIB, the script declares the atom as a Boolean constant.
+    use trion_verification::proof::smtlib::{command::{Command, Script}, Sort, Symbol};
+    let script = Script::parse(&r.stdout).unwrap_or_else(|e| panic!("not SMT-LIB: {e}\n{}", r.stdout));
+    assert!(script.commands().contains(&Command::DeclareConst(Symbol::new("Dom(kind, A)").unwrap(), Sort::bool())), "{}", r.stdout);
 }
 
 #[test]
@@ -231,9 +246,9 @@ fn relate_lists_isolated_specifications_for_review() {
 
 #[test]
 fn the_verify_command_can_report_json() {
-    let f = Fixture::new(&[("a.trion", "The API shall stop.\n")]);
-    let report = f.trion(&["verify", "--json", "a.trion"]).json();
-    for part in ["diagnostics", "consistency", "sources", "gates"] {
+    let f = Fixture::new(&[("a.trion", "primitive API\nThe API shall stop.\n")]);
+    let report = f.verify(&["--json", "a.trion"]).json();
+    for part in ["diagnostics", "sources", "contracts", "obligations", "proof"] {
         assert!(!report[part].is_null(), "{part}");
     }
     assert!(Path::new(env!("CARGO_BIN_EXE_trion")).ends_with("trion"));
@@ -251,7 +266,7 @@ fn tree_codes(files: &[(&str, &str)]) -> Vec<String> {
 /// another list of the report is read, so an empty result is no success.
 #[allow(dead_code)]
 fn codes_of_of_the_analysis(f: &Fixture) -> Vec<String> {
-    analysis_codes(&f.trion(&["verify", "--json"]).json())
+    analysis_codes(&f.verify(&["--json"]).json())
 }
 
 /// As `tree_codes`, reading the diagnostics of the analysis alone: no finding of
@@ -266,10 +281,12 @@ fn tree_codes_of_the_analysis(files: &[(&str, &str)]) -> Vec<String> {
 #[test]
 fn specs_can_nest_in_directories() {
     let files = [("trion.toml", MANIFEST), ("top.trion", "primitive API\nThe API shall stop.\n"), ("a/b/c.trion", "primitive bell\nThe bell shall ring.\n")];
-    let r = Fixture::new(&files).trion(&["verify", "--json"]);
+    let r = Fixture::new(&files).verify(&["--json"]);
     assert_eq!(r.code, 0, "{}", r.stdout);
-    let printed = Fixture::new(&files).trion(&["verify"]).stdout;
-    assert!(printed.lines().any(|line| line.starts_with("checked 2 specifications: 0 errors, ") && line.ends_with("; 0/0 checks proved, 0 examples run")), "{printed}");
+    assert_eq!(statements(&r.json()), 2, "{}", r.stdout);
+    // The text names each obligation of the form, the checks and the examples among them.
+    let printed = Fixture::new(&files).verify(&[]).stdout;
+    assert!(printed.lines().any(|line| line == "2 obligations: 2 proved, 0 refuted, 0 unproved; no result holds beyond its bound") && printed.trim_end().ends_with("\nproved"), "{printed}");
 }
 
 #[test]
@@ -348,6 +365,6 @@ fn a_use_names_a_namespace_or_a_dependency() {
 #[test]
 fn a_namespace_role_binds_like_a_package_role() {
     let role = "namespace p.shapes:\n    role service:\n        activate: The $subject shall use gRPC communication.\n        form METHOD: The $subject $operation shall $action. where $operation does not match /^[A-Z]+ /\n";
-    let spec = "namespace p.svc:\n    use p.shapes\n    The API shall use gRPC communication.\n    The API `GET /foo` shall return foo.\n";
+    let spec = "namespace p.svc:\n    use p.shapes\n    primitive API\n    primitive API `GET /foo`\n    primitive gRPC communication\n    primitive foo\n    The API shall use gRPC communication.\n    The API `GET /foo` shall return foo.\n";
     assert_eq!(tree_codes_of_the_analysis(&[("g.trion", role), ("s.trion", spec)]), ["shape-violation"]);
 }

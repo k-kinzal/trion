@@ -1,22 +1,22 @@
-//! The result flow, below the interface of the analysis.
+//! The verdict of an obligation, below the interface of the analysis.
 
 use super::common::*;
-use crate::{analyze, Analysis, Bounds, Options};
+use crate::{Bounds, ObligationVerdict, Options};
 
-fn bounded(src: &str, decisions: Option<u64>) -> Analysis {
-    analyze(&set(src), &Options { bounds: Bounds { decisions, ..Bounds::default() }, subject_revision: Some("r1".to_string()), ..Options::default() })
+fn bounded(decisions: Option<u64>) -> Options {
+    Options { bounds: Bounds { decisions, ..Bounds::default() }, subject_revision: Some("r1".to_string()) }
 }
 
 const CHOICE: &str = "The API shall either accept the call or reject the call.\n";
 
 #[test]
-fn each_result_has_one_verdict() {
-    assert_eq!(bounded(CHOICE, Some(0)).consistency.verdict, "unknown");
-    assert_eq!(bounded(CHOICE, None).consistency.verdict, "consistent");
-    assert_eq!(bounded("The API shall stop.\nThe API shall not stop.\n", None).consistency.verdict, "inconsistent");
+fn each_obligation_has_one_verdict() {
+    assert_eq!(consistency(CHOICE, &bounded(Some(0))), ObligationVerdict::Unproved);
+    assert_eq!(consistency(CHOICE, &bounded(None)), ObligationVerdict::Proved);
+    assert_eq!(consistency("The API shall stop.\nThe API shall not stop.\n", &bounded(None)), ObligationVerdict::Refuted);
     // A specification that a behaviour satisfies is inconsistent when its
-    // statements cannot be kept in a situation that can occur.
-    let conditional = bounded("While the door is open, the API shall stop.\nWhile the door is open, the API shall not stop.\n", None);
-    assert!(conditional.consistency.is_satisfiable());
-    assert_eq!(conditional.consistency.verdict, "inconsistent");
+    // statements cannot be kept in a situation that the environment can
+    // bring about: here the door is the environment's.
+    let conditional = "environment door\nWhile the door is open, the API shall stop.\nWhile the door is open, the API shall not stop.\n";
+    assert_eq!(consistency(conditional, &bounded(None)), ObligationVerdict::Refuted);
 }

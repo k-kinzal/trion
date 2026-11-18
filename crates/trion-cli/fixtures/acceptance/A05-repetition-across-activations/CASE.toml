@@ -1,17 +1,27 @@
 id = "A05"
-title = "Opposite orders in different activations are no cycle"
+title = "Opposite orders in activations that the environment can make coincide"
 work = "W06"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 [A] orders the two completions that answer an expiry of the timer, and [B] orders the two that answer
-a ring of the bell. A behaviour logs and then sends after the expiry, and sends and then logs after the
-ring: the four completions are four occurrences. Rejecting the package because the names of the actions
-form a cycle would forbid a legal repetition.
+a ring of the bell. Where the expiry and the ring come at different moments, a behaviour logs and then
+sends after the expiry, and sends and then logs after the ring: the same actions in two activations may
+alternate, and the names of the actions forming a cycle is no contradiction.
+
+The environment decides both triggers, and nothing says that they never come at the same moment.
+Where they do, both activations open at one moment t, and an occurrence after t belongs to both
+(spec/semantics/core.md, section 4): [A] needs a log after t with no sending at or before it, [B] a
+sending after t with no log at or before it, and whichever comes first breaks the other statement. A
+system that accepts every input cannot avoid that situation, so the package is inconsistent, and the
+counterexample names the two triggers at one moment.
+
+Until the conversion to MMT this case was verified: the old engine let the system avoid the situation.
 """
 
 [expect]
-verified = true
+verified = false
+diagnostics = ["contradiction"]
 
-[expect.claims]
-situation_total = "proved"
+[expect.obligations]
+consistency = "refuted"

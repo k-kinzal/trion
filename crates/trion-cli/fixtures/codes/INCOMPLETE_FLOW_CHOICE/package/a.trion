@@ -1,4 +1,5 @@
 namespace main
+primitive checker, result, success, failure, count
 [F] When the checker receives a result R, the checker shall follow this flow:
     step inspect: read R;
     step good: publish the success for R;
@@ -6,7 +7,6 @@ namespace main
     start inspect
     choose after inspect:
         when the count is at least 2 -> good
-        otherwise bad
+        when the count is at most 0 -> bad
     finish good
     finish bad
-

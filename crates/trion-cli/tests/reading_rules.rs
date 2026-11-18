@@ -13,7 +13,7 @@ fn package(body: &str) -> Fixture {
 }
 
 fn check(body: &str) -> Value {
-    package(body).trion(&["verify", "--json"]).json()
+    package(body).verify(&["--json"]).json()
 }
 
 #[allow(dead_code)]
@@ -63,30 +63,35 @@ const DECISION: &str = "primitive construct\nprimitive expression\nprimitive che
 
 #[test]
 fn each_accepted_construct_denotes_one_expression() {
-    // The decision as the specification states it holds together.
-    assert!(conflicts(&check(DECISION)).is_empty());
+    // Every statement of the decision describes and none requires: each is
+    // an assumption, and assumptions that cannot all hold leave no
+    // environment. The decision as the specification states it holds together.
+    let report = check(DECISION);
+    assert_eq!(verdicts(&report)["compatibility"], "proved", "{report}");
     // An accepted construct without an interpretation contradicts it.
-    contradicts(&format!("{DECISION}\n[X1]\nSome accepted construct has no supported formal interpretation.\n"), &["X1", "MODEL-ACCEPTED-NORMATIVE", "MODEL-INTERPRETATION", "MODEL-TEXT-DENOTATION"]);
+    let report = check(&format!("{DECISION}\n[X1]\nSome accepted construct has no supported formal interpretation.\n"));
+    assert_eq!(verdicts(&report)["compatibility"], "refuted", "{report}");
+    assert!(report["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "incompatible"), "{report}");
 }
 
 #[test]
 fn a_part_without_a_reading_is_an_error() {
     let fixture = package("primitive parser\nprimitive sentence\nprimitive keyword\n\n[K1]\nThe parser shall not accept a sentence because the sentence contains a keyword.\n");
-    let result = fixture.trion(&["verify", "--json"]);
+    let result = fixture.verify(&["--json"]);
     assert_ne!(result.code, 0, "a sentence with an unread part must not pass");
     let found = errors(&result.json(), "UNSUPPORTED_SEMANTICS");
     assert!(found.iter().any(|m| m.contains("`because`")), "{found:?}");
     // The same rule in words that are read passes.
-    let result = package("primitive parser\nprimitive sentence\nprimitive keyword\nprimitive rule\n\n[K1]\nThe parser shall reject each sentence that contains a keyword and that matches no rule.\n").trion(&["verify", "--json"]);
+    let result = package("primitive parser\nprimitive sentence\nprimitive keyword\nprimitive rule\n\n[K1]\nThe parser shall reject each sentence that contains a keyword and that matches no rule.\n").verify(&["--json"]);
     assert_eq!(result.code, 0, "{}", result.stdout);
 }
 
 #[test]
 fn a_statement_that_constrains_nothing_is_an_error() {
-    let result = package("[G1]\nThe room shall keep the ledger.\n").trion(&["verify", "--json"]);
+    let result = package("[G1]\nThe room shall keep the ledger.\n").verify(&["--json"]);
     assert_ne!(result.code, 0);
     assert_eq!(errors(&result.json(), "ungrounded").len(), 1);
-    let result = package("primitive room\nprimitive ledger\n\n[G1]\nThe room shall keep the ledger.\n").trion(&["verify", "--json"]);
+    let result = package("primitive room\nprimitive ledger\n\n[G1]\nThe room shall keep the ledger.\n").verify(&["--json"]);
     assert_eq!(result.code, 0, "{}", result.stdout);
 }
 
@@ -155,7 +160,7 @@ fn a_comparison_takes_a_measure_with_an_of_phrase() {
 
 #[test]
 fn the_specification_of_trion_has_no_unread_part() {
-    let result = trion_in(&repo_root(), &["verify", "--json", "."]);
+    let result = verify_in(&repo_root(), &["--json", "."]);
     let report = result.json();
     assert!(report["opaque"].as_array().unwrap().is_empty(), "{}", report["opaque"]);
     assert!(report["ungrounded"].as_array().unwrap().is_empty(), "{}", report["ungrounded"]);

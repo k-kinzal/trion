@@ -13,6 +13,14 @@ pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
 }
 
+/// The search path of the commands: the tools in `.tools/bin` of the
+/// repository (the checkers of the certificates, and Java for MMT) come
+/// first, then `PATH`. trion and trioc run none of them.
+pub fn tools_path() -> String {
+    let tools = repo_root().join(".tools/bin");
+    format!("{}:{}", tools.display(), std::env::var("PATH").unwrap_or_default())
+}
+
 /// A project on disk, removed when dropped.
 ///
 /// A test writes only what it is about. Every `.trion` file without a
@@ -113,8 +121,26 @@ impl Fixture {
         fs::read_to_string(self.path().join(path)).unwrap()
     }
 
-    pub fn trion(&self, args: &[&str]) -> Result {
-        trion_in(self.path(), args)
+    /// Converts the package and proves its obligations: see [`verify_in`].
+    pub fn verify(&self, args: &[&str]) -> Result {
+        verify_in(self.path(), args)
+    }
+
+    /// Converts the package: `trion`.
+    pub fn convert(&self, args: &[&str]) -> Result {
+        convert_in(self.path(), args)
+    }
+
+    /// Proves the obligations of an MMT form: `trioc prove`.
+    pub fn prove(&self, args: &[&str]) -> Result {
+        let mut arguments = vec!["prove"];
+        arguments.extend(args);
+        Result::from(Command::new(env!("CARGO_BIN_EXE_trioc")).env("PATH", tools_path()).args(&arguments).current_dir(self.path()).output().unwrap())
+    }
+
+    /// The package as an HTML document: see [`document_in`].
+    pub fn document(&self, args: &[&str]) -> Result {
+        document_in(self.path(), args)
     }
 
     /// A view of what the libraries read from this project.
@@ -143,13 +169,73 @@ impl Result {
     }
 }
 
-/// Runs the command with environment variables, as a fixture with a seeded fault does.
-pub fn trion_with(dir: &Path, args: &[&str], variables: &[(&str, &str)]) -> Result {
-    Result::from(Command::new(env!("CARGO_BIN_EXE_trion")).args(args).envs(variables.iter().copied()).current_dir(dir).output().unwrap())
+/// Converts the package with `trion --out` and proves the obligations of
+/// the MMT form that it wrote with `trioc prove`, with environment
+/// variables, as a fixture with a seeded fault does. `--decision-limit N`
+/// and `--against FILE` go to `trioc`, `--json` to both, and
+/// every other argument to `trion`. The run fails when either command fails; its text
+/// is that of `trion` followed by that of `trioc`, and its JSON is that of
+/// `trion` with the result of `trioc` under `proof` and the findings of
+/// both under `diagnostics`. A package that does not convert is not proved.
+pub fn verify_with(dir: &Path, args: &[&str], variables: &[(&str, &str)]) -> Result {
+    let form = tempfile::tempdir().unwrap();
+    let target = form.path().to_string_lossy().into_owned();
+    let (mut converting, mut proving): (Vec<&str>, Vec<&str>) = (vec!["--out", target.as_str()], vec!["prove", target.as_str()]);
+    let mut rest = args.iter();
+    let json = args.contains(&"--json");
+    while let Some(arg) = rest.next() {
+        match *arg {
+            "--json" => {
+                converting.push(arg);
+                proving.push(arg);
+            }
+            "--decision-limit" | "--against" => {
+                proving.push(arg);
+                proving.extend(rest.next());
+            }
+            _ => converting.push(arg),
+        }
+    }
+    let converted = Result::from(Command::new(env!("CARGO_BIN_EXE_trion")).env("PATH", tools_path()).args(&converting).envs(variables.iter().copied()).current_dir(dir).output().unwrap());
+    if converted.code != 0 || !form.path().join("source/specification.mmt").is_file() {
+        return converted;
+    }
+    let proved = Result::from(Command::new(env!("CARGO_BIN_EXE_trioc")).env("PATH", tools_path()).args(&proving).envs(variables.iter().copied()).current_dir(dir).output().unwrap());
+    let code = if proved.code != 0 { proved.code } else { converted.code };
+    if !json {
+        return Result { code, stdout: format!("{}{}", converted.stdout, proved.stdout), stderr: format!("{}{}", converted.stderr, proved.stderr) };
+    }
+    let (Ok(mut value), Ok(proof)) = (serde_json::from_str::<serde_json::Value>(&converted.stdout), serde_json::from_str::<serde_json::Value>(&proved.stdout)) else {
+        return Result { code, stdout: format!("{}{}", converted.stdout, proved.stdout), stderr: format!("{}{}", converted.stderr, proved.stderr) };
+    };
+    if let (Some(all), Some(found)) = (value["diagnostics"].as_array().cloned(), proof["diagnostics"].as_array()) {
+        value["diagnostics"] = serde_json::Value::Array(all.into_iter().chain(found.iter().cloned()).collect());
+    }
+    value["proof"] = proof;
+    Result { code, stdout: serde_json::to_string_pretty(&value).unwrap(), stderr: format!("{}{}", converted.stderr, proved.stderr) }
 }
 
-pub fn trion_in(dir: &Path, args: &[&str]) -> Result {
-    Result::from(Command::new(env!("CARGO_BIN_EXE_trion")).args(args).current_dir(dir).output().unwrap())
+/// Converts and proves the package: [`verify_with`] without variables.
+pub fn verify_in(dir: &Path, args: &[&str]) -> Result {
+    verify_with(dir, args, &[])
+}
+
+/// Runs `trion`: the conversion of a package.
+pub fn convert_in(dir: &Path, args: &[&str]) -> Result {
+    Result::from(Command::new(env!("CARGO_BIN_EXE_trion")).env("PATH", tools_path()).args(args).current_dir(dir).output().unwrap())
+}
+
+/// Runs the command so that it writes the package as an HTML document, and
+/// returns the run with the document in place of its standard output:
+/// nothing when no document was written.
+pub fn document_in(dir: &Path, args: &[&str]) -> Result {
+    let out = tempfile::tempdir().unwrap();
+    let target = out.path().to_string_lossy().into_owned();
+    let mut arguments = vec!["--out", target.as_str(), "--format", "html"];
+    arguments.extend(args);
+    let mut result = convert_in(dir, &arguments);
+    result.stdout = fs::read_to_string(out.path().join("specification.html")).unwrap_or_default();
+    result
 }
 
 pub fn sha256(text: &str) -> String {
@@ -185,14 +271,19 @@ pub fn source_block(name: &str, kind: &str, path: &str, text: &str, extra: &str,
 /// test that means `nothing was found` asserts [`report_codes`], and one
 /// that means `the package is verified` asserts [`assert_verified`].
 pub fn analysis_codes(value: &serde_json::Value) -> Vec<String> {
-    value["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).collect()
+    value["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).filter(|code| code != SYSTEM_UNDECLARED).collect()
 }
+
+/// The warning that a package declares no system. Most packages of the
+/// tests declare none, and the warning is about none of them: the lists of
+/// codes leave it out, and `tests/trioc.rs` asserts it where it is meant.
+pub const SYSTEM_UNDECLARED: &str = "system-undeclared";
 
 /// The codes of every finding of a JSON report: the diagnostics of the
 /// analysis, and what a statement says that no rule reads, grounds or can
 /// express. Empty only when none of these lists holds a finding.
 pub fn report_codes(value: &serde_json::Value) -> Vec<String> {
-    let mut codes: Vec<String> = value["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).collect();
+    let mut codes = analysis_codes(value);
     for list in ["opaque", "ungrounded", "inexpressible"] {
         for d in value[list].as_array().into_iter().flatten() {
             let code = d["code"].as_str().unwrap().to_string();
@@ -204,37 +295,45 @@ pub fn report_codes(value: &serde_json::Value) -> Vec<String> {
     codes
 }
 
-/// The codes of what keeps a report from being a success: the blockers of
-/// its outcome, from every gate. Empty exactly when the package is verified.
+/// The codes of what keeps a report from being a success: each error of
+/// the conversion, in each of its lists, and each finding of the proof.
+/// Empty exactly when the package converts and every obligation is proved.
 pub fn unverified(value: &serde_json::Value) -> Vec<String> {
-    value["outcome"]["blockers"].as_array().unwrap().iter().map(|b| b["code"].as_str().unwrap().to_string()).collect()
-}
-
-/// Asserts that a report is a success in each of its parts: the outcome, the
-/// gates, the claims, the meaning obligations and every list of findings. A
-/// test that means `the package is verified` asserts this, and not that the
-/// diagnostics of the analysis are empty.
-pub fn assert_verified(value: &serde_json::Value) {
-    assert_eq!(value["outcome"]["verified"], true, "{value}");
-    assert!(unverified(value).is_empty(), "{value}");
-    for gate in value["gates"].as_array().unwrap() {
-        assert_ne!(gate["state"], "failed", "the gate {} failed: {value}", gate["name"]);
-    }
-    // The gates that every verification runs are run: a skip of one is no pass.
-    for name in ["check", "meaning", "claims", "sources", "prover"] {
-        assert!(value["gates"].as_array().unwrap().iter().any(|gate| gate["name"] == name && gate["state"] == "passed"), "the gate {name} did not pass: {value}");
-    }
-    for list in ["opaque", "ungrounded", "inexpressible", "obligations", "prover", "properties", "stability"] {
-        assert!(value[list].as_array().unwrap().is_empty(), "`{list}` is not empty: {value}");
-    }
-    assert!(value["diagnostics"].as_array().unwrap().iter().all(|d| d["severity"] != "error"), "{value}");
-    assert!(value["sources"]["diagnostics"].as_array().unwrap().iter().all(|d| d["severity"] != "error"), "{value}");
-    for claim in value["claims"].as_array().unwrap() {
-        if claim["required"] == true {
-            assert!(claim["verdict"] == "proved" && claim["vacuous"] == false, "the claim {} is not proved: {value}", claim["claim"]);
+    let mut codes = Vec::new();
+    for list in [&value["diagnostics"], &value["checker"], &value["opaque"], &value["ungrounded"], &value["inexpressible"], &value["sources"]["diagnostics"]] {
+        for d in list.as_array().into_iter().flatten().filter(|d| d["severity"] == "error") {
+            let code = d["code"].as_str().unwrap().to_string();
+            if !codes.contains(&code) {
+                codes.push(code);
+            }
         }
     }
-    assert_eq!(value["consistency"]["verdict"], "consistent", "{value}");
+    for result in value["proof"]["results"].as_array().into_iter().flatten().filter(|r| r["verdict"] != "proved") {
+        let name = result["obligation"].as_str().unwrap().to_string();
+        if !codes.contains(&name) {
+            codes.push(name);
+        }
+    }
+    codes
+}
+
+/// The verdict of each obligation of a report, by its name.
+pub fn verdicts(value: &serde_json::Value) -> BTreeMap<String, String> {
+    value["proof"]["results"].as_array().into_iter().flatten().map(|r| (r["obligation"].as_str().unwrap().to_string(), r["verdict"].as_str().unwrap().to_string())).collect()
+}
+
+/// Asserts that a report is a success in each of its parts: the package
+/// converts with no error in any list, and every obligation of its MMT
+/// form is proved. A test that means `the package is verified` asserts
+/// this, and not that the diagnostics of the analysis are empty.
+pub fn assert_verified(value: &serde_json::Value) {
+    assert_eq!(value["conforms"], true, "{value}");
+    assert!(unverified(value).is_empty(), "{:?}: {value}", unverified(value));
+    for list in ["opaque", "ungrounded", "inexpressible", "checker"] {
+        assert!(value[list].as_array().unwrap().is_empty(), "`{list}` is not empty: {value}");
+    }
+    let results = value["proof"]["results"].as_array().unwrap_or_else(|| panic!("nothing was proved: {value}"));
+    assert!(results.iter().any(|r| r["obligation"] == "consistency" && r["verdict"] == "proved"), "{value}");
 }
 
 pub const MANIFEST: &str = "[package]\nname = \"p\"\n";

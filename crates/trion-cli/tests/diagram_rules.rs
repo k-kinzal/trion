@@ -14,14 +14,14 @@ fn package(text: &str) -> Fixture {
 }
 
 fn codes(text: &str) -> Vec<String> {
-    report_codes(&package(text).trion(&["verify", "--json"]).json())
+    report_codes(&package(text).verify(&["--json"]).json())
 }
 
 /// As `codes`, reading the diagnostics of the analysis alone: no finding of
 /// another list of the report is read, so an empty result is no success.
 #[allow(dead_code)]
 fn codes_of_the_analysis(text: &str) -> Vec<String> {
-    analysis_codes(&package(text).trion(&["verify", "--json"]).json())
+    analysis_codes(&package(text).verify(&["--json"]).json())
 }
 
 /// The expressions that `expand --json` gives for one statement.
@@ -105,7 +105,7 @@ fn a_generated_view_says_what_its_statements_say() {
     assert!(flow.starts_with("[SEQ] When the checker completes an analysis, the checker shall follow this flow:\n    step s1: create an analysis report R for the analysis;\n"), "{flow}");
     // The views are diagrams of the language: read back, they give the contracts of the statements.
     let view = package(&format!("{flow}{concept}"));
-    assert!(analysis_codes(&view.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&view.verify(&["--json"]).json()).is_empty());
     let original = contracts(&f);
     let generated = contracts(&view);
     for id in ["PKG", "SEQ"] {
@@ -127,7 +127,7 @@ const KIND: &str = "diagram kind transition:\n    element \"$from -> $event -> $
 fn a_declared_diagram_kind_is_normative_and_an_undeclared_one_is_not() {
     let diagram = "[T] diagram transition:\n    [T/pay] closed -> rung -> red;\n    open -> rung -> green;\n";
     let f = package(&format!("{KIND}{diagram}"));
-    assert!(report_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(report_codes(&f.verify(&["--json"]).json()).is_empty());
     // Each element is the sentence of its expansion, formalized like authored English.
     let authored = package("[T/pay] While the door is closed, when the bell is rung, the light shall be red.\n");
     assert_eq!(contracts(&f)[0], contracts(&authored)[0]);
@@ -158,22 +158,24 @@ fn a_target_cardinality_leaves_the_inverse_relation_free() {
     // One buyer for each order says nothing of the orders of a buyer.
     let both = format!("{exists}[C] concept:\n    each order -> has -> exactly one buyer;\n    each buyer -> has -> at least two orders;\n");
     assert!(codes(&both).is_empty(), "{:?}", codes(&both));
-    // The same direction is constrained: two cardinalities of one relation conflict.
+    // The same direction is constrained: two cardinalities of one relation
+    // conflict. A concept describes no actor of a system: its edges are
+    // assumptions, and together they allow no environment.
     let same = format!("{exists}[C] concept:\n    each order -> has -> exactly one buyer;\n    each order -> has -> at least two buyers;\n");
-    assert_eq!(codes(&same), ["contradiction"]);
+    assert_eq!(codes(&same), ["incompatible"]);
 }
 
 #[test]
 fn the_rendered_document_draws_views_of_sentences() {
     let text = "[PKG] Each package has exactly one entry file.\n[SEQ]\nWhen the checker completes an analysis A,\nthe checker shall perform the following actions in order:\n    create an analysis report R for A;\n    retain R;\n";
     let terms = "primitive package\nprimitive entry file\nprimitive checker\nprimitive analysis\nprimitive analysis report\n";
-    let html = package(&format!("{terms}{text}")).trion(&["doc"]).stdout;
+    let html = package(&format!("{terms}{text}")).document(&[]).stdout;
     assert!(html.contains("<section id=\"views\"><h2>Generated diagram views</h2>"), "no views section");
     assert!(html.contains("each package -&gt; has -&gt; exactly 1 entry file;"), "the notation of the concept view");
     assert!(html.contains("Generated flow view: it restates the list above"), "the flow view of the ordered list");
     assert_eq!(html.matches("<svg").count(), 2);
     // A package without such statements has no views section.
-    assert!(!package("[A] The API shall stop.\n").trion(&["doc"]).stdout.contains("id=\"views\""));
+    assert!(!package("[A] The API shall stop.\n").document(&[]).stdout.contains("id=\"views\""));
 }
 
 #[test]
@@ -182,8 +184,8 @@ fn a_compatibility_claim_names_a_revision_and_its_sentence_forms() {
     let claim = "compatibility BASE-SENTENCES:\n    source ORACLE\n    revision \"abc123\"\n    form Definition\n    form Event-driven\n[A] The API shall stop.\n    unsourced \"A fixture.\"\n";
     let check = |text: &str| {
         let f = package(text);
-        let mut found = analysis_codes(&f.trion(&["verify", "--json"]).json());
-        found.extend(analysis_codes(&f.trion(&["verify", "--json"]).json()["sources"].clone()).into_iter().filter(|c| c.starts_with("compatibility")));
+        let mut found = analysis_codes(&f.verify(&["--json"]).json());
+        found.extend(analysis_codes(&f.verify(&["--json"]).json()["sources"].clone()).into_iter().filter(|c| c.starts_with("compatibility")));
         found
     };
     assert!(check(&format!("{}{claim}", source("abc123"))).is_empty());
@@ -208,16 +210,16 @@ fn what_a_package_declares_and_nothing_checks_is_named_in_the_result() {
     let source = "source ORACLE:\n    title \"The base grammar\"\n    kind citation\n    locator \"https://example.test/grammar\"\n    revision \"abc123\"\n";
     let claim = "compatibility BASE-SENTENCES:\n    source ORACLE\n    revision \"abc123\"\n    form Definition\n    form Event-driven\n";
     let f = package(&format!("{source}{claim}{KIND}{diagram}"));
-    let report = f.trion(&["verify", "--json"]).json();
-    let declared: Vec<&str> = report["outcome"]["declared"].as_array().unwrap().iter().map(|d| d.as_str().unwrap()).collect();
+    let report = f.verify(&["--json"]).json();
+    let declared: Vec<&str> = report["declared"].as_array().unwrap_or_else(|| panic!("the report names nothing as declared: {report}")).iter().map(|d| d.as_str().unwrap()).collect();
     assert_eq!(declared.len(), 2, "{declared:?}");
     assert!(declared[0].starts_with("diagram kind transition: ") && declared[0].contains("is not checked"), "{declared:?}");
     assert!(declared[1].starts_with("compatibility BASE-SENTENCES: ") && declared[1].contains("Definition, Event-driven") && declared[1].contains("is not checked"), "{declared:?}");
-    let text = f.trion(&["verify"]).stdout;
+    let text = f.verify(&[]).stdout;
     assert_eq!(text.lines().filter(|line| line.starts_with("declared, not checked: ")).count(), 2, "{text}");
-    let html = f.trion(&["doc"]).stdout;
+    let html = f.document(&[]).stdout;
     assert_eq!(html.matches("<li>declared, not checked: ").count(), 2, "no status line in the document");
     // A package that declares neither has no such line.
-    let plain = package("[A] The API shall stop.\n").trion(&["verify", "--json"]).json();
-    assert!(plain["outcome"]["declared"].as_array().unwrap().is_empty());
+    let plain = package("[A] The API shall stop.\n").verify(&["--json"]).json();
+    assert!(plain["declared"].as_array().unwrap().is_empty());
 }

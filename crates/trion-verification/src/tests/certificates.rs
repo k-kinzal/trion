@@ -1,10 +1,10 @@
-//! The certificates of the search, checked by a checker that shares no
-//! code with it.
+//! The certificates of the solver that decides the obligations for
+//! `trioc`, checked by a checker that shares no code with it.
 
 use super::checker;
 use super::common::*;
 use trion_solver::{decide, Prover};
-use crate::proof::{Answer, Certificate, Justification};
+use trion_solver::{Answer, Certificate, Justification};
 use trion_language::reading::unroll;
 use trion_solver::{Atom, Cmp, Formula, Status};
 

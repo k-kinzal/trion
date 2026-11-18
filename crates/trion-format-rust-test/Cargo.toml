@@ -1,0 +1,14 @@
+[package]
+name = "trion-format-rust-test"
+version.workspace = true
+edition.workspace = true
+description = "An extension format of trion: Rust test code with one test for each contract of a package"
+
+[[bin]]
+name = "trion-format-rust-test"
+path = "src/main.rs"
+
+[dependencies]
+trion-solver.workspace = true
+serde.workspace = true
+serde_json.workspace = true

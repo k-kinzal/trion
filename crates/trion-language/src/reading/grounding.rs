@@ -72,7 +72,7 @@ fn beyond(name: &str, quality_grounded: &dyn Fn(&str) -> bool) -> Option<(&'stat
         return Some(("a proportion or a probability", word.to_string(), "it speaks about a share of the cases, and a check reads each case: state the bound for every case, or declare a measure and bound it"));
     }
     if let Some(word) = find(OPTIMA) {
-        return Some(("an optimum or a preference", word.to_string(), "it compares the system with every alternative: state a bound, or write a `should` statement with a `weight`"));
+        return Some(("an optimum or a preference", word.to_string(), "it compares the system with every alternative: state a bound that each behaviour keeps"));
     }
     let quality = QUALITIES.iter().copied().find(|w| padded.contains(&format!(" {w} ")) && !quality_grounded(w))?;
     Some(("a quality without a measure", quality.to_string(), "nothing says when it holds: define the term, or state a measure with a bound, as in `within 200 ms`"))
@@ -135,7 +135,18 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
     // has no reading: that word is the better report, so it is told first.
     let mut unread_parts: Vec<&(SpecRef, crate::reading::key::Unread)> = model.unread.iter().collect();
     unread_parts.sort_by_key(|(_, unread)| unread.kind == "an article" && unread.place.starts_with("between two words"));
+    // The reading over individuals reads each word of a predicate or a
+    // value that it accepts: `is one of the members of the room` is a relation.
+    let typed: BTreeSet<&str> = model.individuals.iter().flat_map(|i| &i.meanings).map(|m| m.statement.as_str()).chain(model.over_instances.iter().map(String::as_str)).collect();
+    let sums = summed(model);
     for (at, unread) in unread_parts {
+        // The arithmetic of a sum, and the articles of its terms, are read.
+        if sums.get(at.id.as_str()).is_some_and(|read| unread.kind == "an article" || read.contains(&unread.part.to_lowercase())) {
+            continue;
+        }
+        if typed.contains(at.id.as_str()) && (unread.place == crate::reading::key::Place::Predicate.describe() || unread.place == crate::reading::key::Place::Value.describe()) {
+            continue;
+        }
         // A word of time or order that the temporal shape of the statement reads.
         if model.temporal.iter().any(|shape| shape.statement.id == at.id && shape.read.contains(&unread.part)) {
             continue;
@@ -186,13 +197,62 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
     // An axiom relates a statement to another one when it holds atoms of both.
     let mut related: BTreeSet<&String> = BTreeSet::new();
     // What a definition, an inclusion, an exclusion or a refinement says is an axiom too.
-    let stated = model.constraints.iter().filter(|c| c.kind.is_axiom()).map(|c| (&c.guarantee, c.kind == ConstraintKind::Refinement));
+    // The statement that states an axiom is one of those it relates: a
+    // definition that speaks about the atoms of a statement constrains it.
+    let stated = model.constraints.iter().filter(|c| c.kind.is_axiom()).map(|c| (&c.guarantee, c.kind == ConstraintKind::Refinement, c.refs.first().map(|r| &r.id)));
     // Related by something other than a refinement.
     let mut related_closely: BTreeSet<&String> = BTreeSet::new();
-    for (axiom, refinement) in model.background.iter().map(|f| (f, false)).chain(stated) {
-        let mut signs = BTreeSet::new();
-        signatures(axiom, &mut signs);
-        let touched: BTreeSet<&String> = signs.iter().filter_map(|s| held_by.get(s)).flatten().copied().collect();
+    // Axioms chain: `service ↔ API` in one namespace and `the service of
+    // another ↔ API` relate the statements about both services, though no
+    // one axiom holds atoms of both. The atoms that the axioms join stand in
+    // one class.
+    let axioms: Vec<(BTreeSet<String>, bool, Option<&String>)> = model
+        .background
+        .iter()
+        .map(|f| (f, false, None))
+        .chain(stated)
+        .map(|(axiom, refinement, owner)| {
+            let mut signs = BTreeSet::new();
+            signatures(axiom, &mut signs);
+            (signs, refinement, owner)
+        })
+        .collect();
+    let mut class: BTreeMap<String, String> = BTreeMap::new();
+    fn root(class: &mut BTreeMap<String, String>, sign: &str) -> String {
+        let mut at = sign.to_string();
+        while let Some(next) = class.get(&at).filter(|next| **next != at) {
+            at = next.clone();
+        }
+        at
+    }
+    for (signs, _, _) in axioms.iter().filter(|(_, refinement, _)| !refinement) {
+        let mut signs = signs.iter();
+        let Some(first) = signs.next() else { continue };
+        let first = root(&mut class, first);
+        for sign in signs {
+            let other = root(&mut class, sign);
+            if other != first {
+                class.insert(other, first.clone());
+            }
+        }
+    }
+    // The statements that hold an atom of each class.
+    let mut in_class: BTreeMap<String, BTreeSet<&String>> = BTreeMap::new();
+    for (id, (_, signs)) in &own {
+        for sign in signs {
+            in_class.entry(root(&mut class, sign)).or_default().insert(id);
+        }
+    }
+    for (signs, refinement, owner) in &axioms {
+        let mut touched: BTreeSet<&String> = signs.iter().filter_map(|s| held_by.get(s)).flatten().copied().collect();
+        if !refinement {
+            for sign in signs {
+                touched.extend(in_class.get(&root(&mut class, sign)).into_iter().flatten().copied());
+            }
+        }
+        if let Some(owner) = owner.filter(|_| !touched.is_empty()) {
+            touched.insert(owner);
+        }
         if touched.len() > 1 {
             if !refinement {
                 related_closely.extend(touched.iter().copied());
@@ -411,7 +471,35 @@ fn advice(kind: &str) -> &'static str {
 /// The closed-class words that stand in an open place of a sentence. The
 /// keys of a statement report the ones that reach them; this walk of the
 /// whole tree finds the ones in a node that reached no key.
+/// The statements whose reading holds a sum of quantities, with the words
+/// that the sum reads: the words of the names of its terms, and `twice`,
+/// `half`, `times`, `plus` and `minus`, its arithmetic (`model::linear_np`).
+fn summed(model: &Model) -> BTreeMap<&str, BTreeSet<String>> {
+    let mut summed: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    for c in &model.constraints {
+        let mut words: Option<BTreeSet<String>> = None;
+        let mut look = |atom: &Atom, _: bool| {
+            if let Atom::Lin { terms, .. } = atom {
+                let read = words.get_or_insert_with(|| ["plus", "minus", "twice", "half", "times"].iter().map(|w| w.to_string()).collect());
+                for (name, _) in terms {
+                    let local = name.rsplit("::").next().unwrap_or(name);
+                    read.extend(local.split_whitespace().map(str::to_lowercase));
+                }
+            }
+        };
+        c.assume.atoms(true, &mut look);
+        c.guarantee.atoms(true, &mut look);
+        if let Some(words) = words {
+            for r in &c.refs {
+                summed.entry(r.id.as_str()).or_default().extend(words.iter().cloned());
+            }
+        }
+    }
+    summed
+}
+
 fn unvisited(set: &SpecSet, model: &Model, told: &BTreeSet<String>, lex: &Lexicon) -> Vec<Diagnostic> {
+    let summed = summed(model);
     use crate::syntax::words::{classify, WordClass};
     let mut out = Vec::new();
     let typed: BTreeSet<&str> = model.individuals.iter().flat_map(|i| &i.meanings).map(|m| m.statement.as_str()).collect();
@@ -446,6 +534,9 @@ fn unvisited(set: &SpecSet, model: &Model, told: &BTreeSet<String>, lex: &Lexico
                 continue;
             }
             for open in crate::reading::rules::open_words(&spec.sentence) {
+                if summed.get(id.as_str()).is_some_and(|read| read.contains(&open.word)) {
+                    continue;
+                }
                 // The reading over individuals reads each word of a predicate
                 // that it accepts: `is not a member of the room` is a relation.
                 if open.place == crate::reading::rules::Place::Predicate && typed.contains(id.as_str()) {

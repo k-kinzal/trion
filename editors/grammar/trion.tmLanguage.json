@@ -1,0 +1,1841 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Trion",
+  "scopeName": "source.trion",
+  "fileTypes": [
+    "trion"
+  ],
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#file-directive"
+    },
+    {
+      "include": "#namespace-header"
+    },
+    {
+      "include": "#section-header"
+    },
+    {
+      "include": "#flow-block"
+    },
+    {
+      "include": "#source-block"
+    },
+    {
+      "include": "#check-block"
+    },
+    {
+      "include": "#example-block"
+    },
+    {
+      "include": "#trace-block"
+    },
+    {
+      "include": "#role-block"
+    },
+    {
+      "include": "#concept-block"
+    },
+    {
+      "include": "#diagram-kind-block"
+    },
+    {
+      "include": "#compatibility-block"
+    },
+    {
+      "include": "#diagram-header"
+    },
+    {
+      "include": "#directive"
+    },
+    {
+      "include": "#annotation"
+    },
+    {
+      "include": "#spec-id-declaration"
+    },
+    {
+      "include": "#sentence"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "match": "(//).*$",
+      "name": "comment.line.double-slash.trion",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.comment.trion"
+        }
+      }
+    },
+    "strings": {
+      "patterns": [
+        {
+          "include": "#raw-string"
+        },
+        {
+          "include": "#string"
+        }
+      ]
+    },
+    "raw-string": {
+      "begin": "\"\"\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.trion"
+        }
+      },
+      "end": "\"\"\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.trion"
+        }
+      },
+      "name": "string.quoted.triple.trion"
+    },
+    "string": {
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.trion"
+        }
+      },
+      "end": "(\")|$",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.string.end.trion"
+        }
+      },
+      "name": "string.quoted.double.trion",
+      "patterns": [
+        {
+          "include": "#escape"
+        }
+      ]
+    },
+    "escape": {
+      "match": "\\\\.",
+      "name": "constant.character.escape.trion"
+    },
+    "block-colon": {
+      "match": ":(?=\\s*(?://.*)?$)",
+      "name": "punctuation.section.block.begin.trion"
+    },
+    "file-directive": {
+      "patterns": [
+        {
+          "begin": "^\\s*(package)\\s+(\\S+)\\s+(edition)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.package.trion"
+            },
+            "2": {
+              "name": "entity.name.namespace.package.trion"
+            },
+            "3": {
+              "name": "keyword.other.directive.edition.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.directive.package.trion",
+          "patterns": [
+            {
+              "include": "#string"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(include)(?=\\s+\")",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.include.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.directive.include.trion",
+          "patterns": [
+            {
+              "include": "#string"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        }
+      ]
+    },
+    "namespace-header": {
+      "match": "^\\s*(namespace)\\s+([A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*)\\s*(:)?(?=\\s*(?://.*)?$)",
+      "name": "meta.block.namespace.trion",
+      "captures": {
+        "1": {
+          "name": "storage.type.namespace.trion"
+        },
+        "2": {
+          "name": "entity.name.namespace.trion"
+        },
+        "3": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      }
+    },
+    "section-header": {
+      "begin": "^\\s*(section)(?=\\s+\")",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.section.trion"
+        }
+      },
+      "end": "$",
+      "name": "meta.block.section.trion",
+      "patterns": [
+        {
+          "include": "#section-title"
+        },
+        {
+          "include": "#block-colon"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    "section-title": {
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.trion"
+        }
+      },
+      "end": "(\")|$",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.string.end.trion"
+        }
+      },
+      "name": "string.quoted.double.trion entity.name.section.trion",
+      "patterns": [
+        {
+          "include": "#escape"
+        }
+      ]
+    },
+    "source-block": {
+      "name": "meta.block.source.trion",
+      "begin": "^([ \\t]*)(source)\\s+([A-Z][A-Z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.source.trion"
+        },
+        "3": {
+          "name": "entity.name.source.trion"
+        },
+        "4": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "begin": "^\\s*(quote)\\s+([A-Z][A-Z0-9-]*)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.quote.trion"
+            },
+            "2": {
+              "name": "entity.name.quote.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.quote.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "begin": "^\\s*(title)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.title.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.title.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(locator)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.locator.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.locator.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(revision)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.revision.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.revision.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(select)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.select.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.select.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(path)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.path.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.path.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(sha256)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.sha256.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.sha256.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(retrieved)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.retrieved.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.retrieved.trion",
+              "patterns": [
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(kind)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.kind.trion"
+            },
+            "2": {
+              "name": "constant.language.kind.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(transcript)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.transcript.trion"
+            },
+            "2": {
+              "name": "constant.language.transcript.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(minimum)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.minimum.trion"
+            },
+            "2": {
+              "name": "constant.numeric.trion"
+            }
+          }
+        },
+        {
+          "include": "#strings"
+        }
+      ]
+    },
+    "check-block": {
+      "name": "meta.block.check.trion",
+      "begin": "^([ \\t]*)(check)\\s+([A-Z][A-Z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.check.trion"
+        },
+        "3": {
+          "name": "entity.name.check.trion"
+        },
+        "4": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "^\\s*(relation)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.relation.trion"
+            },
+            "2": {
+              "name": "constant.language.relation.trion"
+            }
+          }
+        },
+        {
+          "patterns": [
+            {
+              "begin": "^\\s*(left)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.left.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.left.trion",
+              "patterns": [
+                {
+                  "include": "#element-reference"
+                },
+                {
+                  "include": "#spec-id-reference"
+                },
+                {
+                  "include": "#comma"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(right)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.right.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.right.trion",
+              "patterns": [
+                {
+                  "include": "#element-reference"
+                },
+                {
+                  "include": "#spec-id-reference"
+                },
+                {
+                  "include": "#comma"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "include": "#using-field"
+        }
+      ]
+    },
+    "using-field": {
+      "match": "^\\s*(using)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+      "captures": {
+        "1": {
+          "name": "keyword.other.field.using.trion"
+        },
+        "2": {
+          "name": "constant.language.using.trion"
+        }
+      }
+    },
+    "example-block": {
+      "name": "meta.block.example.trion",
+      "begin": "^([ \\t]*)(example)\\s+([A-Z][A-Z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.example.trion"
+        },
+        "3": {
+          "name": "entity.name.example.trion"
+        },
+        "4": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "^\\s*(kind)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.kind.trion"
+            },
+            "2": {
+              "name": "constant.language.kind.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(form)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.form.trion"
+            },
+            "2": {
+              "name": "constant.language.form.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(input)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.input.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.input.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "patterns": [
+            {
+              "begin": "^\\s*(base)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.base.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.base.trion",
+              "patterns": [
+                {
+                  "include": "#element-reference"
+                },
+                {
+                  "include": "#spec-id-reference"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            },
+            {
+              "begin": "^\\s*(candidate)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.other.field.candidate.trion"
+                }
+              },
+              "end": "$",
+              "name": "meta.field.candidate.trion",
+              "patterns": [
+                {
+                  "include": "#element-reference"
+                },
+                {
+                  "include": "#spec-id-reference"
+                },
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "include": "#using-field"
+        },
+        {
+          "begin": "^\\s*(expect)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.expect.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.expect.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#element-reference"
+            },
+            {
+              "include": "#spec-id-reference"
+            },
+            {
+              "match": "(?<![\\w$.-])[a-z][a-z-]*(?![\\w-])",
+              "name": "constant.language.expectation.trion"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "include": "#strings"
+        }
+      ]
+    },
+    "trace-block": {
+      "name": "meta.block.trace.trion",
+      "begin": "^([ \\t]*)(trace)\\s+([A-Z][A-Z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.trace.trion"
+        },
+        "3": {
+          "name": "entity.name.trace.trion"
+        },
+        "4": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "begin": "^\\s*(artifact)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.artifact.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.artifact.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(verifies)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.verifies.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.verifies.trion",
+          "patterns": [
+            {
+              "include": "#element-reference"
+            },
+            {
+              "include": "#spec-id-reference"
+            },
+            {
+              "include": "#comma"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        }
+      ]
+    },
+    "role-block": {
+      "name": "meta.block.role.trion",
+      "begin": "^([ \\t]*)(role)\\s+([^:]+?)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.role.trion"
+        },
+        "3": {
+          "name": "entity.name.type.role.trion"
+        },
+        "4": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "^\\s*(activate)\\s*(:)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.activate.trion"
+            },
+            "2": {
+              "name": "punctuation.separator.key-value.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(form)\\s+([^:\\s]+)\\s*(:)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.form.trion"
+            },
+            "2": {
+              "name": "entity.name.function.form.trion"
+            },
+            "3": {
+              "name": "punctuation.separator.key-value.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(required)\\s+([^:\\s]+)\\s*(:)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.required.trion"
+            },
+            "2": {
+              "name": "entity.name.function.form.trion"
+            },
+            "3": {
+              "name": "punctuation.separator.key-value.trion"
+            }
+          }
+        },
+        {
+          "include": "#regex-clause"
+        },
+        {
+          "include": "#role-constraint"
+        },
+        {
+          "include": "#placeholder"
+        },
+        {
+          "include": "#sentence"
+        }
+      ]
+    },
+    "role-constraint": {
+      "match": "(?<![\\w$.-])(where|when)(?=\\s+\\$)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.constraint.trion"
+        }
+      }
+    },
+    "placeholder": {
+      "match": "(\\$)[A-Za-z_][\\w-]*",
+      "name": "variable.other.placeholder.trion",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.variable.trion"
+        }
+      }
+    },
+    "regex-clause": {
+      "begin": "(?<![\\w$.-])(matches|does\\s+not\\s+match)(?![\\w-])\\s+(/)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.operator.match.trion"
+        },
+        "2": {
+          "name": "string.regexp.delimiter.trion"
+        }
+      },
+      "end": "(/)(?=\\s+when\\s+\\$|\\s+where\\s+\\$|\\s*[.,]?\\s*$)|$",
+      "endCaptures": {
+        "1": {
+          "name": "string.regexp.delimiter.trion"
+        }
+      },
+      "contentName": "string.regexp.trion",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.regexp.trion"
+        },
+        {
+          "match": "\\[(?:\\\\.|[^\\]\\\\])*\\]",
+          "name": "constant.other.character-class.regexp.trion"
+        },
+        {
+          "match": "[\\^$]",
+          "name": "keyword.control.anchor.regexp.trion"
+        },
+        {
+          "match": "[*+?]|\\{\\d+(?:,\\d*)?\\}",
+          "name": "keyword.operator.quantifier.regexp.trion"
+        },
+        {
+          "match": "[()|]",
+          "name": "punctuation.definition.group.regexp.trion"
+        }
+      ]
+    },
+    "concept-block": {
+      "name": "meta.block.concept.trion",
+      "begin": "^([ \\t]*)(?:(\\[)([A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?)(\\])\\s*)?(concept)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "punctuation.definition.spec-id.begin.trion"
+        },
+        "3": {
+          "name": "entity.name.function.spec-id.trion"
+        },
+        "4": {
+          "name": "punctuation.definition.spec-id.end.trion"
+        },
+        "5": {
+          "name": "storage.type.concept.trion"
+        },
+        "6": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#spec-id-declaration"
+        },
+        {
+          "include": "#arrow"
+        },
+        {
+          "include": "#sentence"
+        }
+      ]
+    },
+    "diagram-header": {
+      "match": "^\\s*(?:(\\[)([A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?)(\\])\\s*)?(diagram)\\s+(\\S+?)\\s*(:)(?=\\s*(?://.*)?$)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.spec-id.begin.trion"
+        },
+        "2": {
+          "name": "entity.name.function.spec-id.trion"
+        },
+        "3": {
+          "name": "punctuation.definition.spec-id.end.trion"
+        },
+        "4": {
+          "name": "storage.type.diagram.trion"
+        },
+        "5": {
+          "name": "entity.name.type.diagram.trion"
+        },
+        "6": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      }
+    },
+    "flow-block": {
+      "name": "meta.block.flow.trion",
+      "begin": "^(?=([ \\t]*).*(?<![\\w$.-])follow\\s+this\\s+flow\\s*:\\s*(?://.*)?$)",
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "(?<![\\w$.-])(follow\\s+this\\s+flow)\\s*(:)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.flow.trion"
+            },
+            "2": {
+              "name": "punctuation.section.block.begin.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(?:(\\[)([A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?)(\\])\\s*)?(step)\\s+([a-z][a-z0-9-]*)\\s*(:)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.spec-id.begin.trion"
+            },
+            "2": {
+              "name": "entity.name.function.spec-id.trion"
+            },
+            "3": {
+              "name": "punctuation.definition.spec-id.end.trion"
+            },
+            "4": {
+              "name": "keyword.control.flow.step.trion"
+            },
+            "5": {
+              "name": "entity.name.function.step.trion"
+            },
+            "6": {
+              "name": "punctuation.separator.key-value.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.flow.step.trion",
+          "patterns": [
+            {
+              "include": "#sentence"
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(start)\\s+([a-z][a-z0-9-]*)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.flow.start.trion"
+            },
+            "2": {
+              "name": "variable.other.step.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(finish)\\s+([a-z][a-z0-9-]*)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.flow.finish.trion"
+            },
+            "2": {
+              "name": "variable.other.step.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*([a-z][a-z0-9-]*)\\s*(->)\\s*([a-z][a-z0-9-]*)(?=\\s*(?://.*)?$)",
+          "name": "meta.flow.edge.trion",
+          "captures": {
+            "1": {
+              "name": "variable.other.step.trion"
+            },
+            "2": {
+              "name": "keyword.operator.arrow.trion"
+            },
+            "3": {
+              "name": "variable.other.step.trion"
+            }
+          }
+        },
+        {
+          "name": "meta.block.choice.trion",
+          "begin": "^([ \\t]*)(choose\\s+after)\\s+([a-z][a-z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+          "beginCaptures": {
+            "2": {
+              "name": "keyword.control.flow.choose.trion"
+            },
+            "3": {
+              "name": "variable.other.step.trion"
+            },
+            "4": {
+              "name": "punctuation.section.block.begin.trion"
+            }
+          },
+          "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+          "patterns": [
+            {
+              "include": "#comment"
+            },
+            {
+              "begin": "^\\s*(when)(?=\\s)",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.control.conditional.trion"
+                }
+              },
+              "end": "(->)\\s*([a-z][a-z0-9-]*)?|$",
+              "endCaptures": {
+                "1": {
+                  "name": "keyword.operator.arrow.trion"
+                },
+                "2": {
+                  "name": "variable.other.step.trion"
+                }
+              },
+              "name": "meta.flow.guard.trion",
+              "patterns": [
+                {
+                  "include": "#sentence"
+                }
+              ]
+            },
+            {
+              "match": "^\\s*(otherwise)\\s*(->)\\s*([a-z][a-z0-9-]*)(?=\\s*(?://.*)?$)",
+              "captures": {
+                "1": {
+                  "name": "keyword.control.conditional.otherwise.trion"
+                },
+                "2": {
+                  "name": "keyword.operator.arrow.trion"
+                },
+                "3": {
+                  "name": "variable.other.step.trion"
+                }
+              }
+            },
+            {
+              "include": "#sentence"
+            }
+          ]
+        },
+        {
+          "include": "#spec-id-declaration"
+        },
+        {
+          "include": "#sentence"
+        }
+      ]
+    },
+    "arrow": {
+      "match": "->",
+      "name": "keyword.operator.arrow.trion"
+    },
+    "directive": {
+      "patterns": [
+        {
+          "match": "^\\s*(use)\\s+([A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.use.trion"
+            },
+            "2": {
+              "name": "entity.name.namespace.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(note)(?=\\s+\")",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.note.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.directive.note.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(ref)(?=\\s+\\[)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.ref.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.directive.ref.trion",
+          "patterns": [
+            {
+              "include": "#spec-id-reference"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(primitive)\\s+(.+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.primitive.trion"
+            },
+            "2": {
+              "name": "entity.name.type.term.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(measure)\\s+([^\\s:.]+(?:\\s+[^\\s:.]+){0,3})(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.measure.trion"
+            },
+            "2": {
+              "name": "entity.name.type.measure.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(environment|system)\\s+([^\\s:.]+(?:\\s+[^\\s:.]+)*)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.control.trion"
+            },
+            "2": {
+              "name": "entity.name.type.actor.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(term)\\s+(.+?)\\s*(:)\\s*([^\\s:]+)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.term.trion"
+            },
+            "2": {
+              "name": "entity.name.type.term.trion"
+            },
+            "3": {
+              "name": "punctuation.separator.key-value.trion"
+            },
+            "4": {
+              "name": "storage.type.kind.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(predicate)\\s+([A-Za-z0-9-]+)\\s*(\\()([^)]*)(\\))(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.predicate.trion"
+            },
+            "2": {
+              "name": "entity.name.function.predicate.trion"
+            },
+            "3": {
+              "name": "punctuation.definition.parameters.begin.trion"
+            },
+            "4": {
+              "name": "variable.parameter.trion"
+            },
+            "5": {
+              "name": "punctuation.definition.parameters.end.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(alias)\\s+(.+?)\\s+(=)\\s+(.+?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.alias.trion"
+            },
+            "2": {
+              "name": "entity.name.type.term.trion"
+            },
+            "3": {
+              "name": "keyword.operator.assignment.trion"
+            },
+            "4": {
+              "name": "entity.name.type.term.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(bind)\\s+(.+)\\s+(as)\\s+([^\\s.]+(?:\\.[^\\s.]+)+)(\\.)?(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.bind.trion"
+            },
+            "2": {
+              "name": "entity.name.type.term.trion"
+            },
+            "3": {
+              "name": "keyword.other.directive.as.trion"
+            },
+            "4": {
+              "name": "entity.name.namespace.role.trion"
+            },
+            "5": {
+              "name": "punctuation.terminator.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(extend)\\s+(.+?)\\s+(with)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.extend.trion"
+            },
+            "2": {
+              "name": "entity.name.type.term.trion"
+            },
+            "3": {
+              "name": "keyword.other.directive.with.trion"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#comment"
+            },
+            {
+              "include": "#comma"
+            },
+            {
+              "match": "\\.(?=\\s*(?://.*)?$)",
+              "name": "punctuation.terminator.trion"
+            },
+            {
+              "match": "[^\\s,/]+?(?:\\s+[^\\s,/]+?)*?(?=\\s*(?:,|\\.?\\s*(?://.*)?$))",
+              "name": "entity.other.inherited-class.trion"
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(classify)\\s+(sentences)\\s+(as)\\s+(.+?)(\\.)?(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.directive.classify.trion"
+            },
+            "2": {
+              "name": "keyword.other.directive.sentences.trion"
+            },
+            "3": {
+              "name": "keyword.other.directive.as.trion"
+            },
+            "4": {
+              "name": "entity.name.type.classification.trion"
+            },
+            "5": {
+              "name": "punctuation.terminator.trion"
+            }
+          }
+        }
+      ]
+    },
+    "annotation": {
+      "patterns": [
+        {
+          "begin": "^\\s*(overrides)(?=\\s+\\[)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.annotation.overrides.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.annotation.priority.trion",
+          "patterns": [
+            {
+              "include": "#spec-id-reference"
+            },
+            {
+              "include": "#comma"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "match": "^\\s+(default)(?=\\s*(?://.*)?$)",
+          "name": "meta.annotation.priority.trion",
+          "captures": {
+            "1": {
+              "name": "storage.type.annotation.default.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s+(weight)\\s+([0-9]+)(?=\\s*(?://.*)?$)",
+          "name": "meta.annotation.priority.trion",
+          "captures": {
+            "1": {
+              "name": "storage.type.annotation.weight.trion"
+            },
+            "2": {
+              "name": "constant.numeric.weight.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(detailed)\\s+(by)(?=\\s+\\[)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.annotation.detailed.trion"
+            },
+            "2": {
+              "name": "keyword.other.annotation.by.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.annotation.refinement.trion",
+          "patterns": [
+            {
+              "include": "#spec-id-reference"
+            },
+            {
+              "include": "#comma"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(cite)\\s+([A-Z][A-Z0-9-]*)(?:(#)([A-Z][A-Z0-9-]*))?(?=\\s*(?://.*)?$)",
+          "name": "meta.annotation.citation.trion",
+          "captures": {
+            "1": {
+              "name": "storage.type.annotation.cite.trion"
+            },
+            "2": {
+              "name": "variable.other.source.trion"
+            },
+            "3": {
+              "name": "punctuation.separator.quote.trion"
+            },
+            "4": {
+              "name": "variable.other.quote.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(unsourced)(?=\\s+\")",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.annotation.unsourced.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.annotation.unsourced.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(ratified)\\s+(by)\\s+(.+?)\\s+(on)\\s+(\\S+?)(?=\\s*(?://.*)?$)",
+          "name": "meta.annotation.ratified.trion",
+          "captures": {
+            "1": {
+              "name": "storage.type.annotation.ratified.trion"
+            },
+            "2": {
+              "name": "keyword.other.annotation.by.trion"
+            },
+            "3": {
+              "name": "variable.other.ratifier.trion"
+            },
+            "4": {
+              "name": "keyword.other.annotation.on.trion"
+            },
+            "5": {
+              "name": "constant.numeric.date.trion"
+            }
+          }
+        }
+      ]
+    },
+    "spec-id-declaration": {
+      "patterns": [
+        {
+          "match": "^\\s*(\\[)([A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?)(\\])",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.spec-id.begin.trion"
+            },
+            "2": {
+              "name": "entity.name.function.spec-id.trion"
+            },
+            "3": {
+              "name": "punctuation.definition.spec-id.end.trion"
+            }
+          }
+        },
+        {
+          "match": "^\\s*(\\[)([^\\]]*)(\\])",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.spec-id.begin.trion"
+            },
+            "2": {
+              "name": "invalid.illegal.spec-id.trion"
+            },
+            "3": {
+              "name": "punctuation.definition.spec-id.end.trion"
+            }
+          }
+        }
+      ]
+    },
+    "spec-id-reference": {
+      "match": "(\\[)([A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?)(\\])",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.spec-id.begin.trion"
+        },
+        "2": {
+          "name": "variable.other.spec-id.trion"
+        },
+        "3": {
+          "name": "punctuation.definition.spec-id.end.trion"
+        }
+      }
+    },
+    "element-reference": {
+      "match": "(?<![\\w$.-])([a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*)(#)([A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?)(?![\\w/-])",
+      "name": "meta.reference.element.trion",
+      "captures": {
+        "1": {
+          "name": "entity.name.namespace.trion"
+        },
+        "2": {
+          "name": "punctuation.separator.reference.trion"
+        },
+        "3": {
+          "name": "variable.other.spec-id.trion"
+        }
+      }
+    },
+    "comma": {
+      "match": ",",
+      "name": "punctuation.separator.comma.trion"
+    },
+    "sentence": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#literal"
+        },
+        {
+          "include": "#element-reference"
+        },
+        {
+          "include": "#spec-id-reference"
+        },
+        {
+          "include": "#placeholder"
+        },
+        {
+          "include": "#article"
+        },
+        {
+          "include": "#variable"
+        },
+        {
+          "include": "#qualified-name"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#comma"
+        },
+        {
+          "match": "\\.(?=\\s*(?://.*)?$)",
+          "name": "punctuation.terminator.trion"
+        },
+        {
+          "match": ";(?=\\s*(?://.*)?$)",
+          "name": "punctuation.terminator.item.trion"
+        },
+        {
+          "include": "#block-colon"
+        }
+      ]
+    },
+    "literal": {
+      "match": "(?<![^\\s\\]:])(`)(.+?)(`)(?=\\s|$|[,.;:])",
+      "name": "string.quoted.other.backtick.trion",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.string.begin.trion"
+        },
+        "3": {
+          "name": "punctuation.definition.string.end.trion"
+        }
+      }
+    },
+    "article": {
+      "match": "(?:^\\s*|(?<=\\])\\s*|(?<=[.:;]\\s))(?:A|I)(?=\\s+\\w)"
+    },
+    "variable": {
+      "match": "(?<![\\w$.-])[A-Z][0-9]*(?![\\w/#\\]-])",
+      "name": "variable.other.trion"
+    },
+    "qualified-name": {
+      "patterns": [
+        {
+          "match": "(?<![\\w$.-])([a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*)(::)([A-Za-z_][\\w-]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace.trion"
+            },
+            "2": {
+              "name": "punctuation.separator.namespace.trion"
+            },
+            "3": {
+              "name": "variable.other.term.trion"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$.-])[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)+(?![\\w-])(?!\\.\\w)",
+          "name": "entity.name.namespace.trion"
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "match": "(?<![\\w$.-])(-?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)(?:\\s*((?i:milliseconds?|ms|seconds?|secs?|sec|s|minutes?|mins?|min|hours?|h|days?|d|bytes?|b|kib|mib|gib|kb|mb|gb|tb|%)))?(?![\\w-])",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.trion"
+            },
+            "2": {
+              "name": "keyword.other.unit.trion"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$.-])((?i:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred))\\s+((?i:milliseconds?|ms|seconds?|secs?|sec|s|minutes?|mins?|min|hours?|h|days?|d|bytes?|b|kib|mib|gib|kb|mb|gb|tb))(?![\\w-])",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.word.trion"
+            },
+            "2": {
+              "name": "keyword.other.unit.trion"
+            }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "(?<![\\w$.-])perform\\s+(?:all\\s+of\\s+the\\s+following\\s+actions|one\\s+or\\s+more\\s+of\\s+the\\s+following\\s+actions|exactly\\s+one\\s+of\\s+the\\s+following\\s+actions|the\\s+following\\s+actions\\s+in\\s+order)(?![\\w-])",
+          "name": "keyword.other.composition.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])For\\s+each(?![\\w-])",
+          "name": "keyword.control.loop.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:where|while|when|if|then)(?![\\w-])",
+          "name": "keyword.control.conditional.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?:Before|After|Once|Upon|On|Until|During)(?![\\w-])",
+          "name": "keyword.control.temporal.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:unless)(?![\\w-])",
+          "name": "keyword.control.exception.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:shall|must|should|may)(?![\\w-])",
+          "name": "keyword.other.modal.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:not|never)(?![\\w-])",
+          "name": "keyword.other.modal.negation.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:means)(?![\\w-])",
+          "name": "keyword.operator.definition.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:is|are)(?![\\w-])",
+          "name": "keyword.operator.copula.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])((?i:at\\s+least|at\\s+most|exactly))(?![\\w-])(?:\\s+((?i:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred))(?![\\w-]))?",
+          "captures": {
+            "1": {
+              "name": "keyword.other.quantifier.trion"
+            },
+            "2": {
+              "name": "constant.numeric.word.trion"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:(?:zero|one)\\s+or\\s+more)(?![\\w-])",
+          "name": "keyword.other.quantifier.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:no|each|every|all|any)(?![\\w-])",
+          "name": "keyword.other.quantifier.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:one\\s+of)(?![\\w-])",
+          "name": "keyword.other.enumeration.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:greater\\s+than|less\\s+than|more\\s+than|fewer\\s+than|equal\\s+to|between)(?![\\w-])",
+          "name": "keyword.operator.comparison.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:up\\s+to)(?=\\s+-?\\d)",
+          "name": "keyword.operator.comparison.trion"
+        },
+        {
+          "match": "(?<![\\w$.-])(?i:and|or|either|both)(?![\\w-])",
+          "name": "keyword.operator.logical.trion"
+        }
+      ]
+    },
+    "diagram-kind-block": {
+      "name": "meta.block.diagram-kind.trion",
+      "begin": "^([ \\t]*)(diagram)\\s+(kind)\\s+([a-z][a-z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.diagram.trion"
+        },
+        "3": {
+          "name": "storage.type.diagram.kind.trion"
+        },
+        "4": {
+          "name": "entity.name.type.diagram.trion"
+        },
+        "5": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "begin": "^\\s*(element)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.element.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.element.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(types)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.types.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.types.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(expansion)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.expansion.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.expansion.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(preserves)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.preserves.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.preserves.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        }
+      ]
+    },
+    "compatibility-block": {
+      "name": "meta.block.compatibility.trion",
+      "begin": "^([ \\t]*)(compatibility)\\s+([A-Z][A-Z0-9-]*)\\s*(:)(?=\\s*(?://.*)?$)",
+      "beginCaptures": {
+        "2": {
+          "name": "storage.type.compatibility.trion"
+        },
+        "3": {
+          "name": "entity.name.compatibility.trion"
+        },
+        "4": {
+          "name": "punctuation.section.block.begin.trion"
+        }
+      },
+      "end": "(?!\\G)^(?!\\1[ \\t]+\\S|[ \\t]*$)",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "^\\s*(source)\\s+([A-Z][A-Z0-9-]*)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.source.trion"
+            },
+            "2": {
+              "name": "variable.other.source.trion"
+            }
+          }
+        },
+        {
+          "begin": "^\\s*(revision)(?=\\s)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.field.revision.trion"
+            }
+          },
+          "end": "$",
+          "name": "meta.field.revision.trion",
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "match": "^\\s*(form)\\s+(\\S.*?)(?=\\s*(?://.*)?$)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.field.form.trion"
+            },
+            "2": {
+              "name": "constant.language.form.trion"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

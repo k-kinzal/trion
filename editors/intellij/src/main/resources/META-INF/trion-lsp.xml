@@ -1,0 +1,9 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <server id="dev.trion.intellij.server" name="Trion"
+                factoryClass="dev.trion.intellij.TrionLanguageServerFactory">
+            <description><![CDATA[The <code>trion lsp</code> language server.]]></description>
+        </server>
+        <languageMapping language="Trion" serverId="dev.trion.intellij.server" languageId="trion"/>
+    </extensions>
+</idea-plugin>

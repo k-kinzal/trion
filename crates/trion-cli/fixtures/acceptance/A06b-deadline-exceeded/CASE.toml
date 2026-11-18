@@ -2,14 +2,14 @@ id = "A06b"
 title = "A delay beyond the deadline has no response"
 work = "W06"
 status = "closed"
-args = ["verify", "--json"]
+args = ["--json"]
 reason = """
 One response to one expiry cannot complete at most 5 seconds and at least 6 seconds after it.
 """
 
 [expect]
 verified = false
-blockers = ["contradiction"]
+diagnostics = ["contradiction"]
 
-[expect.claims]
-situation_total = "refuted"
+[expect.obligations]
+consistency = "refuted"

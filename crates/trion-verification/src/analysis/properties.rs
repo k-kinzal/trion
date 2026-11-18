@@ -8,15 +8,19 @@
 //! - *Relation locality.* A relation between entries is found again when it
 //!   is computed from the statements that it names and the definitions alone.
 //! - *Order independence.* Reordering the statements within one explicit
-//!   scope changes no entry and no outcome: the reversed order and one
-//!   seeded shuffle are tried.
+//!   scope changes no contract, no relation and no proof obligation: the
+//!   reversed order and one seeded shuffle are tried.
 //! - *Round trip.* The model of the output of `trion expand` equals the
 //!   model of the package.
+//! - *The two rules.* Each simple sentence is read as exactly one contract
+//!   (AGENTS.md, rule 1), and the contracts of a composite sentence are the
+//!   contracts of the simple sentences of its expansion, each read alone
+//!   from its own text (rule 2): the sentence adds none of its own.
 //!
 //! Each violation is an error. `TRION_FAULT` seeds a violation of one
 //! property, so that a fixture can show that the gate fails.
 
-use super::{analyze, local_reading, relation_keys, Analysis, Isolation, Options};
+use super::{analyze, local_reading, relation_keys, relations_of, Analysis, Isolation, ObligationQuestion, Options};
 use trion_language::{Diagnostic, Severity, SpecRef};
 use trion_language::document::{parse_statement, Document, Spec, SpecSet};
 use trion_solver::Formula;
@@ -25,7 +29,7 @@ use trion_language::syntax::ast::Core;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The seeded defect of a test run, when the environment names one.
-fn fault(name: &str) -> bool {
+pub(super) fn fault(name: &str) -> bool {
     std::env::var("TRION_FAULT").is_ok_and(|value| value == name)
 }
 
@@ -81,15 +85,77 @@ fn context(set: &SpecSet, package: &Model, scope: usize) -> Vec<Diagnostic> {
     })
 }
 
+/// The contracts of a statement: what its reading holds beside the
+/// relations that it carries to other statements. Over declared
+/// individuals a statement is read as one schematic contract, and each
+/// instance of it over the bounded domain is that contract for one choice
+/// of individuals: the statement has one contract when each instance has one.
+pub(super) fn contracts_of(model: &Model, id: &str) -> usize {
+    use trion_language::reading::ConstraintKind;
+    let direct = |id: &str| model.constraints.iter().filter(|c| !matches!(c.kind, ConstraintKind::Refinement | ConstraintKind::Carried) && c.refs.first().is_some_and(|at| at.id == id)).count();
+    let instances: Vec<usize> = model.individuals.iter().flat_map(|i| &i.instances).filter(|instance| instance.statement == id).map(|instance| direct(&instance.instance)).collect();
+    match instances.as_slice() {
+        [] => direct(id),
+        [first, ..] if instances.iter().all(|n| n == first) => direct(id) + first,
+        _ => direct(id) + instances.iter().max().copied().unwrap_or(0),
+    }
+}
+
+/// The two rules: a simple sentence is exactly one contract, and a
+/// composite sentence is the contracts of its expansion and no other.
+fn rules(set: &SpecSet, package: &Model, scope: usize) -> Vec<Diagnostic> {
+    let isolation = Isolation::of(set, scope);
+    let statements: Vec<_> = root_statements(set).into_iter().filter(|(_, spec, _)| !matches!(spec.sentence.core, Core::Definition { .. })).collect();
+    let mut found = Vec::new();
+    // A composite sentence means nothing of its own: no contract is the
+    // contract of the sentence that the author wrote.
+    let parents: BTreeSet<String> = statements.iter().filter(|(_, spec, _)| spec.abbreviates.is_some()).filter_map(|(_, spec, _)| spec.display_id().rsplit_once('/').map(|(parent, _)| parent.to_string())).collect();
+    for parent in &parents {
+        if contracts_of(package, parent) > 0 {
+            let (_, spec, _) = statements.iter().find(|(_, spec, _)| spec.display_id().starts_with(&format!("{parent}/"))).expect("a part of the sentence");
+            found.push(Diagnostic::error("composite-not-its-expansion", format!("the composite sentence `{parent}` has a contract of its own beside the contracts of its expansion"), vec![at(spec)]));
+        }
+    }
+    let seeded = (fault("one-contract"), fault("expansion"));
+    found.extend(in_parallel(&statements, |(doc, spec, name)| {
+        let id = spec.display_id();
+        let count = contracts_of(package, &id) + usize::from(seeded.0);
+        if count != 1 {
+            return Some(Diagnostic::error("sentence-not-one-contract", format!("the simple sentence `{id}` is read as {count} contracts, and a simple sentence is exactly one"), vec![at(spec)]));
+        }
+        let (authored, _) = spec.abbreviates.as_ref()?;
+        // The part read alone from its own text, as an author would write it.
+        let (parsed, diags) = parse_statement(&spec.sentence.source);
+        let reread = parsed.specs.into_iter().next().filter(|_| diags.iter().all(|d| d.severity != Severity::Error));
+        let Some(mut reread) = reread else {
+            return Some(Diagnostic::error("composite-not-its-expansion", format!("`{}`, a sentence of the expansion of `{authored}`, is not a sentence of the language", spec.sentence.source), vec![at(spec)]));
+        };
+        reread.id = spec.id.clone();
+        reread.file = spec.file.clone();
+        reread.line = spec.line;
+        // The same part of the same sentence: an unlabelled part is named by its number.
+        reread.abbreviates = spec.abbreviates.clone();
+        let mut here = local_reading(&isolation.compile_naming(name, vec![alone(doc, vec![reread])], &spec.sentence.source), &id);
+        let there = local_reading(package, &id);
+        if seeded.1 {
+            here.push("seeded: a contract that only the composite sentence has".to_string());
+        }
+        (here != there).then(|| {
+            let differing = here.iter().zip(&there).find(|(a, b)| a != b).map_or_else(|| format!("{} lines alone, {} lines in the composite sentence", here.len(), there.len()), |(a, b)| format!("alone `{a}`, in the composite sentence `{b}`"));
+            Diagnostic::error("composite-not-its-expansion", format!("`{}` read alone is not the part `{id}` of `{authored}`: {differing}", spec.sentence.source), vec![at(spec)])
+        })
+    }));
+    found
+}
+
 /// Relation locality: each relation of the package is found again among the
 /// statements that it names and the definitions.
 fn relations(set: &SpecSet, base: &Analysis, options: &Options) -> Vec<Diagnostic> {
-    let Some(proof) = &base.proof else { return Vec::new() };
     let isolation = Isolation::of(set, options.bounds.scope);
     let statements = root_statements(set);
     let by_id: BTreeMap<String, (&Document, &Spec, &str)> = statements.iter().map(|(d, s, n)| (s.display_id(), (*d, *s, *n))).collect();
     let seeded = fault("relation");
-    in_parallel(&proof.relations, |relation| {
+    in_parallel(&relations_of(&base.model), |relation| {
         let key = format!("{} {} <- {}", relation.kind, relation.subject.id, relation.rests_on.iter().map(|r| r.id.as_str()).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>().join(", "));
         let (doc, _, name) = by_id.get(&relation.subject.id)?;
         let mut documents: BTreeMap<&str, Document> = BTreeMap::new();
@@ -106,8 +172,7 @@ fn relations(set: &SpecSet, base: &Analysis, options: &Options) -> Vec<Diagnosti
         }
         let _ = doc;
         let mini = isolation.set_naming(name, documents.into_values().collect(), &definitions);
-        // A yielding rests on answers of the solver; a refinement is stated.
-        let analysis = if matches!(relation.kind.as_str(), "refinement" | "applied" | "individuals") { analyze(&mini, &Options::read_only()) } else { analyze(&mini, &Options { bounds: options.bounds, ..Options::default() }) };
+        let analysis = analyze(&mini, &Options { bounds: options.bounds, ..Options::default() });
         let found = relation_keys(&analysis.model);
         (seeded || !found.contains(&key)).then(|| Diagnostic::error("relation-not-local", format!("the relation `{key}` is not found among the statements that it names and the definitions alone: it depends on other statements"), vec![relation.subject.clone()]))
     })
@@ -131,42 +196,50 @@ fn canonical(formula: &Formula) -> String {
     }
 }
 
-/// What a certified analysis says, without source locations and revisions:
-/// each entry with its local reading and its formula, the background, the
-/// relations and the outcomes.
-fn signature(analysis: &Analysis) -> BTreeMap<String, String> {
+/// What the conversion of a set says, without source locations and
+/// revisions: the contract of each statement, the background, the
+/// relations, each proof obligation with the formulas that it names, and
+/// the codes of the diagnostics.
+fn signature(set: &SpecSet, analysis: &Analysis) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    if let Some(proof) = &analysis.proof {
-        for entry in &proof.entries {
-            let id = entry.statement.as_ref().map_or_else(|| format!("constraint {}", entry.constraint), |s| s.id.clone());
-            let text = format!("{} {:?} {} => {} | {} | {}", entry.kind.as_str(), entry.weight, canonical(&entry.local_assume), canonical(&entry.local_guarantee), canonical(&proof.pool[entry.formula]), entry.condition.map_or(String::new(), |c| canonical(&proof.pool[c])));
-            out.entry(format!("entry {id}")).or_insert_with(String::new).push_str(&text);
-        }
-        let background: BTreeSet<String> = proof.background.iter().map(|&f| canonical(&proof.pool[f])).collect();
-        for (number, text) in background.into_iter().enumerate() {
-            out.insert(format!("background {number}"), text);
-        }
+    for c in &analysis.model.constraints {
+        let id = c.refs.first().map_or_else(|| "the background".to_string(), |r| r.id.clone());
+        out.entry(format!("contract {id}")).or_insert_with(String::new).push_str(&format!("{:?} {} => {}; ", c.kind, canonical(&c.assume), canonical(&c.guarantee)));
+    }
+    let background: BTreeSet<String> = analysis.model.background.iter().map(canonical).collect();
+    for (number, text) in background.into_iter().enumerate() {
+        out.insert(format!("background {number}"), text);
     }
     for key in relation_keys(&analysis.model) {
         out.insert(format!("relation {key}"), "stated".to_string());
     }
-    out.insert("status".to_string(), format!("{:?}", analysis.consistency.status));
-    out.insert("verdict".to_string(), analysis.consistency.verdict.clone());
-    for check in &analysis.checks {
-        out.insert(format!("check {}", check.name), check.result.clone());
-    }
-    for example in &analysis.examples {
-        out.insert(format!("example {}", example.name), example.observed.clone());
+    let stated = super::proof_obligations(set, analysis, analysis.bounds.trace_length);
+    for obligation in &stated.obligations {
+        let mut named = Vec::new();
+        question_formulas(&obligation.question, &mut named);
+        let mut texts: Vec<String> = named.into_iter().map(|id| canonical(&stated.pool[id])).collect();
+        texts.sort();
+        texts.dedup();
+        out.insert(format!("obligation {}", obligation.name), format!("{} | {}", obligation.property, texts.join(" ; ")));
     }
     let mut codes: BTreeMap<&str, usize> = BTreeMap::new();
-    for diagnostic in analysis.diagnostics.iter().chain(&analysis.silence.opaque).chain(&analysis.silence.ungrounded) {
+    for diagnostic in analysis.diagnostics.iter().chain(&analysis.silence.opaque).chain(&analysis.silence.ungrounded).chain(&stated.findings) {
         *codes.entry(diagnostic.code.as_str()).or_default() += 1;
     }
     for (code, count) in codes {
         out.insert(format!("diagnostics {code}"), count.to_string());
     }
-    out.insert("conflicts".to_string(), analysis.conflicts.len().to_string());
     out
+}
+
+/// The formulas that a question names.
+fn question_formulas(question: &ObligationQuestion, out: &mut Vec<usize>) {
+    match question {
+        ObligationQuestion::ForAllExists { premises, standing, conclusions, .. } => out.extend(premises.iter().chain(standing).chain(conclusions)),
+        ObligationQuestion::Satisfiable { query } | ObligationQuestion::Unsatisfiable { query } => out.extend(query),
+        ObligationQuestion::All { parts } | ObligationQuestion::Any { parts } => parts.iter().for_each(|p| question_formulas(p, out)),
+        ObligationQuestion::Not { part } => question_formulas(part, out),
+    }
 }
 
 /// The set with the statements of each explicit scope in another order:
@@ -200,12 +273,13 @@ fn reordered(set: &SpecSet, seed: Option<u64>) -> SpecSet {
 /// Order independence: the reversed order and one seeded shuffle give the
 /// entries and the outcomes of the package.
 fn order(set: &SpecSet, base: &Analysis, options: &Options) -> Vec<Diagnostic> {
-    let first = signature(base);
+    let first = signature(set, base);
     let orders = [("reversed", None), ("shuffled with the seed 1", Some(1))];
     let seeded = fault("order");
     let found: Vec<Vec<Diagnostic>> = in_parallel(&orders, |(name, seed)| {
-        let analysis = analyze(&reordered(set, *seed), &Options { certificates: true, outline: true, ..options.clone() });
-        let mut second = signature(&analysis);
+        let shuffled = reordered(set, *seed);
+        let analysis = analyze(&shuffled, options);
+        let mut second = signature(&shuffled, &analysis);
         if seeded {
             second.insert("status".to_string(), "seeded".to_string());
         }
@@ -260,7 +334,7 @@ fn round_trip(set: &SpecSet, package: &Model) -> Vec<Diagnostic> {
         }
         doc.specs = specs;
     }
-    let (first, mut second) = (readings(package), readings(&analyze(&expanded, &Options::read_only()).model));
+    let (first, mut second) = (readings(package), readings(&analyze(&expanded, &Options::default()).model));
     if fault("roundtrip") {
         second.insert("the background".to_string(), vec!["seeded".to_string()]);
     }
@@ -277,11 +351,11 @@ fn round_trip(set: &SpecSet, package: &Model) -> Vec<Diagnostic> {
     out
 }
 
-/// The violations of the four properties in a set. `base` is the certified
-/// analysis of the set, and `options` are the options that it was run with.
+/// The violations of the properties in a set. `base` is the analysis
+/// of the set, and `options` are the options that it was run with.
 pub fn check(set: &SpecSet, base: &Analysis, options: &Options) -> Vec<Diagnostic> {
     let scope = base.model.instance_scope.unwrap_or(options.bounds.scope);
-    // The four properties do not depend on each other.
+    // The properties do not depend on each other.
     let started = std::time::Instant::now();
     let timed = |what: &str, found: Vec<Diagnostic>| {
         if std::env::var_os("TRION_PROFILE").is_some() {
@@ -294,6 +368,7 @@ pub fn check(set: &SpecSet, base: &Analysis, options: &Options) -> Vec<Diagnosti
         let relations = threads.spawn(|| timed("relations", relations(set, base, options)));
         let order = threads.spawn(|| timed("order", order(set, base, options)));
         let round_trip = threads.spawn(|| timed("round trip", round_trip(set, &base.model)));
-        [context, relations, order, round_trip].into_iter().flat_map(|handle| handle.join().unwrap_or_default()).collect()
+        let rules = threads.spawn(|| timed("the two rules", rules(set, &base.model, scope)));
+        [context, relations, order, round_trip, rules].into_iter().flat_map(|handle| handle.join().unwrap_or_default()).collect()
     })
 }

@@ -9,11 +9,19 @@ use serde_json::Value;
 // Diagrams, flows, conformance examples, EARS and the package overview.
 
 fn a_check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn a_codes(text: &str) -> Vec<String> {
     report_codes(&a_check(text))
+}
+
+/// As `a_codes`, with the trigger of the flows given to the environment: a
+/// trigger that the system controls and that nothing requires leaves its
+/// statements vacuous for a system that never takes it, so a conflict of
+/// responses shows only where the environment decides the trigger.
+fn a_env_codes(text: &str) -> Vec<String> {
+    a_codes(&text.replace("When the checker receives a result R", "When a client sends a result R"))
 }
 
 /// As above, reading what the libraries read instead of running the command.
@@ -38,11 +46,12 @@ fn a_concept_edge_is_formalized_like_english_and_its_conflicts_name_the_edge() {
     // The edge adds a constraint no sentence states, and nothing conflicts.
     assert!(a_codes(diagram).is_empty(), "{:?}", a_codes(diagram));
     // The alias and the plural resolve in the diagram as in English, so the
-    // edge contradicts a sentence about customers.
+    // edge contradicts a sentence about customers. Both describe and neither
+    // requires: they are assumptions, and their conflict leaves no environment.
     let report = a_check(&format!("{diagram}[U] Each order has at least two customers.\n"));
-    let diagnostics = report["diagnostics"].as_array().unwrap();
+    let diagnostics: Vec<&Value> = report["diagnostics"].as_array().unwrap().iter().filter(|d| d["severity"] == "error").collect();
     assert_eq!(diagnostics.len(), 1, "{report}");
-    assert_eq!(diagnostics[0]["code"], "contradiction");
+    assert_eq!(diagnostics[0]["code"], "incompatible");
     assert_eq!(diagnostics[0]["severity"], "error");
     let refs: Vec<(&str, u64)> = diagnostics[0]["refs"].as_array().unwrap().iter().map(|r| (r["id"].as_str().unwrap(), r["line"].as_u64().unwrap())).collect();
     // The authored edge is named by its identifier and its own line.
@@ -63,10 +72,10 @@ const A_CONCEPT_CHECK: &str = "check SAME:\n    relation equivalent\n    left [T
 fn editing_a_concept_edge_changes_the_specification() {
     let text = "[TEXT]\nEach order contains exactly one item.\n[C] concept:\n    [C/a] each order -> contains -> exactly one item;\n";
     let before = a_check(&format!("{text}{A_CONCEPT_CHECK}"));
-    assert_eq!(before["checks"][0]["result"], "proved", "{before}");
+    assert_eq!(verdicts(&before)["check/SAME"], "proved", "{before}");
     let edited = text.replace("-> exactly one item;", "-> at least two items;");
     let after = a_check(&format!("{edited}{A_CONCEPT_CHECK}"));
-    assert_eq!(after["checks"][0]["result"], "refuted", "{after}");
+    assert_eq!(verdicts(&after)["check/SAME"], "refuted", "{after}");
     assert!(a_view(&["expand"], &edited).contains("Each order contains at least two items."));
 }
 
@@ -75,9 +84,9 @@ fn the_order_and_spacing_of_concept_edges_carry_no_meaning() {
     let text = "[C] concept:\n    [C/a] each order -> contains -> exactly one item;\n    [C/b] each item -> has -> at most one label;\n[D] concept:\n    [D/b]   each item  ->  has  ->  at most one label;\n    [D/a] each order->contains->exactly one item;\n";
     let checks = "check SAME:\n    relation equivalent\n    left [C]\n    right [D]\n    using definitions\ncheck PART:\n    relation equivalent\n    left [C/a]\n    right [D]\n    using definitions\n";
     let report = a_check(&format!("{text}{checks}"));
-    assert_eq!(report["checks"][0]["result"], "proved", "{report}");
+    assert_eq!(verdicts(&report)["check/SAME"], "proved", "{report}");
     // The check can tell different diagrams apart.
-    assert_eq!(report["checks"][1]["result"], "refuted", "{report}");
+    assert_eq!(verdicts(&report)["check/PART"], "refuted", "{report}");
 }
 
 // Concept diagrams.
@@ -95,7 +104,8 @@ const A_ORDERS: &str = "[C] concept:\n    [C/a] each order -> contains -> exactl
 
 #[test]
 fn a_target_cardinality_counts_the_related_targets() {
-    assert_eq!(a_codes(&format!("{A_ORDERS}[T] There is an order.\n[U] Each order contains at least two items.\n")), ["contradiction"]);
+    // Descriptions only: their conflict is one of assumptions, and leaves no environment.
+    assert_eq!(a_codes(&format!("{A_ORDERS}[T] There is an order.\n[U] Each order contains at least two items.\n")), ["incompatible"]);
     assert!(a_codes(&format!("{A_ORDERS}[T] There is an order.\n[U] Each order contains at most three items.\n")).is_empty());
     assert!(a_codes(&format!("{A_ORDERS}[T] There is an order.\n[U] Each order contains at least one item.\n")).is_empty());
 }
@@ -104,7 +114,7 @@ fn a_target_cardinality_counts_the_related_targets() {
 fn a_concept_edge_does_not_require_an_instance() {
     let none = format!("{A_ORDERS}[U] Each order contains exactly zero items.\n");
     assert!(a_codes(&none).is_empty(), "{:?}", a_codes(&none));
-    assert_eq!(a_codes(&format!("{none}[T] There is an order.\n")), ["contradiction"]);
+    assert_eq!(a_codes(&format!("{none}[T] There is an order.\n")), ["incompatible"]);
 }
 
 #[test]
@@ -115,7 +125,9 @@ fn a_relation_missing_from_a_concept_diagram_is_not_prohibited() {
 
 // Flow diagrams.
 
-const A_HEAD: &str = "[F] When the checker receives a result R, the checker shall follow this flow:\n";
+// The terms of the flows are declared: an undeclared term leaves a statement
+// ungrounded, and the package then does not convert.
+const A_HEAD: &str = "primitive checker, result, success, failure, count\n[F] When the checker receives a result R, the checker shall follow this flow:\n";
 
 fn a_flow(body: &str) -> String {
     format!("{A_HEAD}{body}")
@@ -145,7 +157,7 @@ fn steps_may_be_declared_after_their_references_and_in_any_order() {
     let text = "[T] When the checker receives a result R, the checker shall perform the following actions in order:\n    read R;\n    publish R;\n[F] When the checker receives a result R, the checker shall follow this flow:\n    start inspect\n    inspect -> tell\n    finish tell\n    step tell: publish R;\n    step inspect: read R;\ncheck SAME:\n    relation equivalent\n    left [T]\n    right [F]\n    using definitions\n";
     let report = a_check(text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["checks"][0]["result"], "proved");
+    assert_eq!(verdicts(&report)["check/SAME"], "proved", "{report}");
     let expansion = a_view(&["expand"], text);
     assert!(expansion.contains("[F]\nWhen the checker receives a result, the checker shall perform the following actions in order:\n    read the result;\n    publish the result;"), "{expansion}");
 }
@@ -184,23 +196,23 @@ const A_IN_ORDER: &str = "[S] When the checker receives a result R, the checker 
 fn a_prohibited_flow_prohibits_its_whole_pattern_only() {
     let prohibited = a_linear("shall not");
     // Each step on its own, and both steps without the flow's order, remain allowed.
-    assert!(a_codes(&format!("{prohibited}[N] The checker shall read the result.\n")).is_empty());
-    assert!(a_codes(&format!("{prohibited}[N] The checker shall read the result.\n[M] The checker shall publish the success for the result.\n")).is_empty());
+    assert!(a_env_codes(&format!("{prohibited}[N] The checker shall read the result.\n")).is_empty());
+    assert!(a_env_codes(&format!("{prohibited}[N] The checker shall read the result.\n[M] The checker shall publish the success for the result.\n")).is_empty());
     // Leaving out a step is one way not to follow the flow.
-    assert!(a_codes(&format!("{prohibited}[N] The checker shall not read the result.\n")).is_empty());
+    assert!(a_env_codes(&format!("{prohibited}[N] The checker shall not read the result.\n")).is_empty());
     // The complete pattern is what is prohibited.
-    assert_eq!(a_codes(&format!("{prohibited}{A_IN_ORDER}")), ["contradiction"]);
+    assert_eq!(a_env_codes(&format!("{prohibited}{A_IN_ORDER}")), ["contradiction"]);
 }
 
 #[test]
 fn a_permitted_flow_admits_its_pattern_without_requiring_it() {
     let permitted = a_linear("may");
     // A recommendation against a step conflicts with an obligation to follow the flow, not with a permission.
-    assert_eq!(a_codes(&format!("{}[N] The checker should not read the result.\n", a_linear("shall"))), ["recommendation-violation"]);
-    assert!(a_codes(&format!("{permitted}[N] The checker should not read the result.\n")).is_empty());
+    assert_eq!(a_env_codes(&format!("{}[N] The checker should not read the result.\n", a_linear("shall"))), ["recommendation-violation"]);
+    assert!(a_env_codes(&format!("{permitted}[N] The checker should not read the result.\n")).is_empty());
     // The permission admits the complete matching response.
-    assert!(a_codes(&format!("{permitted}{A_IN_ORDER}")).is_empty());
-    assert_eq!(a_codes(&format!("{permitted}[N] The checker shall not read the result.\n")), ["contradiction"]);
+    assert!(a_env_codes(&format!("{permitted}{A_IN_ORDER}")).is_empty());
+    assert_eq!(a_env_codes(&format!("{permitted}[N] The checker shall not read the result.\n")), ["contradiction"]);
     // The activation binds R in every step.
     assert!(a_view(&["expand"], &permitted).contains("    read the result;\n    publish the success for the result;"), "{}", a_view(&["expand"], &permitted));
 }
@@ -208,8 +220,8 @@ fn a_permitted_flow_admits_its_pattern_without_requiring_it() {
 #[test]
 fn a_flow_edge_orders_its_steps() {
     let reversed = "[S] When the checker receives a result R, the checker shall perform the following actions in order:\n    publish the success for R;\n    read R;\n";
-    assert_eq!(a_codes(&format!("{}{reversed}", a_linear("shall"))), ["contradiction"]);
-    assert!(a_codes(&format!("{}{A_IN_ORDER}", a_linear("shall"))).is_empty());
+    assert_eq!(a_env_codes(&format!("{}{reversed}", a_linear("shall"))), ["contradiction"]);
+    assert!(a_env_codes(&format!("{}{A_IN_ORDER}", a_linear("shall"))).is_empty());
 }
 
 fn a_choice_flow(guards: &str) -> String {
@@ -224,17 +236,17 @@ fn an_obligatory_flow_requires_the_steps_of_its_selected_path() {
     let no_success = "[N] The checker shall not publish the success.\n";
     let no_failure = "[N] The checker shall not publish the failure.\n";
     // Some path must be completed.
-    assert_eq!(a_codes(&format!("{flow}{no_success}[M] The checker shall not publish the failure.\n")), ["contradiction"]);
+    assert_eq!(a_env_codes(&format!("{flow}{no_success}[M] The checker shall not publish the failure.\n")), ["contradiction"]);
     // Either path alone may be ruled out while the other stays selectable.
-    assert!(a_codes(&format!("{flow}{no_success}")).is_empty());
+    assert!(a_env_codes(&format!("{flow}{no_success}")).is_empty());
     // With the guard true, the guarded step is required and the otherwise step is not designated.
     let many = "[I] The count shall be at least 2.\n";
-    assert_eq!(a_codes(&format!("{flow}{many}{no_success}")), ["contradiction"]);
-    assert!(a_codes(&format!("{flow}{many}{no_failure}")).is_empty());
+    assert_eq!(a_env_codes(&format!("{flow}{many}{no_success}")), ["contradiction"]);
+    assert!(a_env_codes(&format!("{flow}{many}{no_failure}")).is_empty());
     // With the guard false, the otherwise target applies.
     let few = "[I] The count shall be less than 2.\n";
-    assert_eq!(a_codes(&format!("{flow}{few}{no_failure}")), ["contradiction"]);
-    assert!(a_codes(&format!("{flow}{few}{no_success}")).is_empty());
+    assert_eq!(a_env_codes(&format!("{flow}{few}{no_failure}")), ["contradiction"]);
+    assert!(a_env_codes(&format!("{flow}{few}{no_success}")).is_empty());
 }
 
 #[test]
@@ -251,7 +263,8 @@ fn guard_order_does_not_set_a_priority() {
     let descending = "        when the count is less than 2 -> bad\n        when the count is at least 2 -> good\n";
     let compare = |right: &str| {
         let text = format!("{}{}check SAME:\n    relation equivalent\n    left [F]\n    right [G]\n    using definitions\n", a_choice_flow(ascending), a_choice_flow(right).replacen("[F]", "[G]", 1));
-        a_check(&text)["checks"][0]["result"].as_str().unwrap().to_string()
+        let report = a_check(&text);
+        verdicts(&report).get("check/SAME").cloned().unwrap_or_else(|| panic!("no check SAME: {report}"))
     };
     assert_eq!(compare(descending), "proved");
     assert_eq!(compare("        when the count is less than 2 -> good\n        when the count is at least 2 -> bad\n"), "refuted");
@@ -263,7 +276,7 @@ fn guard_order_does_not_set_a_priority() {
 
 #[test]
 fn a_gating_state_is_not_assumed_at_a_later_choice() {
-    let text = "[F] While the count is at least 2, when the checker receives a result R, the checker shall follow this flow:\n    step inspect: read R;\n    step good: publish the success for R;\n    start inspect\n    choose after inspect:\n        when the count is at least 2 -> good\n    finish good\n";
+    let text = "primitive checker, result, success, count\n[F] While the count is at least 2, when the checker receives a result R, the checker shall follow this flow:\n    step inspect: read R;\n    step good: publish the success for R;\n    start inspect\n    choose after inspect:\n        when the count is at least 2 -> good\n    finish good\n";
     assert_eq!(a_codes_of_the_analysis(text), ["INCOMPLETE_FLOW_CHOICE"]);
 }
 
@@ -294,7 +307,7 @@ fn an_accepted_syntax_example_says_nothing_about_meaning() {
     let text = "example E:\n    kind syntax\n    form fragment\n    input \"\"\"\n    namespace x:\n        [A] The frobnicator shall frobnicate the widget.\n        [B] The frobnicator shall not frobnicate the widget.\n    \"\"\"\n    expect accepted\n";
     let report = a_check(text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["examples"][0]["observed"], "accepted");
+    assert_eq!(report["demonstrations"][0]["observed"], "accepted", "{report}");
     // The same statements written as specifications contradict each other.
     assert_eq!(a_codes("[A] The frobnicator shall frobnicate the widget.\n[B] The frobnicator shall not frobnicate the widget.\n"), ["contradiction"]);
 }
@@ -332,18 +345,19 @@ fn each_speech_act_has_its_own_meaning() {
 
 #[test]
 fn one_package_combines_every_authoring_construct() {
-    let rules = "section \"Calls\":\n    When the API receives a call C:\n        [A] the API shall perform all of the following actions:\n            log C;\n            answer C;\n";
-    let diagram = "[F] When the API receives a call C, the API shall follow this flow:\n    step keep: log C;\n    step reply: answer C;\n    start keep\n    keep -> reply\n    finish reply\n";
+    let rules = "section \"Calls\":\n    When a client sends a call C:\n        [A] the API shall perform all of the following actions:\n            log C;\n            answer C;\n";
+    let diagram = "[F] When a client sends a call C, the API shall follow this flow:\n    step keep: log C;\n    step reply: answer C;\n    start keep\n    keep -> reply\n    finish reply\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("rules.trion", rules), ("flows.trion", diagram)]);
-    let r = f.trion(&["verify", "--json"]);
+    let r = f.verify(&["--json"]);
     assert!(report_codes(&r.json()).is_empty(), "{}", r.stdout);
     let expansion = f.inspect(&["expand"]).stdout;
-    assert!(expansion.contains("[A]\nWhen the API receives a call, the API shall perform all of the following actions:\n    log the call;\n    answer the call;"), "{expansion}");
-    assert!(expansion.contains("[F]\nWhen the API receives a call, the API shall perform the following actions in order:"), "{expansion}");
-    // Both files belong to one specification: a rule in one conflicts with a rule in the other.
+    assert!(expansion.contains("[A]\nWhen a client sends a call, the API shall perform all of the following actions:\n    log the call;\n    answer the call;"), "{expansion}");
+    assert!(expansion.contains("[F]\nWhen a client sends a call, the API shall perform the following actions in order:"), "{expansion}");
+    // Both files belong to one specification: a rule in one conflicts with a
+    // rule in the other. The trigger is the environment's, so the rules apply.
     f.write("more.trion", "namespace p:\n    [N] The API shall not answer the call.\n");
     f.write("trion.trion", "package p edition \"test\"\ninclude \"rules.trion\"\ninclude \"flows.trion\"\ninclude \"more.trion\"\n");
-    assert!(report_codes(&f.trion(&["verify", "--json"]).json()).contains(&"contradiction".to_string()));
+    assert!(report_codes(&f.verify(&["--json"]).json()).contains(&"contradiction".to_string()));
 }
 
 #[test]
@@ -365,13 +379,13 @@ fn a_sourced(body: &str) -> Fixture {
 fn a_shared_citation_section_and_condition_cover_a_group() {
     let body = "section \"Stopping\":\n    cite REQ#STOP\n    When the API receives a call:\n        [A] the API shall stop.\n        [B] the API shall log the call.\n    [C] The API shall perform all of the following actions:\n        stop;\n        log the stop;\n";
     let f = a_sourced(body);
-    let r = f.trion(&["verify", "--json"]).json()["sources"].clone();
+    let r = f.verify(&["--json"]).json()["sources"].clone();
     assert!(report_codes(&r).is_empty(), "{r}");
     let expansion = f.inspect(&["expand"]).stdout;
     assert!(expansion.contains("[B]\nWhen the API receives a call, the API shall log the call."), "{expansion}");
     // A statement outside the group is not covered by its citation.
     let f = a_sourced(&format!("{body}[D] The bell shall ring.\n"));
-    let r = f.trion(&["verify", "--json"]).json()["sources"].clone();
+    let r = f.verify(&["--json"]).json()["sources"].clone();
     assert_eq!(report_codes(&r), ["unsourced"]);
     assert_eq!(r["diagnostics"][0]["refs"][0]["id"], "D");
 }
@@ -379,20 +393,20 @@ fn a_shared_citation_section_and_condition_cover_a_group() {
 #[test]
 fn statements_need_no_citation_or_test_link_of_their_own() {
     let body = "section \"Stopping\":\n    cite REQ#STOP\n    [A] The API shall stop.\n    [B] The API shall log the stop.\n";
-    assert!(report_codes(&a_sourced(body).trion(&["verify", "--json"]).json()["sources"]).is_empty());
+    assert!(report_codes(&a_sourced(body).verify(&["--json"]).json()["sources"]).is_empty());
 }
 
 // Formalization and verification.
 
 fn b_check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn b_run(args: &[&str], text: &str) -> Result {
     let f = Fixture::new(&[("a.trion", text)]);
     let mut all = args.to_vec();
     all.push("a.trion");
-    f.trion(&all)
+    f.verify(&all)
 }
 
 /// As above, reading what the libraries read instead of running the command.
@@ -408,9 +422,13 @@ fn b_constraint_ids(model: &Value) -> Vec<String> {
     model["constraints"].as_array().unwrap().iter().map(|c| c["refs"][0]["id"].as_str().unwrap().to_string()).collect()
 }
 
-/// The observed outcome of the first example of a report.
+/// The verdict of the obligation of the first consistency or comparison
+/// example of a report, and the codes of the report. The obligation asks
+/// whether the outcome that the example expects holds: `proved` when it
+/// does. The outcome that holds instead is no part of the result.
 fn b_example(report: &Value) -> (String, Vec<String>) {
-    (report["examples"][0]["observed"].as_str().unwrap_or_default().to_string(), report_codes(report))
+    let verdict = report["proof"]["results"].as_array().into_iter().flatten().find(|r| r["obligation"].as_str().is_some_and(|o| o.starts_with("example/"))).and_then(|r| r["verdict"].as_str()).unwrap_or_default().to_string();
+    (verdict, report_codes(report))
 }
 
 // Source structure and formal structure.
@@ -419,10 +437,13 @@ fn b_example(report: &Value) -> (String, Vec<String>) {
 fn authored_resolved_and_formal_forms_share_the_statement_identity() {
     let text = "[A] When the compiler receives a resolved specification S, the compiler shall check S.\n[B] When the compiler receives a resolved specification, the compiler shall not check the resolved specification.\n";
     // The authored structure: the conflict names the statement as written.
-    let report = b_check(text);
-    let refs = &report["diagnostics"][0]["refs"];
+    // The trigger is the environment's here: one that the system controls and
+    // that nothing requires leaves both statements vacuous.
+    let report = b_check(&text.replace("When the compiler receives", "When a client sends"));
+    let conflict = report["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "contradiction").unwrap_or_else(|| panic!("no contradiction: {report}"));
+    let refs = &conflict["refs"];
     assert_eq!(refs[0]["id"], "A", "{report}");
-    assert_eq!(refs[0]["text"], "When the compiler receives a resolved specification S, the compiler shall check S.");
+    assert_eq!(refs[0]["text"], "When a client sends a resolved specification S, the compiler shall check S.");
     // The resolved controlled English.
     let expansion = b_view(&["expand"], text).stdout;
     assert!(expansion.contains("[A]\nWhen the compiler receives a resolved specification, the compiler shall check the resolved specification."), "{expansion}");
@@ -466,7 +487,7 @@ fn equivalent_statements_keep_their_own_origins() {
     let text = "[A] The API shall stop.\n[B] The API shall stop.\nexample SAME:\n    kind comparison\n    base [A]\n    candidate [B]\n    using definitions\n    expect redundant\n";
     let report = b_check(text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["examples"][0]["observed"], "redundant");
+    assert_eq!(verdicts(&report)["example/SAME"], "proved", "{report}");
     let model = b_view(&["model", "--json"], text).json();
     let constraints = model["constraints"].as_array().unwrap();
     assert_eq!(b_constraint_ids(&model), ["A", "B"]);
@@ -479,7 +500,7 @@ fn each_normative_statement_denotes_one_expression_with_one_source() {
     // Zero statements: an empty specification has an empty model and passes.
     let empty = b_view(&["model", "--json"], "");
     assert_eq!(empty.json()["constraints"].as_array().unwrap().len(), 0);
-    assert_eq!(b_run(&["verify"], "").code, 0);
+    assert_eq!(b_run(&[], "").code, 0);
     // A note is not a statement; a composed statement is one expression.
     let text = "section \"S\":\n    note \"Not a statement.\"\n    [A] The API shall stop.\n    [L] The API shall perform all of the following actions:\n        log the stop;\n        pause;\n    [M] The API may wait.\n";
     let model = b_view(&["model", "--json"], text).json();
@@ -501,9 +522,9 @@ fn the_compiler_models_checks_and_reports_a_specification() {
     // The check runs on that model and the report publishes its result.
     let report = b_check(text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["checks"][0]["result"], "proved");
-    let summary = b_run(&["verify"], text).stdout;
-    assert!(summary.contains("1/1 checks proved"), "{summary}");
+    assert_eq!(verdicts(&report)["check/SAME"], "proved", "{report}");
+    let summary = b_run(&[], text).stdout;
+    assert!(summary.contains("obligation check/SAME (check): proved"), "{summary}");
 }
 
 #[test]
@@ -513,7 +534,7 @@ fn a_contradiction_is_recorded_and_reported_without_weakening() {
     let report = b_check(text);
     assert_eq!(report_codes(&report), ["contradiction"]);
     // The author is told, and the run fails rather than dropping a rule.
-    let out = b_run(&["verify"], text);
+    let out = b_run(&[], text);
     assert_eq!(out.code, 1);
     assert!(out.stdout.contains("error[contradiction]") && out.stdout.contains("[A] The API shall stop.") && out.stdout.contains("[B] The API shall not stop."), "{}", out.stdout);
     // Both constraints stay in the model as authored.
@@ -524,25 +545,25 @@ fn a_contradiction_is_recorded_and_reported_without_weakening() {
 #[test]
 fn an_unsupported_or_unresolved_construct_prevents_success() {
     let fine = "primitive API\n[A] The API shall stop.\n";
-    assert_eq!(b_run(&["verify"], fine).code, 0);
+    assert_eq!(b_run(&[], fine).code, 0);
     // An unsupported diagram has no formal meaning: the run is not a success.
-    let unsupported = b_run(&["verify"], &format!("{fine}[D] diagram sequence:\n    a -> b\n"));
+    let unsupported = b_run(&[], &format!("{fine}[D] diagram sequence:\n    a -> b\n"));
     assert_eq!(unsupported.code, 1, "{}", unsupported.stdout);
     assert!(unsupported.stdout.contains("UNSUPPORTED_DIAGRAM_KIND"), "{}", unsupported.stdout);
     // A check over a statement that does not resolve is not counted as proved.
     let report = b_check(&format!("{fine}check GONE:\n    relation equivalent\n    left [A]\n    right [NOPE]\n    using definitions\n"));
     assert!(report_codes(&report).contains(&"UNRESOLVED_REFERENCE".to_string()), "{report}");
-    // The check was asked for, so it stays among the outcomes, and as a
-    // check that states no question: a check that vanishes from the report
-    // reads as a check that nobody wrote.
-    assert_eq!(report["checks"].as_array().unwrap().iter().map(|c| c["result"].as_str().unwrap()).collect::<Vec<_>>(), ["invalid"], "{report}");
-    assert!(unverified(&report).contains(&"property_entails".to_string()), "{report}");
+    // A check that names no statement does not conform, so nothing is
+    // converted and nothing is proved: the check is not counted as proved.
+    assert_eq!(report["conforms"], false, "{report}");
+    assert!(report["proof"].is_null(), "{report}");
     // A relation that this edition does not decide, and a check without its
     // `using` field, are no equivalence that was proved.
     for block in ["check OTHER:\n    relation implies\n    left [A]\n    right [A]\n    using definitions\n", "check BARE:\n    relation equivalent\n    left [A]\n    right [A]\n"] {
         let report = b_check(&format!("{fine}{block}"));
         assert!(report_codes(&report).contains(&"parse-check".to_string()), "{report}");
-        assert_eq!(report["checks"][0]["result"], "invalid", "{report}");
+        assert_eq!(report["conforms"], false, "{report}");
+        assert!(report["proof"].is_null(), "{report}");
     }
 }
 
@@ -551,12 +572,16 @@ fn an_unsupported_or_unresolved_construct_prevents_success() {
 #[test]
 fn consistency_means_some_interpretation_satisfies_every_hard_constraint() {
     let example = |input: &str, expect: &str| b_check(&format!("example E:\n    kind consistency\n    input \"\"\"\n    {input}\n    \"\"\"\n    expect {expect}\n"));
-    let (observed, codes) = b_example(&example("The API shall stop.\nThe API shall log the stop.", "consistent"));
-    assert_eq!(observed, "consistent");
+    let (verdict, codes) = b_example(&example("The API shall stop.\nThe API shall log the stop.", "consistent"));
+    assert_eq!(verdict, "proved");
     assert!(codes.is_empty(), "{codes:?}");
-    let (observed, codes) = b_example(&example("The API shall stop.\nThe API shall not stop.", "inconsistent"));
-    assert_eq!(observed, "inconsistent");
+    let (verdict, codes) = b_example(&example("The API shall stop.\nThe API shall not stop.", "inconsistent"));
+    assert_eq!(verdict, "proved");
     assert!(codes.is_empty(), "{codes:?}");
+    // The expectation is what is proved: the other one is refuted.
+    let (verdict, codes) = b_example(&example("The API shall stop.\nThe API shall not stop.", "consistent"));
+    assert_eq!(verdict, "refuted");
+    assert!(codes.contains(&"example-failed".to_string()), "{codes:?}");
 }
 
 #[test]
@@ -580,17 +605,19 @@ fn an_undecided_guard_question_is_not_reported_as_proved() {
 #[test]
 fn an_inconsistent_base_is_reported_before_the_candidate() {
     let text = "[A] The API shall stop.\n[B] The API shall not stop.\n[C] The API shall not stop.\nexample E:\n    kind comparison\n    base [A], [B]\n    candidate [C]\n    using definitions\n    expect base-inconsistent\n";
-    let (observed, codes) = b_example(&b_check(text));
-    assert_eq!(observed, "base-inconsistent", "not blamed on the candidate");
+    let (verdict, codes) = b_example(&b_check(text));
+    assert_eq!(verdict, "proved", "not blamed on the candidate");
     assert!(!codes.contains(&"example-failed".to_string()), "{codes:?}");
 }
 
 #[test]
 fn a_candidate_that_no_interpretation_shares_with_the_base_conflicts() {
-    let text = "[A] When the API receives a call, the API shall stop.\n[C] When the API receives a call, the API shall not stop.\n[D] When the API receives a call, the API shall log the call.\nexample CONFLICT:\n    kind comparison\n    base [A]\n    candidate [C]\n    using definitions\n    expect conflict\nexample FINE:\n    kind comparison\n    base [A]\n    candidate [D]\n    using definitions\n    expect extension\n";
+    // The trigger is the environment's: one that the system controls and that
+    // nothing requires leaves base and candidate vacuous together.
+    let text = "[A] When a client sends a call, the API shall stop.\n[C] When a client sends a call, the API shall not stop.\n[D] When a client sends a call, the API shall log the call.\nexample CONFLICT:\n    kind comparison\n    base [A]\n    candidate [C]\n    using definitions\n    expect conflict\nexample FINE:\n    kind comparison\n    base [A]\n    candidate [D]\n    using definitions\n    expect extension\n";
     let report = b_check(text);
-    assert_eq!(report["examples"][0]["observed"], "conflict", "{report}");
-    assert_eq!(report["examples"][1]["observed"], "extension", "{report}");
+    assert_eq!(verdicts(&report)["example/CONFLICT"], "proved", "{report}");
+    assert_eq!(verdicts(&report)["example/FINE"], "proved", "{report}");
     assert!(!report_codes(&report).contains(&"example-failed".to_string()), "{report}");
 }
 
@@ -611,7 +638,7 @@ fn a_check_does_not_assume_its_operands_or_its_claim() {
     let report = b_check(text);
     assert_eq!(report_codes(&report), ["check-refuted"], "{report}");
     // The check is an obligation in the report, not a fact added to the model.
-    assert_eq!(report["checks"][0]["result"], "refuted");
+    assert_eq!(verdicts(&report)["check/SAME"], "refuted", "{report}");
     let model = b_view(&["model", "--json"], text).json();
     assert_eq!(b_constraint_ids(&model), ["A", "B"]);
 }
@@ -619,7 +646,7 @@ fn a_check_does_not_assume_its_operands_or_its_claim() {
 // Surface forms, English sentences and vocabulary.
 
 fn c_codes(text: &str) -> Vec<String> {
-    report_codes(&Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json())
+    report_codes(&Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json())
 }
 
 /// As above, reading what the libraries read instead of running the command.
@@ -641,11 +668,11 @@ fn c_glossary(f: &Fixture) -> Vec<Value> {
 fn a_source_file_is_read_as_utf8() {
     let f = Fixture::raw(&[]);
     std::fs::write(f.path().join("bad.trion"), b"namespace main:\n    [A] The API shall stop.\n    note \"caf\xe9\"\n").unwrap();
-    let r = f.trion(&["verify", "bad.trion"]);
+    let r = f.verify(&["bad.trion"]);
     assert_eq!(r.code, 2, "{}{}", r.stdout, r.stderr);
     assert!(r.stderr.contains("UTF-8"), "{}", r.stderr);
     f.write("good.trion", "namespace main:\n    primitive API\n    [A] The API shall stop.\n    note \"café, パーサー\"\n");
-    assert_eq!(f.trion(&["verify", "good.trion"]).code, 0);
+    assert_eq!(f.verify(&["good.trion"]).code, 0);
 }
 
 #[test]
@@ -769,7 +796,7 @@ fn a_namespace_holds_declarations_statements_and_blocks() {
     let body = "namespace p.app:\n    use p.lib\n    source DOC:\n        title \"t\"\n        locator \"l\"\n        quote Q \"The API stops.\"\n    cite DOC#Q\n    note \"n\"\n    [A] The API shall stop.\n    ref [A]\n    section \"s\":\n        [B] The API shall log the stop.\n    When the bell rings:\n        [C] the API shall ring.\n    [K] concept:\n        each pump -> has -> exactly one valve;\n    check SAME:\n        relation equivalent\n        left [A]\n        right [A]\n        using definitions\n    example E:\n        kind syntax\n        form statement\n        input \"The API shall stop.\"\n        expect accepted\n";
     let lib = "namespace p.lib:\n    term API: entity\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", body), ("lib.trion", lib)]);
-    let codes = analysis_codes(&f.trion(&["verify", "--json"]).json());
+    let codes = analysis_codes(&f.verify(&["--json"]).json());
     assert!(codes.is_empty(), "{codes:?}");
     for file_level in ["package q edition \"1\"", "include \"other.trion\""] {
         assert_eq!(c_codes_of_the_analysis(&format!("namespace main:\n    {file_level}\n    [A] The API shall stop.\n")), ["parse-placement"], "{file_level}");
@@ -787,7 +814,7 @@ fn source_and_use_declarations_sit_directly_in_a_namespace() {
     let lib = "namespace p.lib:\n    term API: entity\n";
     let project = |body: &str| {
         let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &format!("namespace p.app\n{body}")), ("lib.trion", lib)]);
-        analysis_codes(&f.trion(&["verify", "--json"]).json())
+        analysis_codes(&f.verify(&["--json"]).json())
     };
     let source = "source DOC:\n    title \"t\"\n    locator \"l\"\n";
     assert!(project(&format!("use p.lib\n{source}[A] The API shall stop.\n")).is_empty());
@@ -856,7 +883,7 @@ fn an_ambiguous_term_names_its_candidates() {
         ("y.trion", "namespace p.b:\n    term API: entity\n"),
         ("z.trion", "namespace p.c:\n    use p.a\n    use p.b\n    [S] The API shall stop.\n"),
     ]);
-    let json = f.trion(&["verify", "--json"]).json();
+    let json = f.verify(&["--json"]).json();
     assert_eq!(analysis_codes(&json), ["AMBIGUOUS_TERM"]);
     let message = json["diagnostics"][0]["message"].as_str().unwrap();
     assert!(message.contains("declared by a and b"), "{message}");
@@ -885,7 +912,7 @@ fn ears_terms_resolve_through_the_local_ears_domain() {
 // Composition, sections, contexts, files and names.
 
 fn d_check(text: &str) -> Value {
-    Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json()
+    Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json()
 }
 
 fn d_codes(text: &str) -> Vec<String> {
@@ -914,9 +941,10 @@ fn d_assume(text: &str, id: &str) -> String {
     lines.find_map(|l| l.trim().strip_prefix("assume:").map(|s| s.trim().to_string())).unwrap_or_else(|| panic!("{model}"))
 }
 
+/// The verdict of the obligation of the first check of a report.
 fn d_check_result(text: &str) -> String {
     let report = d_check(text);
-    report["checks"][0]["result"].as_str().unwrap_or_else(|| panic!("{report}")).to_string()
+    report["proof"]["results"].as_array().into_iter().flatten().find(|r| r["obligation"].as_str().is_some_and(|o| o.starts_with("check/"))).and_then(|r| r["verdict"].as_str()).unwrap_or_else(|| panic!("{report}")).to_string()
 }
 
 const D_SHALL: &str = "(Act(API|stop) ∧ ¬Forbid(API|stop) ∧ ¬Discouraged(API|stop))";
@@ -1032,7 +1060,9 @@ fn an_ordered_list_adds_only_occurrence_and_order() {
 
 #[test]
 fn an_ordered_list_permits_other_behavior() {
-    let text = "[A] The API shall perform the following actions in order:\n    stop;\n    pause;\n";
+    // `API` is declared: a statement that shares no atom with another and names
+    // an undeclared term is ungrounded, which stops the conversion.
+    let text = "primitive API\n[A] The API shall perform the following actions in order:\n    stop;\n    pause;\n";
     assert!(d_codes_of_the_analysis(&format!("{text}[B] The API shall log the request.\n")).is_empty());
     assert!(d_codes_of_the_analysis(&format!("{text}[B] The API shall perform the following actions in order:\n    pause;\n    log the pause;\n")).is_empty());
     assert_eq!(d_codes_of_the_analysis(&format!("{text}[B] The API shall not log the request.\n[C] The API shall log the request.\n")), ["contradiction"]);
@@ -1066,9 +1096,10 @@ fn a_binding_stays_inside_its_alternative() {
 
 #[test]
 fn a_diagnostic_carries_the_authored_source() {
-    let report = d_check("[A] When the API receives a call C, the API shall log C.\n[B] The API shall not log the call.\n");
-    let diagnostic = &report["diagnostics"][0];
-    assert_eq!(diagnostic["code"], "contradiction");
+    // The trigger is the environment's: one that the system controls and that
+    // nothing requires leaves [A] vacuous.
+    let report = d_check("[A] When a client sends a call C, the API shall log C.\n[B] The API shall not log the call.\n");
+    let diagnostic = report["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "contradiction").unwrap_or_else(|| panic!("no contradiction: {report}"));
     let refs: Vec<(String, u64, String, String)> = diagnostic["refs"]
         .as_array()
         .unwrap()
@@ -1077,7 +1108,7 @@ fn a_diagnostic_carries_the_authored_source() {
         .collect();
     // The text is what the author wrote, before the binding C was replaced.
     assert_eq!(refs, [
-        ("a.trion".to_string(), 2, "A".to_string(), "When the API receives a call C, the API shall log C.".to_string()),
+        ("a.trion".to_string(), 2, "A".to_string(), "When a client sends a call C, the API shall log C.".to_string()),
         ("a.trion".to_string(), 3, "B".to_string(), "The API shall not log the call.".to_string()),
     ]);
 }
@@ -1122,7 +1153,11 @@ fn a_while_block_restricts_its_statements_to_the_state() {
     let block = "While the API is active:\n    [A] the API shall log the call.\n";
     assert_eq!(d_assume(block, "A"), "Val(API, active)");
     assert!(d_codes(&format!("{block}[B] While the API is inactive, the API shall not log the call.\n")).is_empty());
-    assert_eq!(d_codes(&format!("{block}[B] The API shall not log the call.\n")), ["contradiction"]);
+    // Whether the API is active is the system's: a system that never is
+    // keeps [A] vacuously (AGENTS.md, limit 2). Once a statement requires the
+    // state, [A] and a prohibition without the state contradict.
+    assert!(d_codes(&format!("{block}[B] The API shall not log the call.\n")).is_empty());
+    assert_eq!(d_codes(&format!("{block}[B] The API shall not log the call.\n[R] The API shall be active.\n")), ["contradiction"]);
 }
 
 #[test]
@@ -1161,8 +1196,11 @@ fn a_condition_that_can_hold_is_a_situation_of_its_statement() {
     .concat();
     let report = d_check(&text);
     assert!(report_codes(&report).is_empty(), "{report}");
-    let observed: Vec<&str> = report["examples"].as_array().unwrap().iter().map(|e| e["observed"].as_str().unwrap()).collect();
-    assert_eq!(observed, ["inconsistent", "inconsistent", "inconsistent", "inconsistent", "inconsistent", "consistent"]);
+    // Each example states what it expects, and its obligation proves it.
+    let verdicts = verdicts(&report);
+    for name in ["TRIGGER", "BLOCK", "STATE", "FEATURE", "PLAIN", "APART"] {
+        assert_eq!(verdicts.get(&format!("example/{name}")).map(String::as_str), Some("proved"), "{name}: {report}");
+    }
 }
 
 #[test]
@@ -1193,7 +1231,7 @@ fn an_included_file_inherits_nothing_from_the_file_before_it() {
         ("b.trion", "namespace p:\n    [B] The API shall log C.\n    [D] The API shall stop.\n"),
     ]);
     // C is bound in the other file only, and the condition does not carry over.
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert_eq!(analysis_codes(&report), ["UNBOUND_VARIABLE"], "{report}");
     let model = f.inspect(&["model"]).stdout;
     assert!(model.contains("D\n  assume:    ⊤\n"), "{model}");
@@ -1204,11 +1242,13 @@ fn a_declaration_in_a_later_file_is_visible_to_an_earlier_one() {
     let f = d_package(&[
         ("trion.trion", "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n"),
         ("a.trion", "namespace p:\n    ref [B]\n    [A] The API shall open a room.\n    check SAME:\n        relation equivalent\n        left [B]\n        right [C]\n        using definitions\n"),
-        ("b.trion", "namespace p:\n    A room means a shared channel.\n    [B] The API shall stop.\n    [C] The API shall stop.\n"),
+        ("b.trion", "namespace p:\n    primitive API\n    A room means a shared channel.\n    [B] The API shall stop.\n    [C] The API shall stop.\n"),
     ]);
-    let report = f.trion(&["verify", "--json"]).json();
+    // `API` is declared: [A] shares no atom with another statement, and an
+    // undeclared term would leave it ungrounded, which stops the conversion.
+    let report = f.verify(&["--json"]).json();
     assert!(analysis_codes(&report).is_empty(), "{report}");
-    assert_eq!(report["checks"][0]["result"], "proved");
+    assert_eq!(verdicts(&report)["check/SAME"], "proved", "{report}");
     let glossary: Value = serde_json::from_str(&f.inspect(&["glossary", "--json"]).stdout).unwrap();
     let room = glossary.as_array().unwrap().iter().find(|e| e["term"] == "room").unwrap();
     assert_eq!(room["status"], "explicit");
@@ -1216,19 +1256,21 @@ fn a_declaration_in_a_later_file_is_visible_to_an_earlier_one() {
 
 #[test]
 fn moving_a_statement_to_another_file_keeps_its_meaning() {
+    // The trigger is the environment's: one that the system controls and that
+    // nothing requires leaves both statements vacuous.
     let entry = "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n";
     let together = d_package(&[
         ("trion.trion", entry),
-        ("a.trion", "namespace p.api:\n    When the API receives a call C:\n        [A] the API shall log C.\n    [B] When the API receives a call, the API shall not log the call.\n"),
+        ("a.trion", "namespace p.api:\n    When a client sends a call C:\n        [A] the API shall log C.\n    [B] When a client sends a call, the API shall not log the call.\n"),
         ("b.trion", "namespace p.api:\n"),
     ]);
     let apart = d_package(&[
         ("trion.trion", entry),
-        ("a.trion", "namespace p.api:\n    When the API receives a call C:\n        [A] the API shall log C.\n"),
-        ("b.trion", "namespace p.api:\n    section \"Moved\":\n        [B] When the API receives a call, the API shall not log the call.\n"),
+        ("a.trion", "namespace p.api:\n    When a client sends a call C:\n        [A] the API shall log C.\n"),
+        ("b.trion", "namespace p.api:\n    section \"Moved\":\n        [B] When a client sends a call, the API shall not log the call.\n"),
     ]);
     assert_eq!(together.inspect(&["model"]).stdout, apart.inspect(&["model"]).stdout);
-    let codes = |f: &Fixture| report_codes(&f.trion(&["verify", "--json"]).json());
+    let codes = |f: &Fixture| report_codes(&f.verify(&["--json"]).json());
     assert_eq!(codes(&together), ["contradiction"]);
     assert_eq!(codes(&apart), ["contradiction"]);
 }
@@ -1240,9 +1282,11 @@ fn a_use_declaration_loads_nothing() {
     let app = "namespace p.app:\n    use p.extra\n    [A] The API shall stop.\n";
     let extra = "namespace p.extra:\n    [B] The API shall not stop.\n";
     let only_app = d_package(&[("trion.trion", "package p edition \"test\"\ninclude \"a.trion\"\n"), ("a.trion", app), ("extra.trion", extra)]);
-    let r = only_app.trion(&["verify"]);
+    let r = only_app.verify(&[]);
     assert!(r.stdout.contains("error[namespace-unknown]: the namespace `p.extra` does not exist"), "{}", r.stdout);
-    assert!(r.stdout.contains("checked 1 specifications"), "{}", r.stdout);
+    // Only the included file is read: the statement of `extra.trion` is in no model.
+    let model = only_app.inspect(&["model"]).stdout;
+    assert!(model.contains("A\n  assume:") && !model.contains("B\n  assume:"), "{model}");
     // With the file included, the same constraints are checked whether or not a block uses it.
     let entry = "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"extra.trion\"\n";
     let using = d_package(&[("trion.trion", entry), ("a.trion", app), ("extra.trion", extra)]);
@@ -1255,15 +1299,15 @@ fn two_definitions_of_one_name_collide() {
     let entry = "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n";
     let first = "namespace p:\n    A room means a shared channel.\n    [A] The API shall open a room.\n";
     let colliding = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p:\n    A room means a private channel.\n")]);
-    let report = colliding.trion(&["verify", "--json"]).json();
+    let report = colliding.verify(&["--json"]).json();
     assert_eq!(analysis_codes(&report), ["NAME_COLLISION"]);
     // Neither file wins: both definitions are named.
     let files: Vec<&str> = report["diagnostics"][0]["refs"].as_array().unwrap().iter().map(|r| r["file"].as_str().unwrap()).collect();
     assert_eq!(files, ["a.trion", "b.trion"]);
     let repeated = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p:\n    A room means a shared channel.\n")]);
-    assert!(analysis_codes(&repeated.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&repeated.verify(&["--json"]).json()).is_empty());
     let elsewhere = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p.other:\n    A room means a private channel.\n")]);
-    assert!(analysis_codes(&elsewhere.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&elsewhere.verify(&["--json"]).json()).is_empty());
 }
 
 // Identity.
@@ -1273,7 +1317,7 @@ fn two_definitions_of_one_name_collide() {
 fn e_check(files: &[(&str, &str)]) -> Vec<String> {
     let mut all = vec![("trion.toml", MANIFEST)];
     all.extend_from_slice(files);
-    report_codes(&Fixture::new(&all).trion(&["verify", "--json"]).json())
+    report_codes(&Fixture::new(&all).verify(&["--json"]).json())
 }
 
 /// As `a_codes`, reading the diagnostics of the analysis alone: no finding of
@@ -1287,14 +1331,14 @@ fn a_codes_of_the_analysis(text: &str) -> Vec<String> {
 /// another list of the report is read, so an empty result is no success.
 #[allow(dead_code)]
 fn b_example_of_the_analysis(report: &Value) -> (String, Vec<String>) {
-    (report["examples"][0]["observed"].as_str().unwrap_or_default().to_string(), analysis_codes(report))
+    (b_example(report).0, analysis_codes(report))
 }
 
 /// As `c_codes`, reading the diagnostics of the analysis alone: no finding of
 /// another list of the report is read, so an empty result is no success.
 #[allow(dead_code)]
 fn c_codes_of_the_analysis(text: &str) -> Vec<String> {
-    analysis_codes(&Fixture::new(&[("a.trion", text)]).trion(&["verify", "--json", "a.trion"]).json())
+    analysis_codes(&Fixture::new(&[("a.trion", text)]).verify(&["--json", "a.trion"]).json())
 }
 
 /// As `d_codes`, reading the diagnostics of the analysis alone: no finding of
@@ -1310,7 +1354,7 @@ fn d_codes_of_the_analysis(text: &str) -> Vec<String> {
 fn e_check_of_the_analysis(files: &[(&str, &str)]) -> Vec<String> {
     let mut all = vec![("trion.toml", MANIFEST)];
     all.extend_from_slice(files);
-    analysis_codes(&Fixture::new(&all).trion(&["verify", "--json"]).json())
+    analysis_codes(&Fixture::new(&all).verify(&["--json"]).json())
 }
 
 /// The guarantees of the model, keyed by the identifier of their statement.
@@ -1353,36 +1397,39 @@ fn a_quote_is_cited_through_its_own_source() {
 #[test]
 fn a_summary_is_a_note_and_a_quote_is_literal() {
     let literal = e_sourced("[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n");
-    assert!(analysis_codes(&literal.trion(&["verify", "--json"]).json()["sources"].clone()).is_empty());
+    assert!(analysis_codes(&literal.verify(&["--json"]).json()["sources"].clone()).is_empty());
     let summary = [("ONE", "The API never stops."), ("TWO", "The API shall log each call.")];
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("r.txt", E_TEXT), ("s.trion", &e_source(&summary)), ("a.trion", "[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n")]);
-    assert!(analysis_codes(&f.trion(&["verify", "--json"]).json()["sources"].clone()).contains(&"source-quote-not-found".to_string()), "a summary is not a quotation");
+    assert!(analysis_codes(&f.verify(&["--json"]).json()["sources"].clone()).contains(&"source-quote-not-found".to_string()), "a summary is not a quotation");
     let noted = e_sourced("note \"In short, the API never stops.\"\n[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n");
-    assert!(analysis_codes(&noted.trion(&["verify", "--json"]).json()["sources"].clone()).is_empty());
-    assert!(analysis_codes(&noted.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&noted.verify(&["--json"]).json()["sources"].clone()).is_empty());
+    assert!(analysis_codes(&noted.verify(&["--json"]).json()).is_empty());
 }
 
 #[test]
 fn a_citation_informs_a_statement_without_entailing_or_importing_anything() {
     // The quote says the opposite of the statement that cites it.
     let cited = e_sourced("[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n");
-    assert!(analysis_codes(&cited.trion(&["verify", "--json"]).json()).is_empty(), "the quoted text is no premise");
-    let coverage = cited.trion(&["verify", "--json"]).json()["sources"].clone();
+    assert!(analysis_codes(&cited.verify(&["--json"]).json()).is_empty(), "the quoted text is no premise");
+    let coverage = cited.verify(&["--json"]).json()["sources"].clone();
     assert_eq!(coverage["sources"][0]["percent"], 100.0, "the citation is recorded: {coverage}");
     // Without the citation the statement means the same.
     let bare = e_sourced("[A] The API shall stop.\n[B] The API shall log each call.\n    cite R#TWO\n");
     assert_eq!(e_formulas(&bare), e_formulas(&cited));
     assert_eq!(e_formulas(&bare).len(), 2, "the quotes add no constraint");
     // Adopting the quoted rule takes a statement of its own, with its citation.
-    let adopted = e_sourced("[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n[C] The API shall not stop.\n    cite R#ONE\n");
-    assert_eq!(analysis_codes(&adopted.trion(&["verify", "--json"]).json()), ["contradiction"]);
+    // The terms are declared: a statement that shares no atom with another and
+    // names an undeclared term is ungrounded, which stops the conversion.
+    let adopted = e_sourced("primitive API, call\n[A] The API shall stop.\n    cite R#ONE\n[B] The API shall log each call.\n    cite R#TWO\n[C] The API shall not stop.\n    cite R#ONE\n");
+    let report = adopted.verify(&["--json"]).json();
+    assert_eq!(analysis_codes(&report), ["contradiction"], "{report}");
 }
 
 #[test]
 fn a_citation_does_not_follow_a_reference_or_enter_an_example() {
     let spec = "section \"Stopping\":\n    cite R#ONE\n    cite R#TWO\n    [A] The API shall stop.\n    ref [B]\n    example E:\n        kind syntax\n        form fragment\n        input \"[X] The bell shall ring.\"\n        expect accepted\n[B] The API shall start.\n";
     let f = e_sourced(spec);
-    let report = f.trion(&["verify", "--json"]).json()["sources"].clone();
+    let report = f.verify(&["--json"]).json()["sources"].clone();
     assert_eq!(report_codes(&report), ["unsourced"], "{report}");
     assert_eq!(report["diagnostics"][0]["refs"][0]["id"], "B");
     let text = report.to_string();
@@ -1394,7 +1441,7 @@ fn a_citation_does_not_follow_a_reference_or_enter_an_example() {
 #[test]
 fn a_note_explains_without_constraining() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "note \"The API shall not stop.\"\n[A] The API shall stop.\n")]);
-    assert!(analysis_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&f.verify(&["--json"]).json()).is_empty());
     assert_eq!(e_formulas(&f).len(), 1);
 }
 
@@ -1420,11 +1467,11 @@ namespace q:
     expect accepted
 "#;
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", spec)]);
-    let report = f.trion(&["verify", "--json"]).json();
+    let report = f.verify(&["--json"]).json();
     assert!(analysis_codes(&report).is_empty(), "no duplicate identifier or source, no missing include: {report}");
-    assert_eq!(report["examples"][0]["observed"], "accepted");
+    assert_eq!(report["demonstrations"][0]["observed"], "accepted", "{report}");
     let broken = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", &spec.replace("shall open", "shall shall open"))]);
-    let observed = broken.trion(&["verify", "--json"]).json()["examples"][0]["observed"].clone();
+    let observed = broken.verify(&["--json"]).json()["demonstrations"][0]["observed"].clone();
     assert!(observed.as_str().unwrap().starts_with("rejected"), "the input is parsed: {observed}");
     let glossary = f.inspect(&["glossary"]).stdout;
     assert!(!glossary.contains("room"), "{glossary}");
@@ -1463,5 +1510,5 @@ fn include_order_is_the_reading_order() {
     let (zed, alpha) = (out.find("[ZED]").unwrap(), out.find("[ALPHA]").unwrap());
     assert!(zed < alpha, "{out}");
     // The order does not select different constraints.
-    assert!(analysis_codes(&f.trion(&["verify", "--json"]).json()).is_empty());
+    assert!(analysis_codes(&f.verify(&["--json"]).json()).is_empty());
 }

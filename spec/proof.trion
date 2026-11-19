@@ -4,9 +4,8 @@ namespace trion:
 
     section "The proof starts from the MMT form":
         The MMT form means the representation of a package in the MMT language.
-        A proof obligation means a proposition that the MMT form of a package states about the package.
         The conversion means the transformation of a package into the MMT form of the package.
-        Each MMT form has one or more proof obligations.
+        ref [OBLIGATION-PROPOSITION]
 
         [PROOF-OBLIGATIONS-WRITTEN]
         The trion processor shall write each proof obligation of a package into the MMT form of the package.
@@ -22,14 +21,17 @@ namespace trion:
         A bounded proposition means a proposition that names a bound.
 
         [PROOF-NOT-PROVED]
-        If the trioc command does not prove a proof obligation, then the trioc command shall report the proof obligation as unproved.
+        If the trioc command refutes a proof obligation, then the trioc command shall report the proof obligation as refuted.
+        If the verdict of a result is unproved, then the trioc command shall report the reason of the result.
 
         [PROOF-BOUNDED]
         The trioc command shall report each bounded proof as the proof of a bounded proposition.
+        ref [OBLIGATION-BOUND]
 
     section "Certificates":
         A certificate means a document that an external proof checker checks.
         A certificate format means a format that an external proof checker reads.
+        A certificate output error means an error that prevents the writing of a certificate.
         MoXI is a certificate format.
         Alethe is a certificate format.
         CPC is a certificate format.
@@ -43,6 +45,9 @@ namespace trion:
 
         [CERTIFICATE-PROVED]
         If the verdict of a result is proved, then the trioc command shall issue a certificate of the result in each requested certificate format.
+
+        [CERTIFICATE-WRITE-ERROR]
+        If a certificate output error occurs, then the trioc command shall report the affected format and the result of each proof obligation.
 
         [CERTIFICATE-EXTERNAL]
         An external proof checker shall check each certificate.

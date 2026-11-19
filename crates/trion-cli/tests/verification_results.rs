@@ -54,6 +54,14 @@ fn a_consistency_result_has_one_of_three_statuses() {
 }
 
 #[test]
+fn compatibility_without_requirements_asks_whether_an_environment_exists() {
+    let (_, allowed) = check("primitive delay\nThe delay is at most 5 seconds.\n", None);
+    assert_eq!(verdict(&allowed, "compatibility"), "proved");
+    let (_, excluded) = check("primitive delay\nThe delay is at least 6 seconds.\nThe delay is at most 5 seconds.\n", None);
+    assert_eq!(verdict(&excluded, "compatibility"), "refuted");
+}
+
+#[test]
 fn the_checker_publishes_the_verdict_of_the_status() {
     // A refuted consistency names the statements that cannot all be kept.
     let (_, report) = check(CONFLICT, None);

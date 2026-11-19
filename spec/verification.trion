@@ -1,11 +1,18 @@
 namespace trion:
     use formal
 
+    source CLOSED-CASE-COVERAGE:
+        title "Coverage of values in closed attributes"
+        locator "urn:trion:verification:closed-case-coverage"
+        kind citation
+        quote RULES """
+Consider each closed attribute that appears in a condition. For each listed value, substitute that value for the tests of the attribute in every condition that mentions it. Evaluate the Boolean connectives with the other tests unknown. Report a missing case only when all those conditions are definitely false. This warning describes the coverage of the conditions.
+"""
+
     section "What a verification answers":
         A verification means an examination of a specification by the trioc command.
         A verification result means the answer of a verification.
         The verdict of a verification result is consistent, inconsistent, or unknown.
-        A bound means a finite limit of a verification.
         Each verification result names the bounds of the verification.
 
         [VERIFY-BOUND-NAMED]
@@ -18,7 +25,7 @@ namespace trion:
         The trioc command shall not accept a specification whose verdict is "unknown".
 
     section "Consistency":
-        A conflict means a set of contracts that no response satisfies for an input.
+        ref [SENTENCE-INPUT-ENABLED]
 
         [VERIFY-CONSISTENCY]
         If a specification has a conflict, then the trioc command shall report the specification as inconsistent.
@@ -65,30 +72,19 @@ namespace trion:
             expect inconsistent
 
     section "The reactive reading of consistency":
-        A free occurrence means an occurrence that the environment decides.
-        An early occurrence means a free occurrence that precedes each moment of a response.
-        A realizability obligation means a proof obligation that states the absence of each early occurrence of a response.
-        Consistency names a response for each whole input, and a system knows only the past of the input.
+        ref [OBLIGATION-REALIZABILITY]
 
         [VERIFY-REALIZABILITY]
         If a guarantee requires a response before a free occurrence, then the trion processor shall write a realizability obligation for the response.
 
     section "Compatibility":
+        ref [OBLIGATION-COMPATIBILITY]
         [VERIFY-COMPATIBILITY]
-        If no input satisfies the assumption of a contract of a specification, then the trioc command shall report the specification as incompatible.
+        If a specification admits no input, then the trioc command shall report the specification as incompatible.
 
     section "Correctness and completeness against a reference":
-        A reference means a specification that judges the correctness of a specification.
-        A specification refines a reference exactly when the specification accepts each input of the reference and each response that satisfies the specification satisfies the reference.
-        A correct specification means a specification that refines each reference of the specification.
-        An unrefined reference means a reference that a specification fails to refine.
-        The joint specification of an unrefined reference means the conjunction of the unrefined reference and the specification of the unrefined reference.
-        A completable reference means an unrefined reference whose joint specification is consistent.
-        A gap means a completable reference whose joint specification is compatible.
-        An incomplete specification means a specification that has a gap.
-        The details of a statement are a specification.
-        Each statement is a reference of the details of the statement.
-        A source is a reference only if the quotes of the source are statements of the trion language.
+        ref [OBLIGATION-CORRECTNESS]
+        ref [OBLIGATION-COMPLETENESS]
 
         [VERIFY-CORRECTNESS]
         The trion processor shall write the proof obligation of the correctness of a specification against each reference of the specification.
@@ -102,7 +98,8 @@ namespace trion:
     section "Missing cases":
         A closed attribute means an attribute that an enumeration closes.
         An open attribute means an attribute that no enumeration closes.
-        A missing case means a value of a closed attribute that no statement covers.
+        A missing case means a value of a closed attribute that the conditions of the specification exclude from their coverage.
+            cite CLOSED-CASE-COVERAGE#RULES
         A missing case differs from an incomplete specification.
 
         [VERIFY-MISSING-CASE]
@@ -112,8 +109,7 @@ namespace trion:
         Each missing case that the trion processor reports shall be a value of a closed attribute.
 
     section "Expected properties":
-        An expected property means a relation between statements that an author expects.
-        A check means a declaration that states an expected property.
+        ref [OBLIGATION-EXPECTED-PROPERTY]
         The outcome of a check is proved, refuted, or unknown.
 
         [VERIFY-PROPERTY]

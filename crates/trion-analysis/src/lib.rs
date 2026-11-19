@@ -63,6 +63,7 @@ pub enum Premises {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Evidence {
+    CheckedCertificate,
     CheckedModel(Vec<bool>),
     CheckedCounterexample(Vec<bool>),
     Exhaustive,

@@ -1,17 +1,17 @@
-# 着手時の構成調査
+# Architecture at the start of the work
 
-調査基準は `ef14d84`。表は調査時点の構成を記録する。命題論理の期待値は現行仕様の [意味と保存の定義](../../spec/propositional/core.trion) から導く。
+The baseline was `ef14d84`. The table records the architecture at that revision. Expected results for propositional inputs follow from the current definition. [Propositional semantics and interchange](../../spec/propositional/core.trion)
 
-| 資産 | 現行の入口と責務 | 取り扱い |
+| Asset | Entry points and responsibilities at the baseline | Treatment |
 | --- | --- | --- |
-| `AGENTS.md`、`spec/*.trion`、`spec/semantics/`、`spec/patterns/ledger.toml` | trion の A/G 契約、責任分界、時間と個体の読み、パターン台帳 | 保持。命題論理解析の要求は現行仕様に組み込んだ。 |
-| `formal/Trion/`、`formal/Oracle.lean` | 契約集合、マージ、文展開、文書健全性と展開のオラクル。Lean 4.35.0 | 保持。ツールチェーンの選択を再利用し、命題論理解析 の意味モデルを独立に検査する。 |
-| `trion-language` | `document.rs` と `syntax/` が入力を処理し、`reading/` が意味を読み、`trion-solver::Formula` を利用する | 隔離。この依存方向を Core に持ち込むと F03 に反する。 |
-| `trion-solver`、`trion-verification` | 算術・量化・証明探索、責任・時間・構造の解析、証明義務および形式別出力 | 保持。命題論理解析 には小さい別の変換契約を設ける。 |
-| `trion-checker` | `eval.rs` の具体挙動の検査や `derive.rs` の読みの再検査。既存の言語型・式型を利用する | 保持。命題論理解析 の参照評価には既存の判定本体を共有しない。 |
-| `trion-cli`、`trioc-cli`、`mmt` | `trion --out` が MMT と文書へ変換し、`trioc prove` が義務ごとに判定・証明形式を出す | 保持。命題論理解析の入口と保存形式を追加する。 |
-| `smtlib`、`alethe`、`cpc`、`eunoia`、`moxi` | 後段形式の構文・検査のライブラリーと外部検査器のテスト | 隔離。命題論理解析 の証拠は元の式で再検査する。 |
-| `stdlib/`、`editors/`、`trion-lsp` | 語彙集、エディタ統合、言語サーバー | 保持。編集機能の追加は今回の範囲外。 |
-| Rust 各クレートの `tests/`、`formal/lakefile.lean` | 既存の契約・読解・証明形式の回帰、Lean ビルド。追跡済み CI 定義は調査時点でなし | 保持。命題論理解析 の適合試験と依存方向の CI を追加する。 |
+| `AGENTS.md`, `spec/*.trion`, `spec/semantics/`, `spec/patterns/ledger.toml` | A/G contracts, responsibility, time and individuals, and the pattern ledger | Retained. Added propositional analysis to the current specification. |
+| `formal/Trion/`, `formal/Oracle.lean` | Contract sets, merging, sentence expansion, document soundness, and the expansion oracle. Lean 4.35.0 | Retained. Reused the toolchain to check a separate model of propositional analysis. |
+| `trion-language` | `document.rs` and `syntax/` process input. `reading/` interprets it using `trion-solver::Formula`. | Kept outside Core so Core can meet F03. |
+| `trion-solver`, `trion-verification` | Arithmetic, quantification, proof search, responsibility, time, structure, proof obligations, and output formats | Retained. The initial propositional analysis used a separate, small translation contract. |
+| `trion-checker` | `eval.rs` checks concrete behavior. `derive.rs` rechecks readings. Both use existing language and formula types. | Retained. The propositional reference evaluator uses an independent implementation. |
+| `trion-cli`, `trioc-cli`, `mmt` | `trion --out` converts to MMT and documents. `trioc prove` decides each obligation and produces supported proof formats. | Retained. Added entry points and an interchange format for propositional analysis. |
+| `smtlib`, `alethe`, `cpc`, `eunoia`, `moxi` | Backend format libraries and tests with external checkers | Kept outside the propositional analysis path. That path checks evidence against the original expressions. |
+| `stdlib/`, `editors/`, `trion-lsp` | Vocabulary, editor integration, and the language server | Retained. Editor enhancements were outside the initial scope. |
+| Rust crate tests and `formal/lakefile.lean` | Existing regression tests for contracts, readings, and proof formats, plus the Lean build. | Retained. Added local propositional conformance and dependency checks. |
 
-依存は `cargo tree --workspace --locked --depth 1 -e normal`、入口は各ライブラリーと CLI のソース、形式モデルは `cd formal && lake build` で確認した。既存の全パターンを 命題論理解析 の受入条件で再審査する作業、既存 MMT と 命題論理解析 の相互変換、エディタの手動確認は今回の調査対象外。回帰試験の結果は [ローカル検証記録](propositional-verification.md) を参照。
+We inspected dependencies with `cargo tree --workspace --locked --depth 1 -e normal`, read entry points in the libraries and CLI, and checked the formal model with `lake build` in `formal/`. The survey excluded a full review of legacy patterns against the propositional acceptance criteria, conversion between the existing MMT form and propositional analysis, and manual editor testing. [Local verification results](propositional-verification.md)

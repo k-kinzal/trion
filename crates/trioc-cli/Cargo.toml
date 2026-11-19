@@ -12,6 +12,8 @@ path = "src/lib.rs"
 trion-cnl = { path = "../trion-cnl" }
 trion-boolean = { path = "../trion-boolean" }
 trion-analysis = { path = "../trion-analysis" }
+trion-core.workspace = true
+trion-reference = { path = "../trion-reference" }
 trion-language.workspace = true
 trion-solver.workspace = true
 trion-verification.workspace = true

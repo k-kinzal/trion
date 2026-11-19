@@ -1,0 +1,325 @@
+namespace trion:
+    primitive contract constructor, source pattern, unmapped controlled sentence
+
+    source CONTRACT-MAPPING:
+        title "How controlled sentence patterns introduce contract constructors"
+        locator "urn:trion:grammar:contract-mapping"
+        kind citation
+        quote RULES """
+Capitalized slot names in the pattern columns are metavariables. Brackets mark optional material. A slash between literal alternatives offers a choice.
+Subject and Actor are noun phrases. Action is a verb phrase. Clause is a finite copular or verbal clause. Predicate completes a copular clause. A slot must itself match the applicable controlled phrase rules.
+The reading rule names the syntax or modifier that was recognized. A sentence may use several rules. The mapping of the whole sentence is the composition of those rules with the declared responsibilities and shared conditions. The individual rows give local contributions before adding any shared conditions.
+An Introduces cell lists constructors that the rule can introduce. Constructors supplied by a nested slot or an enclosing rule come from that other rule. None leaves the constructor vocabulary of the enclosing or nested rules unchanged. Rejected supplies no contract.
+A simple sentence must match a sentence pattern and all of its meaning-bearing phrases must have a reading. Composite syntax expands to mapped forms, or explicitly combines their contracts as specified in its row. Refuse a sentence with a rejected or unresolved reading before producing a formal document.
+Each constructor in the formal vocabulary has a source rule. The vocabulary table identifies at least one such rule beside its signature and meaning. Terms and relation names supplied by a slot are arguments of a listed constructor.
+The mapping concerns the sentence and contract representation. Grounding, trace construction, and proof encoding derive further formulas from those contracts.
+For a mixed guard, an environment-only conjunct stays in A. A guard part that mentions a system-controlled term stays together inside G. Keep a disjunction intact when its branches have different responsibilities.
+"""
+
+    section "Controlled sentences and their proof obligations":
+        ref [CATALOG-CLOSED]
+        ref [SENTENCE-ONE-CONTRACT]
+        ref [SENTENCE-RESPONSIBILITY]
+        ref [SENTENCE-GUARANTEE]
+
+        [GRAMMAR-CONTRACT-MAPPING]
+        The trion processor shall reject each unmapped controlled sentence.
+            cite CONTRACT-MAPPING#RULES
+
+        [GRAMMAR-CONSTRUCTOR-ORIGIN]
+        Each contract constructor shall have a source pattern.
+            cite CONTRACT-MAPPING#RULES
+
+        table "Proof obligations of controlled sentence forms":
+            | Pattern | Proof obligations {references} |
+            | --- | --- |
+            | `Actor shall Action.` | [SENTENCE-INPUT-ENABLED], [OBLIGATION-COMPATIBILITY] |
+            | `Actor shall Action if Clause.` | [SENTENCE-INPUT-ENABLED], [OBLIGATION-COMPATIBILITY] |
+            | `Actor should [not] Action.` | [OBLIGATION-RECOMMENDATION] |
+            | `Actor shall Action before Clause.` when the environment controls Clause | [OBLIGATION-REALIZABILITY] |
+
+    section "Sentence patterns and contract mappings":
+        table "Sentence readings":
+            | Reading rule | Pattern | Contract mapping | Introduces |
+            | --- | --- | --- | --- |
+            | obligation | `Actor shall/must Action.` | For an action k of a system actor, A = True and G = And(Act(k), Not(Forbid(k)), Not(Discouraged(k))). Action can instead supply a required state or comparison. | True, And, Not, Act, Forbid, Discouraged |
+            | prohibition | `Actor shall/must not Action.` | For an action k of a system actor, A = True and G = And(Not(Act(k)), Forbid(k)). A state prohibition denies the state. | True, And, Not, Act, Forbid |
+            | recommendation | `Actor should Action.` | For an action k, A = True and G = And(Not(Forbid(k)), Not(Discouraged(k))). The result carries recommendation strength. | True, And, Not, Forbid, Discouraged |
+            | recommendation-against | `Actor should not Action.` | For an action k, A = True and G = Discouraged(k). The result carries recommendation strength. | True, Discouraged |
+            | permission | `Actor may Action.` | For an action k, A = True and G = Not(Forbid(k)). The result carries permission strength. | True, Not, Forbid |
+            | description | `Subject is/are Predicate.` | Read the predicate as a value, quantity, relation, or domain declaration. Put a system claim in G and an environment-only claim in A. | True, Val, Dom, Num, Lin, Rel |
+            | description-adverb | `Subject is/are always/never/not Predicate.` | Use the description reading as an invariant. Negate it for never or not. | True, Val, Dom, Num, Lin, Rel, Not |
+            | relation | `Subject FiniteVerb [Object].` | Read a plain named action as Act. A universal relation applies if its subject exists. Typed subjects can give a relation of individuals. A verbal comparison between quantities reads a linear relation. | True, Act, Event, And, Not, Implies, Num, Lin, Rel |
+            | existence | `There is/are NounPhrase.` | Assert existence, or a cardinality when given. Conjoin the claims for the subjects. Over declared individuals, evaluate the claim in that domain. | True, Event, And, Num, Rel |
+            | definition | `Term means DefiningNounPhrase.` | State the inclusion in a named kind and, when present, its defining restriction. The definition contributes vocabulary constraints. | True, Dom, Rel |
+            | statements-and | `Statement and Statement.` | Expand coordinated statements within the shared scope. Their contracts hold together. | None |
+
+        table "Conditions and compound actions":
+            | Reading rule | Pattern | Contract mapping | Introduces |
+            | --- | --- | --- | --- |
+            | frame-if | `Actor shall Action if Clause.` / `If Clause, then Sentence.` | Let C be the reading of Clause and R be the response. For an environment condition, A = C and G = R. For a system condition, A = True and G = Implies(C, R). | True, Implies |
+            | frame-when | `When Clause, Sentence.` / `Sentence when Clause.` | Guard the response at each matching event. Responsibility places the guard as for frame-if. | Implies |
+            | frame-while | `While Clause, Sentence.` / `Sentence while Clause.` | Guard the response while the state holds. Responsibility places the guard as for frame-if. | Implies |
+            | frame-where | `Where Clause, Sentence.` | Select configurations. A verbal feature test reads Config. | Config |
+            | clause-copular | `Subject is/are Predicate` | Read a state or comparison in the condition. | Val, Num, Lin |
+            | clause-verbal | `Subject FiniteVerb [Object]` | Read an event, or a comparison when the verb compares quantities. | Event, Num, Lin |
+            | clause-verbal-denied | `Subject does/do/did not Verb [Object]` | Deny the event. | Not, Event |
+            | clauses-and | `Clause and Clause` | Both clauses must hold. | And |
+            | clauses-or | `Clause or Clause` | At least one clause must hold. | Or |
+            | exception-unless | `Sentence unless Clause.` | Apply the sentence under the negation of the exception. | Not, And |
+            | condition-only-if | `Sentence only if/when/where Clause.` | The response requires Clause. An action response reads as the disjunction of Clause and the denial of the action. | Implies, Or, Not, Forbid |
+            | condition-if-and-only-if | `Sentence exactly when Clause.` | Apply the response when Clause holds and exclude it where Clause fails. | And, Or, Not, Implies, Forbid |
+            | concession-even-when | `Sentence, even when/if Clause.` | The emphasized case remains subject to the same sentence. | None |
+            | actions-and | `Actor Modal Action and Action.` | Expand into the corresponding action sentences within the same scope. | None |
+            | actions-either | `Actor Modal either Action or Action.` | One of the action readings must hold. | Or |
+            | composition-all | `Actor shall perform all of the following actions:` Action list | Require the conjunction of the listed responses. | And |
+            | composition-some | `Actor shall perform one or more of the following actions:` Action list | Require at least one listed response. | Or |
+            | composition-one | `Actor shall perform exactly one of the following actions:` Action list | Require one listed response and exclude the other actions in each alternative. | Or, And, Not, Act |
+            | composition-sequence | `Actor shall perform the following actions in order:` Action list | Require the listed responses and their specified order. | And, Before |
+            | composition-flow | `Actor shall follow this flow:` with `step Name: Action;`, `start Name`, and flow edges | Use the step responses and their order. Introduce an event for reaching a step. | Act, And, Before, Event |
+            | flow-choice | `choose after Step:` with `when Clause -> Step` and optional `otherwise -> Step` | Guard each branch with its condition and establish the branch proof obligations. | Implies, Not, And, Or |
+
+        table "Actions, predicates and measurements":
+            | Reading rule | Pattern | Contract mapping | Introduces |
+            | --- | --- | --- | --- |
+            | action | `Verb [Object] [RolePhrase]` | Bind the action arguments used by the enclosing modal or descriptive rule. A count bounds its occurrences. `become State` reads the stated value. | Num, Val |
+            | action-passive-or-state | `be Participle [by Actor]` / `be State` | Read the passive through its active action or read the stated value. | Val |
+            | predicate-words | `[not] Value` | Read a named value of the subject. | Val, Not |
+            | predicate-nominal | `a/an Kind` / `a/an Kind or a/an Kind` | Read the kinds of the subject or their alternatives. | Dom, Rel, Val, Or |
+            | predicate-enumeration | `Value, Value, or Value` | Read the listed values. A closed attribute enumeration admits only its declared domain values. | Dom, Val, Or, And, Not |
+            | predicate-prepositional | `Preposition NounPhrase` as a predicate | Read a value or typed relation of the subject. | Val, Rel |
+            | predicate-comparison | `Comparison Measure` | Compare a quantity to a bound or compare a linear combination of quantities. | Num, Lin, And |
+            | measure-quantity | `Number Unit` | Name the magnitude and unit of a comparison. | None |
+            | measure-bounded | `Bound Number Unit` | Supply the comparator and bound, with both endpoints for a range. | None |
+            | measure-named | `QuantityName` | Supply a named quantity as an operand. | None |
+            | content-of-verb | `Verb that Clause` | Bind the clause as the content of the action. The enclosing verb decides its relation to the clause. | None |
+            | content-established | Establishing `Verb that Clause` | Relate the action to the state or event it establishes. | Implies |
+            | content-permitted | Permitting `Verb that Clause` | Relate the action to the permission of its content. | Implies, Not, Forbid |
+            | content-required | Requiring `Verb that Clause` | Relate the action to the required occurrence of its content. | Implies, Act |
+            | role-deadline | `within Measure` | Bound elapsed time from the activation or stated origin. | Num, Lin |
+            | deadline-origin | `within Measure of EventPhrase` | Select the occurrence that starts the deadline. | None |
+            | role-delay | `at least Measure after Clause` | Bound the delay from the named occurrence. | Num, Lin |
+            | role-duration | `for Measure` | Bound the duration of the action. | Num |
+            | role-before | `before Clause` | Constrain the response relative to the named occurrence. | None |
+            | role-after | `after Clause` | Constrain the response relative to the named occurrence. | None |
+            | role-until | `until Clause` | Constrain how long the reading holds up to the named occurrence. | None |
+            | order-of-occurrence | `before/after Ordinal EventPhrase` | Order the response relative to the selected occurrence. | None |
+            | occurrences-in-a-row | `Count in a row` | Use adjacent occurrences for the counted run. | None |
+            | timing-immediately | `immediately Action` | Require the response at the first applicable moment. | None |
+            | timing-always | `always Action` | Apply the response throughout its active scope. | None |
+            | timing-eventually | `eventually Action` | Make the default eventual completion of an untimed positive action explicit. | None |
+
+        table "Terms, references and action arguments":
+            | Reading rule | Pattern | Contract mapping | Introduces |
+            | --- | --- | --- | --- |
+            | noun-phrase-bare | `Name` | Name the party, value, object, or kind required by the enclosing slot. | None |
+            | noun-phrase-article | `the/a/an Noun` | Bind the noun in the enclosing slot under its article. | None |
+            | noun-phrase-universal | `each/every/all/any Noun` | Apply the reading to the eligible individuals of the kind in its domain. | And |
+            | noun-phrase-none | `no Noun` | Exclude the individuals or occurrences selected by the enclosing phrase. | Not |
+            | noun-phrase-existential | `some Noun` | Require a witness among the eligible individuals. | Or |
+            | noun-phrase-counted | `Count Noun` | Bound the number of individuals or occurrences in a slot with a counting reading. | Num, Lin |
+            | noun-phrase-reference | `ReferenceDeterminer Noun` | Resolve the reference within the sentence under the reference rules. | None |
+            | noun-phrase-modified | `Modifier Noun` | Restrict or name the noun as required by the enclosing reading. | None |
+            | noun-phrase-kind-word | `KindModifier Noun` | Keep a recognized kind word in the noun phrase. | None |
+            | noun-phrase-of | `Noun of NounPhrase` | Bind the owner or argument of the qualified term. | Rel |
+            | noun-phrases-and | `NounPhrase and NounPhrase` | Combine the selected entities conjunctively in the enclosing reading. | And |
+            | noun-phrases-or | `NounPhrase or NounPhrase` | Combine the selected entities disjunctively in the enclosing reading. | Or |
+            | relative-verbal | `Noun that/who Verb [Object]` | Restrict the noun by a verbal relation. | Rel, Event, Act |
+            | relative-verbal-denied | `Noun that/who does not Verb [Object]` | Restrict the noun by the denial of its verbal relation. | Not |
+            | relative-copular | `Noun that/who is Predicate` | Restrict the noun by a state or relation. | Val, Rel |
+            | relative-object-gap | `Noun that Subject Verb` | Bind the noun as the missing object of the relation. | Rel |
+            | relative-whose | `Noun whose Clause` | Bind the owned term in the restriction. | Rel, Val |
+            | relative-where | `Noun where Clause` | Bind the state or relation within the noun's scope. | Rel, Val |
+            | role-recipient | `to Recipient` | Bind the recipient of the action. | None |
+            | role-means | `using Means` | Bind the means of the action. | None |
+            | role-topic | `about Topic` | Bind the topic of the action. | None |
+            | role-source | `from Source` | Bind the source of the action. | None |
+            | role-goal | `into/onto Goal` | Bind the destination of the action. | None |
+            | role-location | `in/on/at Location` | Bind the location of the action or state. | None |
+            | role-agent | `by Actor` after a passive action | Bind the agent of the active form. | None |
+            | role-other | `SupportedPreposition NounPhrase` | Bind the additional argument as specified by the enclosing reading. A relation between named individuals can contribute Rel. | Rel |
+
+        table "Recognized forms without a contract reading":
+            | Reading rule | Pattern | Contract mapping | Introduces |
+            | --- | --- | --- | --- |
+            | permission-denied | `Actor may not Action.` | Rejected | None |
+            | predicate-able-to | `Subject is able to Action.` | Rejected | None |
+            | condition-only-if-denied | `Actor shall not Action only/exactly when Clause.` | Rejected | None |
+            | concession-while-gerund | `Sentence while GerundPhrase.` | Rejected | None |
+            | purpose | `Sentence so that Clause.` / `Sentence in order to Action.` | Rejected | None |
+            | content-of-noun | `Noun that Clause` with an independent content clause | Rejected | None |
+            | role-exclusion | `Actor Modal Action except/excluding/without NounPhrase.` | Rejected | None |
+            | role-by | `Actor Modal ActiveVerb by NounPhrase.` | Rejected | None |
+            | role-rate | `Action Count per Unit` | Rejected | None |
+            | frame-counted-event | `When/After Count Noun Verb, Sentence.` | Rejected | None |
+            | frame-before | `Before Clause, Sentence.` | Rejected | None |
+            | subject-counted-descriptive | `Count Subject FiniteVerb.` without a reading for a counted subject | Rejected | None |
+            | object-zero-or-more | `Actor Modal Verb zero or more Noun.` | Rejected | None |
+
+namespace trion.propositional:
+    primitive grammar example
+    primitive ambiguity, artifact, artifact formal structure, author, binary operator
+    primitive carriage return, propositional-cnl/1, propositional-cnl/2, conditional spelling, declaration order
+    primitive diagnostic byte range, excessive exchange depth, excluded feature, expansion core node, expression
+    primitive forward reference, grammar keyword, invalid token, invalid UTF-8, propositional concrete syntax
+    primitive reason, requested grammar version, same grouping level, saved core, saved input
+    primitive saved input grammar, saved source mapping, source digest, source range, space
+    primitive tab, then, token line feed, unavailable grammar version, UTF-8
+    primitive version, word if, zero-based half-open UTF-8 byte range
+
+    source PROP-INPUT:
+        title "propositional concrete syntax"
+        locator "urn:trion:propositional-cnl:1"
+        kind citation
+        quote GRAMMAR """
+document    = declaration* premise* question EOF
+declaration = "proposition" name "."
+premise     = "assume" expression "."
+question    = ("entails" expression | "satisfiable") "."
+expression  = unary [binary unary]
+unary       = name | "true" | "false" | "not" unary | "(" expression ")"
+binary      = "and" | "or" | "implies"
+name        = an ASCII letter followed by zero or more ASCII letters, digits, or underscores, excluding reserved words
+"""
+        quote EXTENSION """
+propositional-cnl/2 adds to unary: "if" unary "then" unary
+"""
+        quote OBLIGATIONS """
+declaration supplies a name in the valuation domain.
+premise supplies a formula that a premise model must satisfy (Q-MODEL).
+satisfiable selects premise satisfiability (Q-SAT).
+entails selects entailment of the target from those premises (Q-ENTAILS).
+Both questions bind the same document and its full set of premises (Q-BINDING).
+"""
+        quote FEATURES """
+Reserved unsupported words: always eventually next forall exists shall may
+Reserved unsupported symbols: + - * / = < >
+Decimal digit tokens are unsupported.
+"""
+
+        quote EXAMPLES """
+Accepted in both versions: proposition P. proposition Q. assume P implies Q. assume P. entails Q.
+Accepted in propositional-cnl/2 and unsupported in propositional-cnl/1: proposition P. proposition Q. assume if P then Q. assume P. entails Q.
+Accepted with a true target: entails false implies false.
+Accepted with the empty valuation as counterexample: entails false.
+Ambiguous: entails true or false and false.
+Invalid because R is undeclared: entails R.
+Unsupported temporal expression: entails always true.
+Unsupported arithmetic expression: entails 12 + 3.
+"""
+        quote MAPPING """
+The mapping root is a declaration index, premise index, or query.
+Left children use 0. Right children use 1. Negation children use 0.
+P implies Q maps the root to Or, path [0] to Not, path [0,0] to P, and path [1] to Q.
+The synthetic Not points to the implication token.
+The Or points to the span of the whole implication.
+"""
+
+    source PROP-MODEL:
+        title "Propositional metatheory and mathematical model"
+        locator "../formal/Trion/Propositional.lean"
+        kind citation
+
+    section "Versioned concrete syntax":
+        cite FOUNDATION
+        [CNL-VERSION]
+        The propositional parser shall use the requested grammar version.
+        The propositional parser shall use "propositional-cnl/1" when the author gives no version.
+        The propositional parser shall reject an unavailable grammar version.
+
+        [CNL-SYNTAX]
+        The propositional parser shall apply the propositional concrete syntax.
+            cite PROP-INPUT#GRAMMAR
+        The propositional parser shall read UTF-8.
+        The propositional parser shall ignore spaces, tabs, carriage returns, and line feeds between tokens.
+        The propositional parser shall reserve the grammar keywords and the words "if" and "then".
+        The propositional parser shall assign slots in declaration order.
+        The propositional parser shall reject forward references.
+
+        [CNL-AMBIGUOUS]
+        If an expression contains at least two binary operators at the same grouping level, then the propositional parser shall report ambiguity.
+
+        [CNL-FEATURE]
+        The propositional parser shall report excluded features as unsupported.
+            cite PROP-INPUT#FEATURES
+        The propositional parser shall report an invalid token as invalid.
+        The propositional parser shall report invalid UTF-8 as invalid.
+        The propositional parser shall report excessive exchange depth as unsupported.
+
+        [CNL-IF]
+        The propositional parser shall admit the conditional spelling in "propositional-cnl/2".
+            cite PROP-INPUT#EXTENSION
+        The propositional parser shall expand the conditional spelling as an implication.
+        The propositional parser shall report the conditional spelling in "propositional-cnl/1" as unsupported.
+
+        [PROP-IMPLIES]
+        An implication is true exactly when the antecedent of the implication is false or the consequent of the implication is true.
+
+        [PROP-EXPAND]
+        The propositional parser shall expand an implication to a disjunction of the negation of the antecedent and the consequent.
+            cite PROP-MODEL
+
+    section "Acceptance, provenance and printing":
+        cite FOUNDATION
+        The status of an input is accepted, ambiguous, unsupported, or invalid.
+
+        [CNL-ACCEPTANCE]
+        The propositional parser shall issue an artifact only if the input has an unambiguous well-formed reading.
+
+        [CNL-EXAMPLES]
+        The propositional parser shall check the grammar examples.
+            cite PROP-INPUT#EXAMPLES
+
+        [CNL-DIAGNOSTIC]
+        The propositional parser shall record the rule, reason, and byte range of a diagnostic.
+
+        [CNL-PROVENANCE]
+        The propositional parser shall record the source digest.
+        The propositional parser shall record each source range, rule, and core node of an expansion.
+        The propositional parser shall identify a core node using the root and the child path.
+            cite PROP-INPUT#MAPPING
+        The propositional parser shall use zero-based half-open UTF-8 byte ranges.
+
+        [CNL-REPLAY]
+        The propositional parser shall reread a saved input under the grammar of the saved input.
+        The propositional parser shall check the saved core and the saved source mapping.
+
+        [CNL-PRINT]
+        The propositional printer shall parenthesize each binary formula.
+        The propositional printer shall print the expanded formula.
+        The propositional printer shall preserve the formal structure of an artifact.
+
+    section "Writing a propositional check":
+        table "Write the check input in this order":
+            | Part | Example | What to write | Proof obligations {references} |
+            | --- | --- | --- | --- |
+            | 1. Declarations | `proposition P.` | Zero or more declarations. Each name starts with an ASCII letter and continues with ASCII letters, digits, or underscores. Names are case-sensitive and unique. Declaring P leaves its truth value open. | [Q-BINDING] |
+            | 2. Premises | `assume P implies Q.` | Zero or more premises. Use declared names in each Boolean expression. Every premise must hold in the same valuation. | [Q-MODEL], [Q-INCONSISTENT] |
+            | 3. Question | `satisfiable.` | Use this as the last sentence to ask whether the premises can all be true. | [Q-BINDING], [Q-SAT] |
+            | 3. Question | `entails Q.` | Use this as the last sentence to ask whether the premises are satisfiable and the expression follows from them. Write exactly one question per check. | [Q-BINDING], [Q-NONVACUOUS-ENTAILMENT] |
+
+        table "Boolean expressions":
+            | Expression | Example | Reading |
+            | --- | --- | --- |
+            | Name | `P` | A proposition declared earlier in this input |
+            | Constants | `true`, `false` | Truth and falsity |
+            | Negation | `not P` | P is false |
+            | Conjunction | `P and Q` | P and Q are both true |
+            | Disjunction | `P or Q` | At least one of P and Q is true |
+            | Implication | `P implies Q` | P is false or Q is true |
+            | Grouping | `(P and Q) implies R` | At most one binary operator at each parenthesis level. `P and Q implies R` is ambiguous. |
+            | Alternate implication in `propositional-cnl/2` | `if P then (Q or R)` | Equivalent to `P implies (Q or R)`. Parenthesize a branch that contains a binary expression. |
+
+        check CARD-ACCESS:
+            grammar "propositional-cnl/1"
+            input """
+proposition P.
+proposition Q.
+assume P implies Q.
+assume P.
+entails Q.
+"""
+
+        [CNL-OBLIGATIONS]
+        The propositional parser shall preserve the premises and the query of the input.
+            cite PROP-INPUT#OBLIGATIONS

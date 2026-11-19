@@ -24,7 +24,7 @@ mod structure;
 pub use environment::Control;
 
 pub use isolation::{temporal_forms, Isolation};
-pub use references::{Counterexample, Asked, Decision, ObligationQuestion, ObligationVerdict, ProofObligation, ProofObligations, RefinementOutcome};
+pub use references::{Counterexample, Asked, Decision, ObligationQuestion, ObligationVerdict, ProofObligation, ProofObligations, RefinementOutcome, PROPOSITIONAL_CHECK};
 pub use properties::check as check_properties;
 
 use blocks::{Environment, Operand};
@@ -421,6 +421,11 @@ pub fn stated_contracts(set: &SpecSet, analysis: &Analysis) -> (Vec<StatedContra
             _ if authored.is_recommendation(c) => ("recommendation", c.assume.clone(), c.guarantee.clone()),
             _ if authored.is_description(c) && !situated.about_system(&c.formula()) => ("assumption", c.formula(), Formula::True),
             _ => ("guarantee", c.assume.clone(), c.guarantee.clone()),
+        };
+        let (assume, guarantee) = if matches!(role, "guarantee" | "recommendation" | "permission") {
+            situated.contract(assume, guarantee, &model.configured)
+        } else {
+            (assume, guarantee)
         };
         // An individual that the response chooses is a variable of its own.
         let taken: BTreeSet<String> = parameters.iter().map(|(_, kind): &(String, String)| kind.clone()).collect();

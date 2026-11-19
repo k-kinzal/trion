@@ -3094,6 +3094,24 @@ open = [
 acceptance = ["A20", "A23"]
 
 [[pattern]]
+id = "doc-propositional-check"
+group = "blocks"
+surface = [
+    "check CARD-ACCESS:\n    grammar \"propositional-cnl/1\"\n    input \"proposition P. assume P. entails P.\"",
+]
+parser = "crates/trion-language/src/document.rs:propositional_check"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-verification/src/analysis/references.rs:propositional_question"
+evidence = [
+    "crates/trion-cli/tests/analysis_cli.rs::propositional_checks_are_decided_from_the_mmt_form",
+    "crates/trion-cli/tests/analysis_cli.rs::a_propositional_check_rejects_input_outside_its_pinned_grammar",
+]
+claims = ["property_entails"]
+open = []
+acceptance = []
+
+[[pattern]]
 id = "doc-example"
 group = "blocks"
 surface = [
@@ -3194,6 +3212,26 @@ claims = []
 open = [
     "W11: the text of a note is discarded by the parser; it is not shown in any result",
 ]
+acceptance = []
+
+[[pattern]]
+id = "doc-table"
+group = "packages"
+surface = [
+    "table \"Requirements\":\n    | Rule {id} | Reading {statement} |\n    | --- | --- |\n    | [STOP] | The API shall stop. |",
+    "table \"Mapping\":\n    | Form | Rule {references} |\n    | --- | --- |\n    | Stop request | [STOP] |",
+]
+parser = "crates/trion-language/src/document/table.rs:table"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/document.rs:plain_statement; crates/trion-verification/src/analysis/structure.rs:check_references"
+evidence = [
+    "crates/trion-cli/tests/tables.rs::statement_tables_have_the_same_mmt_meaning_as_their_sentences",
+    "crates/trion-cli/tests/tables.rs::mapping_tables_resolve_references_and_render_as_tables",
+    "crates/trion-cli/tests/tables.rs::invalid_rows_have_positioned_diagnostics",
+]
+claims = ["contract_sat"]
+open = []
 acceptance = []
 
 [[pattern]]

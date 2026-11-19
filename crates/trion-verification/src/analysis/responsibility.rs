@@ -76,4 +76,36 @@ impl Situated {
         formula.atoms(true, &mut |atom, _| found |= atom.symbols().into_iter().any(|symbol| self.system.contains(symbol)));
         found
     }
+
+    /// Put a condition about the response in the guarantee. Conjuncts
+    /// fixed by the situation stay in the assumption. A mixed disjunction
+    /// stays together so that factoring the guard preserves its meaning.
+    pub(super) fn contract(&self, guard: Formula, response: Formula, configured: &BTreeSet<String>) -> (Formula, Formula) {
+        let mut conditions = vec![guard];
+        let mut given = Vec::new();
+        let mut internal = Vec::new();
+        while let Some(condition) = conditions.pop() {
+            if let Formula::And(parts) = condition {
+                conditions.extend(parts.into_iter().rev());
+                continue;
+            }
+            let mut system = false;
+            condition.atoms(true, &mut |atom, _| {
+                system |= !matches!(atom, trion_solver::Atom::Config { .. })
+                    && atom.symbols().into_iter().any(|symbol| self.system.contains(symbol) && !configured.contains(symbol));
+            });
+            if system {
+                internal.push(condition);
+            } else {
+                given.push(condition);
+            }
+        }
+        let assumption = simplify(Formula::And(given));
+        let guarantee = if internal.is_empty() {
+            response
+        } else {
+            Formula::implies(simplify(Formula::And(internal)), response)
+        };
+        (assumption, guarantee)
+    }
 }

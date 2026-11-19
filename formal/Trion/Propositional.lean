@@ -147,6 +147,73 @@ theorem target_query_exact (v : Valuation n) (ps : List (Expr n)) (q : Question 
   rw [← query_condition_exact, List.all_eq_true]
   simp [Premises, translate_exact, eval_correct]
 
+/-- The propositional fragment of the MMT form. A nullary relation is
+    identified by its slot in the table of distinct declared names. -/
+inductive MmtFormula (n : Nat) where
+  | truth | relation (slot : Fin n)
+  | neg (x : MmtFormula n)
+  | both (x y : MmtFormula n)
+  | either (x y : MmtFormula n)
+
+def mmtTruth (v : Valuation n) : MmtFormula n → Prop
+  | .truth => True
+  | .relation i => v i = true
+  | .neg x => ¬ mmtTruth v x
+  | .both x y => mmtTruth v x ∧ mmtTruth v y
+  | .either x y => mmtTruth v x ∨ mmtTruth v y
+
+def toMmt : Expr n → MmtFormula n
+  | .top => .truth
+  | .bot => .neg .truth
+  | .atom i => .relation i
+  | .neg x => .neg (toMmt x)
+  | .both x y => .both (toMmt x) (toMmt y)
+  | .either x y => .either (toMmt x) (toMmt y)
+
+theorem mmt_formula_exact (v : Valuation n) (e : Expr n) :
+    mmtTruth v (toMmt e) ↔ Truth v e := by
+  induction e with
+  | top | bot | atom => simp [mmtTruth, toMmt, Truth]
+  | neg x ih => simp [mmtTruth, toMmt, Truth, ih]
+  | both x y ihx ihy | either x y ihx ihy =>
+    simp [mmtTruth, toMmt, Truth, ihx, ihy]
+
+inductive MmtQuestion (n : Nat) where
+  | satisfiable (formulas : List (MmtFormula n))
+  | unsatisfiable (formulas : List (MmtFormula n))
+  | both (left right : MmtQuestion n)
+
+def mmtHolds : MmtQuestion n → Prop
+  | .satisfiable fs => ∃ v, ∀ f ∈ fs, mmtTruth v f
+  | .unsatisfiable fs => ¬ ∃ v, ∀ f ∈ fs, mmtTruth v f
+  | .both x y => mmtHolds x ∧ mmtHolds y
+
+def mmtQuestion (ps : List (Expr n)) : Question n → MmtQuestion n
+  | .satisfiable => .satisfiable (ps.map toMmt)
+  | .entails goal => .both (.satisfiable (ps.map toMmt))
+      (.unsatisfiable (ps.map toMmt ++ [.neg (toMmt goal)]))
+
+def CheckHolds (ps : List (Expr n)) : Question n → Prop
+  | .satisfiable => ∃ v, Premises v ps
+  | .entails goal => (∃ v, Premises v ps) ∧ ¬ ∃ v, Candidate v ps (.entails goal)
+
+/-- The encoded obligation asks exactly for satisfiability or nonvacuous
+    entailment. This concerns the formulas and the questions in the form. -/
+theorem mmt_question_exact (ps : List (Expr n)) (q : Question n) :
+    mmtHolds (mmtQuestion ps q) ↔ CheckHolds ps q := by
+  have mapped (xs : List (Expr n)) (v : Valuation n) :
+      (∀ f ∈ xs.map toMmt, mmtTruth v f) ↔ Premises v xs := by
+    simp [List.mem_map, Premises, mmt_formula_exact]
+  cases q with
+  | satisfiable => simp only [mmtHolds, mmtQuestion, CheckHolds, mapped]
+  | entails goal =>
+    rw [mmtQuestion, mmtHolds, CheckHolds, mmtHolds, mmtHolds]
+    have counterexamples : ps.map toMmt ++ [.neg (toMmt goal)] =
+        (condition ps (.entails goal)).map toMmt := by
+      simp [condition, toMmt]
+    rw [counterexamples]
+    simp only [mapped, query_condition_exact]
+
 def prepend (bit : Bool) (v : Valuation n) : Valuation (n + 1) :=
   Fin.cases bit v
 
@@ -254,6 +321,12 @@ theorem entails_sound (ps : List (Expr n)) (goal : Expr n) (budget : Nat)
 /-- info: 'Trion.Propositional.target_query_exact' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms target_query_exact
+/-- info: 'Trion.Propositional.mmt_formula_exact' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms mmt_formula_exact
+/-- info: 'Trion.Propositional.mmt_question_exact' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms mmt_question_exact
 /-- info: 'Trion.Propositional.witness_correct' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms witness_correct

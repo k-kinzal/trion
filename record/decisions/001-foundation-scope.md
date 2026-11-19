@@ -1,7 +1,7 @@
-# 001 命題論理解析の導入
+# 001 Introducing propositional analysis
 
-時間付き A/G 契約には、環境入力に応答できる実装の存在など、命題付値だけでは表せない問いがある。初期の解析対象には古典二値の命題論理を選んだ。要求は [trion の現行仕様](../../spec/trion.trion) の [命題論理解析](../../spec/propositional/analysis.trion) に含める。
+Timed assume-guarantee (A/G) contracts ask questions beyond the scope of propositional valuations, such as whether an implementation can respond to every admissible input. We chose classical two-valued propositional logic for the initial analysis. The requirements are part of [the current trion specification](../../spec/trion.trion). [Propositional analysis requirements](../../spec/propositional/analysis.trion)
 
-`trion formalize` は入力を検査し、形式成果物と出所を JSON で保存する。`trioc analyze` はその成果物に結び付いた解析記録を生成する。意味論の識別子 `classical-propositional/1` は成果物の解釈を固定するために使う。A/G 契約と命題論理を結ぶ変換には、対象と意味保存の定義が必要になる。
+`trion formalize` validates the input and saves the formal artifact and its provenance as JSON. `trioc analyze` produces an analysis record bound to that artifact. The semantics identifier `classical-propositional/1` fixes how the artifact is interpreted. A conversion between A/G contracts and propositional logic needs a defined domain and a semantic preservation contract.
 
-後段には否定標準形の有限 Boolean 問題を調べるワーカーを選んだ。実行を別プロセスに隔離すると、打切りや強制終了を結果の受理と区別できる。参照評価は Core の式を直接評価する。F01〜F08 の根拠は [証拠一覧](../foundation/evidence-index.md) に記録した。
+The backend worker checks finite Boolean problems in negation normal form. Running it in a separate process allows the runner to distinguish a timeout or forced termination from acceptance of a result. The reference evaluator evaluates Core expressions directly. [Evidence for F01–F08](../foundation/evidence-index.md)

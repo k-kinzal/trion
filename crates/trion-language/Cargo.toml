@@ -9,6 +9,7 @@ name = "trion_language"
 path = "src/lib.rs"
 
 [dependencies]
+trion-cnl.workspace = true
 trion-solver.workspace = true
 serde.workspace = true
 serde_json.workspace = true

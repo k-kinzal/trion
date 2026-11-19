@@ -189,8 +189,36 @@ fn the_repository_passes_its_own_check_and_requirements() {
     let (stated, proved) = obligations(&result.stdout);
     assert!(stated.iter().any(|name| name == "consistency") && stated.iter().any(|name| name == "compatibility"), "{stated:?}");
     assert!(proved.iter().all(|(_, verdict)| verdict == "proved"), "{proved:?}");
+    assert!(proved.iter().any(|(name, verdict)| name == "check/CARD-ACCESS" && verdict == "proved"), "{proved:?}");
     assert!(result.stdout.lines().any(|line| line.ends_with(" proved, 0 refuted, 0 unproved; no result holds beyond its bound")), "{}", result.stdout);
     assert!(result.stdout.trim_end().ends_with("\nproved"), "{}", result.stdout);
+}
+
+#[test]
+fn the_obligation_specification_stands_without_its_surface_mappings() {
+    let fixture = Fixture::raw(&[("obligations.trion", &read("spec/obligations.trion"))]);
+    let only = verify_in(fixture.path(), &["obligations.trion"]);
+    assert_eq!(only.code, 0, "{}{}", only.stdout, only.stderr);
+
+    let loaded = project::load(&repo_root()).unwrap();
+    use trion_language::document::TableCell;
+    let documents = || loaded.set.packages.iter().filter(|pkg| pkg.is_root).flat_map(|pkg| &pkg.documents);
+    let canonical: HashSet<_> = documents().filter(|doc| doc.file == "spec/obligations.trion")
+        .flat_map(|doc| &doc.tables).flat_map(|table| &table.rows)
+        .filter_map(|row| row.identifier()).collect();
+    assert!(!canonical.is_empty(), "the proof obligations are declared in tables");
+    for file in ["spec/grammar.trion", "spec/extensions.trion"] {
+        let referenced: HashSet<_> = documents().filter(|doc| doc.file == file)
+            .flat_map(|doc| &doc.tables).flat_map(|table| &table.rows)
+            .flat_map(|row| &row.cells).filter_map(|cell| match cell {
+                TableCell::References(ids) => Some(ids.iter().map(String::as_str)),
+                _ => None,
+            }).flatten().collect();
+        assert!(referenced.is_subset(&canonical), "{file} must map directly to {canonical:?}: {referenced:?}");
+        for id in ["SENTENCE-INPUT-ENABLED", "Q-BINDING", "Q-SAT"] {
+            assert!(canonical.contains(id) && referenced.contains(id), "{file} must map to {id}");
+        }
+    }
 }
 
 #[test]

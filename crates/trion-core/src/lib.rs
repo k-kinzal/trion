@@ -1,4 +1,4 @@
-//! classical-propositional/1 interchange types and validation. See spec/propositional/core.trion and spec/propositional/queries.trion.
+//! classical-propositional/1 interchange types and validation. See spec/propositional/core.trion and spec/obligations.trion.
 
 use serde::de::{self, value::MapAccessDeserializer, IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};

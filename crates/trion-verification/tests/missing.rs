@@ -55,3 +55,14 @@ fn single_use_terms_are_listed() {
 fn an_exception_covers_the_other_values() {
     assert!(run_codes("valve is Open and Closed.\nThe pump shall stop, unless the valve is Open.\nIf the valve is Open, then the pump shall not stop.\n").is_empty());
 }
+
+#[test]
+fn a_missing_case_uses_the_whole_guard() {
+    let analysis = run("The mode is open, closed, or pending.\nWhile the mode is not open and the mode is not closed, the API shall stop.\n");
+    assert_eq!(codes(&analysis), ["missing-case", "missing-case"]);
+    let messages: Vec<_> = analysis.diagnostics.iter().map(|d| d.message.as_str()).collect();
+    assert!(messages.iter().any(|message| message.contains("mode is open")));
+    assert!(messages.iter().any(|message| message.contains("mode is closed")));
+    assert!(messages.iter().all(|message| !message.contains("mode is pending")));
+    assert!(run_codes("The mode is open, closed, or pending.\nWhile the mode is not open or the mode is not closed, the API shall stop.\n").is_empty());
+}

@@ -9,6 +9,7 @@ name = "trion_verification"
 path = "src/lib.rs"
 
 [dependencies]
+trion-core.workspace = true
 trion-language.workspace = true
 trion-solver.workspace = true
 serde.workspace = true

@@ -76,6 +76,7 @@ impl Isolation {
                 let mut kept = doc.clone();
                 kept.specs.retain(|s| matches!(s.sentence.core, Core::Definition { .. }));
                 kept.checks.clear();
+                kept.propositional_checks.clear();
                 kept.examples.clear();
                 kept.sources.clear();
                 kept.references.clear();

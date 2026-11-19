@@ -30,7 +30,7 @@ namespace trion:
         If a statement of a package does not conform to the trion language, then the trion command shall fail.
 
         [TOOL-DOC-CONFORMING]
-        The trion command shall write a document of each conforming package.
+        The trion command shall write a document of each conforming package when an author requests an output format.
 
         [TOOL-NO-PROOF]
         The trion command shall not prove a package.
@@ -48,7 +48,7 @@ namespace trion:
         the trioc command shall follow this flow:
             step read: read the proof obligations of M;
             step prove: decide each proof obligation of M;
-            step certify: issue a certificate of each result in each requested certificate format;
+            step certify: issue the requested certificates of the proved results;
             step report: report each result of M;
 
             start read

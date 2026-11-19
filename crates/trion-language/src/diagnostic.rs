@@ -143,6 +143,7 @@ pub const CODES: &[&str] = &[
     "parse-scenario",
     "parse-sentence",
     "parse-source",
+    "parse-table",
     "parse-spec-id",
     "priority-unsupported",
     "prover-failed",

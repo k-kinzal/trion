@@ -63,6 +63,89 @@ fn trioc_reads_back_exactly_what_trion_wrote() {
 }
 
 #[test]
+fn conditional_sentence_patterns_preserve_responsibility_in_the_exported_contract() {
+    use trion_solver::{Atom, Formula};
+
+    let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", "system API
+environment user
+primitive API, user
+[PLAIN] The API shall stop.
+[EXTERNAL] The API shall stop if the user arrives.
+[INTERNAL] The API shall stop if the API starts.
+[BOTH] The API shall stop if the user arrives and the API is ready.
+[EITHER] The API shall stop if the user arrives or the API starts.
+")]);
+    let run = f.convert(&["--out", "out"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let form = Form::read(&f.read("out/source/specification.mmt")).unwrap();
+    let key = "API|stop".to_string();
+    let response = Formula::And(vec![
+        Formula::atom(Atom::Act { key: key.clone() }),
+        Formula::not(Formula::atom(Atom::Forbid { key: key.clone() })),
+        Formula::not(Formula::atom(Atom::Discouraged { key })),
+    ]);
+    let external = Formula::atom(Atom::Event { key: "user arrive".into() });
+    let internal = Formula::atom(Atom::Event { key: "API start".into() });
+    let state = Formula::atom(Atom::Val { attr: "API".into(), value: "ready".into() });
+    let internal_response = Formula::implies(internal.clone(), response.clone());
+    for (id, assume, guarantee) in [
+        ("PLAIN", Formula::True, response.clone()),
+        ("EXTERNAL", external.clone(), response.clone()),
+        ("INTERNAL", Formula::True, internal_response),
+        ("BOTH", external.clone(), Formula::implies(state, response.clone())),
+        ("EITHER", Formula::True, Formula::implies(Formula::Or(vec![external, internal]), response)),
+    ] {
+        let contract = form.contracts.iter().find(|contract| contract.id == id).unwrap();
+        assert_eq!((&contract.assume, &contract.guarantee), (&assume, &guarantee), "{id}");
+    }
+}
+
+#[test]
+fn an_unmapped_form_cannot_produce_an_mmt_archive() {
+    let f = Fixture::new(&[
+        ("trion.toml", MANIFEST),
+        ("a.trion", "primitive API, message\nThe API shall send at most 3 messages per second.\n"),
+    ]);
+    let result = f.convert(&["--out", "out"]);
+    assert_ne!(result.code, 0, "{}{}", result.stdout, result.stderr);
+    assert!(result.stdout.contains("role-rate") || result.stderr.contains("role-rate"), "{}{}", result.stdout, result.stderr);
+    assert!(!f.path().join("out/source/specification.mmt").exists());
+}
+
+#[test]
+fn otherwise_negates_the_trigger_within_the_shared_condition() {
+    use trion_solver::{Atom, Formula};
+
+    let source = "system API\nenvironment room, door\nprimitive API, room, door, ready\n\
+While the room is ready:\n    [BRANCH] If the door opens, then the API shall stop; otherwise, the API shall start.\n";
+    let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", source)]);
+    let run = f.convert(&["--out", "out"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let form = Form::read(&f.read("out/source/specification.mmt")).unwrap();
+    let state = Formula::atom(Atom::Val { attr: "room".into(), value: "ready".into() });
+    let trigger = Formula::atom(Atom::Event { key: "door open".into() });
+    for (id, guard) in [("BRANCH", trigger.clone()), ("BRANCH/otherwise", Formula::not(trigger))] {
+        let branch = form.contracts.iter().find(|contract| contract.id == id).unwrap();
+        assert_eq!(branch.assume, Formula::And(vec![state.clone(), guard]), "{id}");
+    }
+}
+
+#[test]
+fn otherwise_with_a_grounded_type_trigger_is_rejected() {
+    let source = "individuals user\nprimitive API\nA manager means a user.\n\
+[BRANCH] If a user is a manager, then the API shall stop; otherwise, the API shall start.\n";
+    let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", source)]);
+    let run = f.convert(&["--out", "out", "--json"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    let report = run.json();
+    assert!(report["opaque"].as_array().unwrap().iter().any(|finding|
+        finding["code"] == "UNSUPPORTED_SEMANTICS"
+            && finding["message"].as_str().unwrap().contains("`otherwise`")
+    ), "{report}");
+    assert!(!f.path().join("out/source/specification.mmt").exists());
+}
+
+#[test]
 fn trioc_refuses_a_form_that_does_not_read_with_the_position_of_the_error() {
     let f = package();
     assert_eq!(f.convert(&["--out", "out"]).code, 0);

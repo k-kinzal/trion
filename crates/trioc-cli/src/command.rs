@@ -54,22 +54,24 @@ fn dispatch(cli: Cli) -> Result<bool, String> {
     match cli.command {
         Command::Analysis(command) => crate::analysis::dispatch(command).map(|success| !success),
         Command::Prove { form, json, certificates, format, decision_limit, against } => {
-            let path = if form.is_dir() { form.join(crate::mmt::FILE) } else { form };
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-            let form = Form::read(&text).map_err(|e| format!("{} is no MMT form of trion: {e}", path.display()))?;
+            let form = Form::read_path(&form)?;
             let mut proved = crate::prove::prove(&form, decision_limit, certificates.as_deref(), &format)?;
             // A saved result is about its own subject: where it names other
             // texts, another semantics, another program or other bounds, it
             // says nothing about this one.
             if let Some(path) = &against {
-                let saved = std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display())).and_then(|text| serde_json::from_str::<serde_json::Value>(&text).map_err(|e| format!("{} is no result: {e}", path.display())));
-                let problem = match saved {
-                    Err(message) => Some(format!("the saved result cannot be compared: {message}")),
-                    Ok(saved) => {
-                        let fields = proved.subject.differs_from(&saved["subject"]);
-                        (!fields.is_empty()).then(|| format!("the saved result at {} is about another subject, and nothing of it holds here: it differs in {}", path.display(), fields.join(", ")))
+                let problem = (|| {
+                    let bytes = std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+                    let saved: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| format!("{} is no result: {error}", path.display()))?;
+                    let fields = proved.subject.differs_from(&saved["subject"]);
+                    if !fields.is_empty() {
+                        return Err(format!("the saved result at {} is about another subject, and nothing of it holds here: it differs in {}", path.display(), fields.join(", ")));
                     }
-                };
+                    if !form.obligations.propositional.is_empty() {
+                        crate::propositional::replay(&form, &bytes)?;
+                    }
+                    Ok(())
+                })().err();
                 if let Some(problem) = problem {
                     proved.diagnostics.push(trion_language::Diagnostic::error("result-stale", problem, Vec::new()));
                 }
@@ -84,6 +86,9 @@ fn dispatch(cli: Cli) -> Result<bool, String> {
                     let reason = result.reason.as_ref().map_or(String::new(), |why| format!(": {why}"));
                     println!("obligation {} ({}): {}{reason}", result.obligation, result.property, result.verdict.as_str());
                     println!("  {}", result.proposition);
+                    if let Some(values) = result.propositional.as_ref().and_then(|record| record.counterexample()) {
+                        println!("  counterexample: {}", if values.is_empty() { "empty valuation".to_string() } else { values.join(", ") });
+                    }
                     for counterexample in &result.counterexamples {
                         let named = counterexample.statements.iter().map(|id| format!("[{id}]")).collect::<Vec<_>>().join(", ");
                         // A situation without a response is what consistency

@@ -9,8 +9,11 @@
 use crate::diagnostic::{Diagnostic, SpecRef};
 use crate::syntax::ast::*;
 use crate::syntax::parse::{parse, ParseError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod table;
+pub use table::{Table, TableCell, TableRow};
 
 /// A provenance or review annotation that applies to a statement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -337,6 +340,16 @@ pub struct Check {
     pub line: usize,
 }
 
+/// A check with an isolated propositional input, read into a checked Core problem.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PropositionalCheck {
+    pub name: String,
+    pub input: trion_cnl::Accepted,
+    pub file: String,
+    pub line: usize,
+}
+
 /// `example NAME:`: an isolated input with an expected outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Example {
@@ -401,8 +414,12 @@ pub struct Document {
     pub roles: Vec<Role>,
     pub bindings: Vec<Binding>,
     pub specs: Vec<Spec>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tables: Vec<Table>,
     pub sources: Vec<SourceDecl>,
     pub checks: Vec<Check>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub propositional_checks: Vec<PropositionalCheck>,
     pub examples: Vec<Example>,
     pub scenarios: Vec<Scenario>,
     /// Identifiers displayed by `ref`, with their lines.
@@ -1813,21 +1830,30 @@ impl<'a> Parser<'a> {
     }
 
     fn fields(&mut self) -> Vec<(usize, String)> {
+        self.block_lines().into_iter().map(|(line, _, text)| (line, text)).collect()
+    }
+
+    fn block_lines(&mut self) -> Vec<(usize, usize, String)> {
         let mut out = Vec::new();
         self.open();
-        while let Some((no, _, raw)) = self.next_text() {
-            if raw == END {
-                return out;
+        while let Some((line, indent, text)) = self.next_text() {
+            if text == END {
+                break;
             }
-            out.push((no, raw));
+            out.push((line, indent, text));
         }
         out
     }
 
     fn check_block(&mut self, doc: &mut Document, name: &str, line: usize) {
+        let fields = self.fields();
+        if fields.iter().any(|(_, raw)| keyword(raw, "grammar").is_some() || keyword(raw, "input").is_some()) {
+            self.propositional_check(doc, name, line, fields);
+            return;
+        }
         let mut check = Check { name: name.to_string(), relation: String::new(), left: vec![], right: vec![], malformed: false, file: self.file.to_string(), line };
         let mut using = false;
-        for (no, raw) in self.fields() {
+        for (no, raw) in fields {
             if let Some(rest) = keyword(&raw, "relation") {
                 check.relation = rest.to_string();
             } else if let Some(rest) = keyword(&raw, "left") {
@@ -1850,6 +1876,40 @@ impl<'a> Parser<'a> {
             self.error("parse-check", "a check holds relation, left, right and using fields", line, name);
         }
         doc.checks.push(check);
+    }
+
+    fn propositional_check(&mut self, doc: &mut Document, name: &str, line: usize, fields: Vec<(usize, String)>) {
+        let mut grammar = None;
+        let mut input = None;
+        for (no, raw) in fields {
+            if let Some(version) = keyword(&raw, "grammar").and_then(whole_string).filter(|_| grammar.is_none()) {
+                grammar = Some(version);
+            } else if let Some(source) = keyword(&raw, "input").and_then(whole_string).filter(|_| input.is_none()) {
+                input = Some((no, source));
+            } else {
+                self.error("parse-check", "a propositional check holds one quoted grammar and one quoted input", no, &raw);
+                return;
+            }
+        }
+        let (Some(grammar), Some((input_line, source))) = (grammar, input) else {
+            self.error("parse-check", "a propositional check requires a grammar version and an input", line, name);
+            return;
+        };
+        let input = match trion_cnl::formalize_version(&source, Some(&grammar)) {
+            Ok(accepted) => accepted,
+            Err(rejected) => {
+                use trion_cnl::Rejected::*;
+                let (status, diagnostic) = match rejected {
+                    Ambiguous(diagnostic) => ("ambiguous", diagnostic),
+                    Unsupported(diagnostic) => ("unsupported", diagnostic),
+                    Invalid(diagnostic) => ("invalid", diagnostic),
+                };
+                let message = format!("{status} propositional input [{}]: {} (input bytes {}..{})", diagnostic.rule, diagnostic.reason, diagnostic.span.start, diagnostic.span.end);
+                self.error("parse-check", &message, if diagnostic.rule == "CNL-VERSION" { line } else { input_line }, name);
+                return;
+            }
+        };
+        doc.propositional_checks.push(PropositionalCheck { name: name.to_string(), input, file: self.file.to_string(), line });
     }
 
     fn references(&mut self, text: &str, line: usize) -> Vec<String> {
@@ -2194,6 +2254,10 @@ impl<'a> Parser<'a> {
                 }
                 None => self.error("parse-block", "write `section \"title\"` or `section \"title\":`", line, &text),
             }
+            return;
+        }
+        if let Some(rest) = keyword(&text, "table").filter(|rest| rest.starts_with('"')) {
+            self.table(doc, ctx, line, rest);
             return;
         }
         if let Some(name) = keyword(&text, "compatibility").and_then(|r| r.strip_suffix(':')).map(str::trim).filter(|n| is_metadata_name(n)) {

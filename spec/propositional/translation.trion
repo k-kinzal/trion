@@ -12,9 +12,7 @@ namespace trion.propositional:
         An empty conjunction is true.
         A target valuation uses the original declaration slots.
 
-        [PROP-QUERY-CONDITION]
-        The satisfiability condition is the conjunction of the premises.
-        The entailment condition is the conjunction of the premises and the negation of the target.
+        ref [PROP-QUERY-CONDITION]
 
         [PROP-NNF]
         The propositional translator shall push negations to constants and slots.

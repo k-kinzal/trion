@@ -829,7 +829,9 @@ dependencies = [
  "trion-boolean",
  "trion-checker",
  "trion-cnl",
+ "trion-core",
  "trion-language",
+ "trion-reference",
  "trion-solver",
  "trion-verification",
 ]
@@ -921,6 +923,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "toml",
+ "trion-cnl",
  "trion-solver",
 ]
 
@@ -963,6 +966,7 @@ dependencies = [
  "serde",
  "smtlib",
  "tempfile",
+ "trion-core",
  "trion-language",
  "trion-solver",
 ]

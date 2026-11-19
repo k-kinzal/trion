@@ -22,4 +22,4 @@ extern crate self as trion_verification;
 #[cfg(test)]
 mod tests;
 
-pub use analysis::{analyze, check_properties, temporal_forms, Analysis, Bounds, Control, ExampleOutcome, RefinementOutcome, proof_obligations, demonstrations, inferred_system, stated_contracts, Counterexample, Scope, StatedContract, Asked, Decision, ObligationQuestion, ObligationVerdict, ProofObligation, ProofObligations, Isolation, Options, RelationReport};
+pub use analysis::{analyze, check_properties, temporal_forms, Analysis, Bounds, Control, ExampleOutcome, RefinementOutcome, proof_obligations, demonstrations, inferred_system, stated_contracts, Counterexample, Scope, StatedContract, Asked, Decision, ObligationQuestion, ObligationVerdict, ProofObligation, ProofObligations, Isolation, Options, RelationReport, PROPOSITIONAL_CHECK};

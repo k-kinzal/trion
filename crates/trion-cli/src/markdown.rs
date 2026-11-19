@@ -5,6 +5,8 @@
 
 use crate::convert::Converted;
 use crate::project::Project;
+use std::collections::BTreeSet;
+use trion_language::document::{Table, TableCell};
 use trion_language::Spec;
 use trion_solver::Formula;
 use trion_verification::{ObligationQuestion, ProofObligations};
@@ -79,12 +81,72 @@ fn obligation_of(stated: &ProofObligations) -> String {
     if definitions.is_empty() { lines } else { format!("{definitions}\n{lines}") }
 }
 
+/// The contracts of a displayed sentence or of its expanded parts.
+fn contracts_of(parts: &[&Spec], converted: &Converted) -> Vec<String> {
+    parts.iter()
+        .flat_map(|part| converted.contracts.iter().filter(move |c| c.role != "axiom" && c.statement.id == part.display_id()))
+        .map(|c| {
+            let mut block = String::new();
+            let variables = |list: &[(String, String)]| list.iter().map(|(variable, kind)| format!("{variable}: {kind}")).collect::<Vec<_>>().join(", ");
+            if !c.parameters.is_empty() {
+                block.push_str(&format!("  for each {}\n", variables(&c.parameters)));
+            }
+            if !c.chosen.is_empty() {
+                block.push_str(&format!("  for some {} that the response chooses\n", variables(&c.chosen)));
+            }
+            block.push_str(&format!("  A = {}\n  G = {}\n", written(&c.assume), written(&c.guarantee)));
+            for line in &c.timing {
+                block.push_str(&format!("  time: {line}\n"));
+            }
+            match &c.scope {
+                Some(trion_verification::Scope::Document) => block.push_str("  distributed to every guarantee of the document\n"),
+                Some(trion_verification::Scope::Block { head, file, line }) => block.push_str(&format!("  distributed to the guarantees of the block `{head}` ({file}:{line})\n")),
+                None => {}
+            }
+            block
+        })
+        .collect()
+}
+
+fn table(out: &mut String, table: &Table, specs: &[&Spec], converted: &Converted, anchors: &BTreeSet<&str>) {
+    let row = |cells: Vec<String>| format!("| {} |\n", cells.iter().map(|text| text.replace('|', "\\|")).collect::<Vec<_>>().join(" | "));
+    out.push_str(&format!("\n**{}**\n\n", table.title));
+    out.push_str(&row(table.headings.clone()));
+    out.push_str(&row(vec!["---".to_string(); table.headings.len()]));
+    for line in &table.rows {
+        out.push_str(&row(line.cells.iter().map(|cell| match cell {
+            TableCell::Identifier(id) => format!("<a id=\"{id}\"></a>`{id}`"),
+            TableCell::References(ids) => ids.iter().map(|id| {
+                if anchors.contains(id.as_str()) { format!("[`{id}`](#{id})") } else { format!("`{id}`") }
+            }).collect::<Vec<_>>().join(", "),
+            _ => cell.to_string(),
+        }).collect()));
+    }
+    for line in &table.rows {
+        let parts: Vec<_> = specs.iter().copied().filter(|spec| spec.line == line.line).collect();
+        let contracts = contracts_of(&parts, converted);
+        if !contracts.is_empty() {
+            let label = line.identifier().map_or_else(|| format!("Row at line {}", line.line), |id| format!("[{id}]"));
+            out.push_str(&format!("\n- **{label}**\n\n  ```text\n{}  ```\n", contracts.join("\n")));
+        }
+    }
+}
+
 /// Renders the package, or one of its files, as one Markdown document.
 pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str>) -> Result<String, String> {
     let mut files: Vec<&str> = Vec::new();
     for spec in project.root_specs() {
         if !files.contains(&spec.file.as_str()) {
             files.push(&spec.file);
+        }
+    }
+    let tables: Vec<_> = project.set.packages.iter().filter(|p| p.is_root)
+        .flat_map(|p| &p.documents)
+        .flat_map(|doc| doc.tables.iter().map(|table| (doc.file.as_str(), table)))
+        .collect();
+    for &(file, _) in &tables {
+        if !files.contains(&file) {
+            files.push(file);
         }
     }
     if let Some(wanted) = only {
@@ -100,16 +162,33 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
         None => format!("traces of {} moments and domains of one individual of each type", stated.moments),
     };
     let mut out = format!("# {}\n\nConverted; nothing here is proved. The proof obligations hold within {bound}, and `trioc prove` proves them from the MMT form.\n", project.manifest.package.name);
+    let anchors = tables.iter().filter(|(file, _)| files.contains(file))
+        .flat_map(|(_, table)| table.rows.iter().filter_map(|row| row.identifier())).collect();
     for file in files {
         out.push_str(&format!("\n## {file}\n"));
+        enum Item<'a> { Statement(&'a Spec), Table(&'a Table) }
+        let specs: Vec<_> = project.root_specs().filter(|spec| spec.file == file).collect();
+        let file_tables: Vec<_> = tables.iter().filter(|(path, _)| *path == file).map(|&(_, table)| table).collect();
+        let rows: BTreeSet<_> = file_tables.iter().flat_map(|table| table.rows.iter().map(|row| row.line)).collect();
+        let mut items: Vec<_> = specs.iter().copied().filter(|spec| !rows.contains(&spec.line)).map(Item::Statement)
+            .chain(file_tables.into_iter().map(Item::Table)).collect();
+        items.sort_by_key(|item| match item { Item::Statement(spec) => spec.line, Item::Table(table) => table.line });
         let mut sections: &[String] = &[];
-        for spec in project.root_specs().filter(|spec| spec.file == file) {
-            if spec.sections != sections {
-                sections = &spec.sections;
+        for item in items {
+            let next = match item { Item::Statement(spec) => &spec.sections, Item::Table(table) => &table.sections };
+            if next != sections {
+                sections = next;
                 if let Some(title) = sections.last() {
                     out.push_str(&format!("\n{} {title}\n", "#".repeat((2 + sections.len()).min(6))));
                 }
             }
+            let spec = match item {
+                Item::Statement(spec) => spec,
+                Item::Table(value) => {
+                    table(&mut out, value, &specs, converted, &anchors);
+                    continue;
+                }
+            };
             // A sentence with composite vocabulary is written once, as its
             // author wrote it, with the contract of each sentence that it
             // abbreviates.
@@ -123,32 +202,7 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
             };
             let label = label.map_or(String::new(), |id| format!("**[{id}]** "));
             out.push_str(&format!("\n- {label}{text}\n"));
-            let contracts: Vec<String> = parts
-                .iter()
-                .flat_map(|part| converted.contracts.iter().filter(move |c| c.role != "axiom" && c.statement.id == part.display_id()))
-                .map(|c| {
-                    let mut block = String::new();
-                    // The variables of a schematic contract, and those that its response chooses.
-                    let variables = |list: &[(String, String)]| list.iter().map(|(variable, kind)| format!("{variable}: {kind}")).collect::<Vec<_>>().join(", ");
-                    if !c.parameters.is_empty() {
-                        block.push_str(&format!("  for each {}\n", variables(&c.parameters)));
-                    }
-                    if !c.chosen.is_empty() {
-                        block.push_str(&format!("  for some {} that the response chooses\n", variables(&c.chosen)));
-                    }
-                    block.push_str(&format!("  A = {}\n  G = {}\n", written(&c.assume), written(&c.guarantee)));
-                    // When the contract applies and when its response comes.
-                    for line in &c.timing {
-                        block.push_str(&format!("  time: {line}\n"));
-                    }
-                    match &c.scope {
-                        Some(trion_verification::Scope::Document) => block.push_str("  distributed to every guarantee of the document\n"),
-                        Some(trion_verification::Scope::Block { head, file, line }) => block.push_str(&format!("  distributed to the guarantees of the block `{head}` ({file}:{line})\n")),
-                        None => {}
-                    }
-                    block
-                })
-                .collect();
+            let contracts = contracts_of(&parts, converted);
             if !contracts.is_empty() {
                 out.push_str(&format!("\n  ```text\n{}  ```\n", contracts.join("\n")));
             }

@@ -54,9 +54,10 @@ use mmt::uri::{DPath, GlobalName, MPath};
 use mmt::{Constant, Declaration, Error, Library, Theory};
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::OnceLock;
 use trion_solver::{Atom, Cmp, Formula};
-use trion_verification::{ObligationQuestion, ProofObligation, ProofObligations};
+use trion_verification::{ObligationQuestion, ProofObligation, ProofObligations, PROPOSITIONAL_CHECK};
 
 /// The source file of the MMT form in the archive that `trion --out` writes.
 pub const FILE: &str = "source/specification.mmt";
@@ -298,12 +299,20 @@ fn lf() -> Result<Library, String> {
 }
 
 /// The library with LF and the meta-theory, read once.
-fn base() -> Result<&'static Library, String> {
+fn base(propositional: bool) -> Result<&'static Library, String> {
     static BASE: OnceLock<Result<Library, String>> = OnceLock::new();
-    BASE.get_or_init(|| {
+    static EXTENDED: OnceLock<Result<Library, String>> = OnceLock::new();
+    let library = if propositional { &EXTENDED } else { &BASE };
+    library.get_or_init(|| {
         let mut lib = lf()?;
         let document: DPath = format!("{META}.mmt").parse().map_err(|e: Error| e.to_string())?;
-        let read = lib.add_source(META_THEORY, &document, None);
+        let source = if propositional {
+            format!("{}  {PROPOSITIONAL_CHECK} : property❙\n  with_input : obligation ⟶ string ⟶ obligation❙\n❚\n",
+                META_THEORY.strip_suffix("❚\n").expect("the meta-theory has a closing delimiter"))
+        } else {
+            META_THEORY.to_string()
+        };
+        let read = lib.add_source(&source, &document, None);
         if !read.is_ok() {
             return Err(format!("the meta-theory does not read: {}", shown(read.errors())));
         }
@@ -466,7 +475,7 @@ fn question_term(theory: &MPath, question: &ObligationQuestion) -> Term {
 
 /// The properties of the obligations that trion states. A form that names
 /// another is not read: no result could say what it means.
-pub const PROPERTIES: &[&str] = &["consistency", "compatibility", "correctness", "completeness", "realizability", "recommendation", "choice", "check", "example", "scenario"];
+pub const PROPERTIES: &[&str] = &["consistency", "compatibility", "correctness", "completeness", "realizability", "recommendation", "choice", "check", "example", "scenario", PROPOSITIONAL_CHECK];
 
 /// The name of the theory of a package: a symbol of MMT.
 fn theory_name(package: &str) -> String {
@@ -538,6 +547,12 @@ impl Form {
         }
         for (number, obligation) in self.obligations.obligations.iter().enumerate() {
             let obliged = apply("obliged", vec![literal(&obligation.name), meta(&obligation.property), literal(&obligation.proposition), strings(&obligation.statements), question_term(&path, &obligation.question)]);
+            let obliged = if let Some(input) = self.obligations.propositional.get(&number) {
+                let json = serde_json::to_string(input).expect("checked input is serializable");
+                apply("with_input", vec![obliged, literal(&json)])
+            } else {
+                obliged
+            };
             decls.push(constant(&path, &format!("obligation{number}"), "obligation", obliged));
         }
         for d in decls {
@@ -552,7 +567,7 @@ impl Form {
     /// printed or not read back as itself is an error of trion, and no text
     /// is returned for it.
     pub fn write(&self) -> Result<String, String> {
-        let mut lib = base()?.clone();
+        let mut lib = base(!self.obligations.propositional.is_empty())?.clone();
         let path = lib.add_theory(self.theory()).map_err(|e| format!("the theory of the package is not an MMT theory over the meta-theory: {e}"))?;
         let text = lib.print_theories(&[contracts(), path]).map_err(|e| format!("the theory of the package is not printed: {e}"))?;
         match Form::read(&text) {
@@ -731,17 +746,17 @@ impl Form {
     /// and hold one theory over it, whose constants are what [`Form::write`]
     /// writes. An error is reported with its line and column.
     pub fn read(text: &str) -> Result<Form, String> {
-        let own = base()?.theory(&contracts()).ok_or("the meta-theory is not in the library")?;
         let mut lib = lf()?;
         let document: DPath = "http://trion.dev/form/specification.mmt".parse().map_err(|e: Error| e.to_string())?;
         let read = lib.add_source(text, &document, None);
         if !read.is_ok() {
             return Err(format!("it does not read as MMT: {}", shown(read.errors())));
         }
-        // The meta-theory is the one of this version.
+        // Accept both the original theory and the one with checked inputs.
         match lib.theory(&contracts()) {
             None => return Err(format!("the file does not declare the meta-theory `{META}?Contracts`")),
-            Some(declared) if declared != own => return Err(format!("the file declares a meta-theory `{META}?Contracts` other than the one of this version")),
+            Some(declared) if [base(false)?, base(true)?].iter().all(|known| known.theory(&contracts()) != Some(declared)) =>
+                return Err(format!("the file declares a meta-theory `{META}?Contracts` other than the one of this version")),
             Some(_) => {}
         }
         let packages: Vec<&MPath> = read.theories().iter().filter(|p| **p != contracts()).collect();
@@ -758,9 +773,16 @@ impl Form {
         Form::of_theory(&lib, theory)
     }
 
+    /// Read either an archive directory or its MMT source file.
+    pub fn read_path(path: &Path) -> Result<Form, String> {
+        let path = if path.is_dir() { path.join(FILE) } else { path.to_path_buf() };
+        let text = std::fs::read_to_string(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        Self::read(&text).map_err(|error| format!("{} is no MMT form of trion: {error}", path.display()))
+    }
+
     /// The form that the constants of the theory of a package state.
     fn of_theory(lib: &Library, theory: &Theory) -> Result<Form, String> {
-        let mut form = Form { package: String::new(), revision: String::new(), semantics: String::new(), tool: String::new(), system: Vec::new(), environment: Vec::new(), contracts: Vec::new(), obligations: ProofObligations { moments: 0, individuals: None, pool: Vec::new(), owners: BTreeMap::new(), obligations: Vec::new(), findings: Vec::new() } };
+        let mut form = Form { package: String::new(), revision: String::new(), semantics: String::new(), tool: String::new(), system: Vec::new(), environment: Vec::new(), contracts: Vec::new(), obligations: ProofObligations { moments: 0, individuals: None, pool: Vec::new(), owners: BTreeMap::new(), obligations: Vec::new(), propositional: BTreeMap::new(), findings: Vec::new() } };
         let mut pool: BTreeMap<String, usize> = BTreeMap::new();
         let mut subject = false;
         for declaration in theory.declarations() {
@@ -836,12 +858,25 @@ impl Form {
                     form.obligations.owners.insert(number, text_of(&a[0]).map_err(at)?);
                 }
                 "obligation" => {
+                    let (value, input) = match parts(value) {
+                        Some(("with_input", [obligation, input])) => (obligation, Some(text_of(input).map_err(at)?)),
+                        _ => (value, None),
+                    };
                     let a = args(value, "obliged", 5).map_err(at)?;
                     let property = match name_of(&a[1]) {
                         Ok(p) if PROPERTIES.contains(&p) => p.to_string(),
                         _ => return Err(at(format!("`{}` is none of the properties that trion states: {}", a[1], PROPERTIES.join(", ")))),
                     };
+                    if (property == PROPOSITIONAL_CHECK) != input.is_some() {
+                        return Err(at("a propositional obligation requires its checked input".to_string()));
+                    }
+                    let position = form.obligations.obligations.len();
                     form.obligations.obligations.push(ProofObligation { name: text_of(&a[0]).map_err(at)?, property, proposition: text_of(&a[2]).map_err(at)?, statements: texts_of(&a[3]).map_err(at)?, question: question_of(&a[4], theory.path(), &pool).map_err(at)? });
+                    if let Some(input) = input {
+                        let input = serde_json::from_str(&input).map_err(|error| at(format!("invalid checked input: {error}")))?;
+                        form.obligations.propositional.insert(position, input);
+                        form.obligations.propositional_questions(position).map_err(at)?;
+                    }
                 }
                 other => return Err(at(format!("the sort `{other}` is not read"))),
             }
@@ -882,6 +917,7 @@ mod tests {
                 individuals: Some(2),
                 pool,
                 owners: BTreeMap::from([(2, "A".to_string())]),
+                propositional: BTreeMap::new(),
                 findings: Vec::new(),
                 obligations: vec![ProofObligation { name: "consistency".to_string(), property: "consistency".to_string(), proposition: "within traces of 3 moments: …".to_string(), statements: vec!["A".to_string()], question: ObligationQuestion::All { parts: vec![ObligationQuestion::Satisfiable { query: vec![0] }, ObligationQuestion::ForAllExists { premises: vec![1], standing: vec![], conclusions: vec![2], chosen: vec!["API|store".to_string()] }] } }],
             },

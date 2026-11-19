@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use trion_language::{Diagnostic, SpecRef};
 use trion_solver::{Formula, Status};
 use trion_verification::proof::{self, Derivation, Names};
-use trion_verification::{Asked, ObligationVerdict};
+use trion_verification::{Asked, ObligationVerdict, PROPOSITIONAL_CHECK};
 
 /// The formats of a certificate.
 pub const FORMATS: [&str; 4] = ["smt2", "alethe", "cpc", "moxi"];
@@ -50,6 +50,9 @@ pub struct Result {
     /// For a refuted obligation of responses: each situation without one,
     /// with the statements that cannot all be kept in it.
     pub counterexamples: Vec<trion_verification::Counterexample>,
+    /// Original checked input, answers and result for propositional obligations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) propositional: Option<crate::propositional::Record>,
 }
 
 /// A problem of a certificate format, as an error or a warning.
@@ -258,11 +261,14 @@ fn create(dir: &Path) -> std::result::Result<(), String> {
 /// Every form is syntax that its format's crate prints; no certificate is
 /// checked here. A format that cannot state the proof of the obligation
 /// keeps nothing for it and reports an error.
-fn certify(dir: &Path, obligation: &str, asked: &[Asked], formats: &[String], notes: &mut Vec<FormatNote>, certification: &mut Certification) -> std::result::Result<Vec<String>, String> {
-    create(dir)?;
+fn certify(dir: &Path, obligation: &str, asked: &[Asked], formats: &[String], notes: &mut Vec<FormatNote>, certification: &mut Certification) -> Vec<String> {
     let mut written = Vec::new();
     let name = file_name(obligation);
     let note = |format: &str, severity: &'static str, message: String| FormatNote { format: format.to_string(), severity, obligation: Some(obligation.to_string()), message };
+    if let Err(problem) = create(dir) {
+        notes.extend(formats.iter().map(|format| note(format, "error", format!("no {format} certificate is issued: {problem}"))));
+        return written;
+    }
     let questions = formulas(asked);
     let names = Names::of(&questions);
     // The refutations of the questions, made once for both proof formats.
@@ -275,11 +281,11 @@ fn certify(dir: &Path, obligation: &str, asked: &[Asked], formats: &[String], no
                 for (k, _) in asked.iter().enumerate().filter(|(k, a)| a.answer.status == Status::Satisfiable && witnesses[*k].is_none()) {
                     notes.push(note(format, "warning", format!("question {} is satisfiable without a witness: the smt2 form states it, and nothing in it shows the answer", k + 1)));
                 }
-                match proof::questions(&questions, &expected, &witnesses) {
-                    Ok(script) => {
-                        write(&dir.join(format!("{name}.smt2")), &script.text(&format!("the questions of the obligation {obligation}")))?;
-                        written.push(format.clone());
-                    }
+                let issued = proof::questions(&questions, &expected, &witnesses).and_then(|script| {
+                    write(&dir.join(format!("{name}.smt2")), &script.text(&format!("the questions of the obligation {obligation}")))
+                });
+                match issued {
+                    Ok(()) => written.push(format.clone()),
                     Err(problem) => notes.push(note(format, "error", format!("no smt2 certificate is issued: {problem}"))),
                 }
             }
@@ -315,18 +321,20 @@ fn certify(dir: &Path, obligation: &str, asked: &[Asked], formats: &[String], no
                     }
                 }
             }
-            "moxi" => match proof::moxi_script(&questions) {
-                Ok((names, script)) => {
+            "moxi" => {
+                let issued = proof::moxi_script(&questions).and_then(|(names, script)| {
                     let expected: Vec<bool> = asked.iter().map(|a| a.answer.status == Status::Satisfiable).collect();
-                    write(&dir.join(format!("{name}.moxi")), &proof::moxi_text(&names, &script, &expected, &format!("the questions of the obligation {obligation}")))?;
-                    written.push(format.clone());
+                    write(&dir.join(format!("{name}.moxi")), &proof::moxi_text(&names, &script, &expected, &format!("the questions of the obligation {obligation}")))
+                });
+                match issued {
+                    Ok(()) => written.push(format.clone()),
+                    Err(problem) => notes.push(note(format, "error", format!("no moxi certificate is issued: {problem}"))),
                 }
-                Err(problem) => notes.push(note(format, "error", format!("no moxi certificate is issued: {problem}"))),
-            },
+            }
             other => notes.push(note(other, "error", format!("`{other}` is no certificate format; the formats are {}", FORMATS.join(", ")))),
         }
     }
-    Ok(written)
+    written
 }
 
 /// Proves each obligation of a form. With `certificates`, the certificates
@@ -338,10 +346,19 @@ pub fn prove(form: &Form, decisions: Option<u64>, certificates: Option<&Path>, f
     let mut notes = Vec::new();
     let mut certification = Certification::default();
     let same = same_files(stated.obligations.iter().map(|o| o.name.as_str()));
-    for obligation in &stated.obligations {
+    for (position, obligation) in stated.obligations.iter().enumerate() {
         let decision = stated.decide(&inst, obligation);
         let (mut verdict, mut reason) = (decision.verdict, decision.reason.clone());
-        if verdict != ObligationVerdict::Unproved {
+        let propositional = if obligation.property == PROPOSITIONAL_CHECK || stated.propositional.contains_key(&position) {
+            let answers = decision.asked.iter().map(|question| question.answer.clone()).collect();
+            let record = crate::propositional::check(form, position, decisions, answers)?;
+            verdict = record.outcome.verdict();
+            reason = record.outcome.reason().map(str::to_string);
+            Some(record)
+        } else {
+            None
+        };
+        if propositional.is_none() && verdict != ObligationVerdict::Unproved {
             // The independent checker accepts each answer.
             for question in &decision.asked {
                 if let Err(problem) = trion_checker::certificate::check(&question.formulas, &question.answer) {
@@ -361,10 +378,11 @@ pub fn prove(form: &Form, decisions: Option<u64>, certificates: Option<&Path>, f
                 }
                 Vec::new()
             }
-            (ObligationVerdict::Proved, Some(dir), None) => certify(dir, &obligation.name, &decision.asked, formats, &mut notes, &mut certification)?,
+            (ObligationVerdict::Proved, Some(dir), None) => certify(dir, &obligation.name, &decision.asked, formats, &mut notes, &mut certification),
             _ => Vec::new(),
         };
-        results.push(Result { obligation: obligation.name.clone(), property: obligation.property.clone(), proposition: obligation.proposition.clone(), verdict, reason, questions: decision.asked.len(), certificates: written, counterexamples: decision.counterexamples.clone() });
+        let counterexamples = if verdict == ObligationVerdict::Refuted { decision.counterexamples } else { Vec::new() };
+        results.push(Result { obligation: obligation.name.clone(), property: obligation.property.clone(), proposition: obligation.proposition.clone(), verdict, reason, questions: decision.asked.len(), certificates: written, counterexamples, propositional });
     }
     let diagnostics = findings(form, &results);
     Ok(Proved { subject: Subject::of(form), package: form.package.clone(), revision: form.revision.clone(), results, notes, certification, diagnostics })
@@ -381,14 +399,17 @@ fn findings(form: &Form, results: &[Result]) -> Vec<Diagnostic> {
     };
     let statements = |ids: &[String]| -> Vec<SpecRef> { ids.iter().map(|id| at(id)).collect() };
     let mut out = Vec::new();
-    for result in results {
+    for (position, result) in results.iter().enumerate() {
         let why = result.reason.clone().unwrap_or_default();
         let named = result.obligation.split_once('/').map_or("", |(_, name)| name);
         let of = form.obligations.obligations.iter().find(|o| o.name == result.obligation);
-        let refs = of.map_or_else(Vec::new, |o| statements(&o.statements));
+        let refs = form.obligations.propositional.get(&position).map_or_else(
+            || of.map_or_else(Vec::new, |o| statements(&o.statements)),
+            |input| vec![SpecRef::point(&input.file, input.line, &result.obligation)],
+        );
         match result.verdict {
             ObligationVerdict::Proved => {}
-            ObligationVerdict::Unproved => out.push(Diagnostic::error("obligation-unproved", format!("the obligation {} is neither proved nor refuted: {why}; {}", result.obligation, result.proposition), Vec::new())),
+            ObligationVerdict::Unproved => out.push(Diagnostic::error("obligation-unproved", format!("the obligation {} is neither proved nor refuted: {why}; {}", result.obligation, result.proposition), if result.propositional.is_some() { refs } else { Vec::new() })),
             ObligationVerdict::Refuted => match result.property.as_str() {
                 "consistency" if !result.counterexamples.is_empty() => {
                     for counterexample in &result.counterexamples {
@@ -413,7 +434,7 @@ fn findings(form: &Form, results: &[Result]) -> Vec<Diagnostic> {
                 "recommendation" => out.push(Diagnostic::error("recommendation-violation", format!("the advice of `{named}` cannot be followed together with the requirements: {}", result.counterexamples.first().map_or(why.clone(), |c| if c.facts.is_empty() { format!("no response keeps {} in any situation", c.statements.join(", ")) } else { format!("no response keeps {} where {}", c.statements.join(", "), c.facts.join(", ")) })), result.counterexamples.first().map_or(refs.clone(), |c| statements(&c.statements)))),
                 "choice" if result.obligation.contains("/exclusive/") => out.push(Diagnostic::error("OVERLAPPING_FLOW_GUARDS", format!("two guards of a choice can hold together: {}", result.proposition), refs)),
                 "choice" => out.push(Diagnostic::error("INCOMPLETE_FLOW_CHOICE", format!("the guards of a choice can all be false; add `otherwise`: {}", result.proposition), refs)),
-                "check" => out.push(Diagnostic::error("check-refuted", format!("the check {named} is refuted: {why}"), refs)),
+                "check" | PROPOSITIONAL_CHECK => out.push(Diagnostic::error("check-refuted", format!("the check {named} is refuted: {why}"), refs)),
                 "example" => out.push(Diagnostic::error("example-failed", format!("the example {named} does not observe what it expects: {}", result.proposition), refs)),
                 "scenario" => out.push(Diagnostic::error("scenario-failed", format!("the scenario {named} is not judged as its author expects: {}", result.proposition), refs)),
                 // The reader refuses a form with any other property.

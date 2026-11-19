@@ -1,5 +1,8 @@
 package trion edition "0.2.0-draft.1"
 
+include "obligations.trion"
+include "grammar.trion"
+include "extensions.trion"
 include "sentences.trion"
 include "words.trion"
 include "composition.trion"

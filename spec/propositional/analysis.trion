@@ -1,22 +1,14 @@
 include "core.trion"
-include "queries.trion"
-include "grammar.trion"
 include "translation.trion"
 include "results.trion"
-include "extensions.trion"
 
 namespace trion.propositional:
     primitive artifact definition environment, artifact grammar version, artifact semantic version, check trusted base, conclusion
     primitive conversion failure condition, conversion preservation property, external process, network, parser
     primitive result evidence, result scope, solver, unknown constructor
 
-    source FOUNDATION:
-        title "Formalization foundation work instruction, edition 1"
-        locator "urn:trion:foundation-work-instruction:2026-11-18:1"
-        kind citation
-
-    primitive propositional core, propositional parser, propositional printer, propositional translator, propositional checker, propositional runner, propositional worker, propositional maintainer
-    system propositional core, propositional parser, propositional printer, propositional translator, propositional checker, propositional runner, propositional worker, propositional maintainer
+    primitive propositional parser, propositional printer, propositional translator, propositional checker, propositional runner, propositional worker, propositional maintainer
+    system propositional parser, propositional printer, propositional translator, propositional checker, propositional runner, propositional worker, propositional maintainer
     environment propositional author
 
     section "Propositional analysis":

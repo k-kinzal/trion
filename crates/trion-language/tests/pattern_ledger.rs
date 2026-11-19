@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[path = "pattern_ledger/contract_mapping.rs"]
+mod contract_mapping;
+
 const REQUIRED: [&str; 11] = ["id", "group", "surface", "parser", "parse", "meaning", "lowering", "evidence", "claims", "open", "acceptance"];
 const PARSE: [&str; 3] = ["accepted", "rejected", "partial"];
 const MEANING: [&str; 4] = ["rule", "nonnormative", "unresolved", "rejected"];

@@ -798,10 +798,11 @@ pub(crate) fn frame_formula(keyword: &str, group: &ClauseGroup, lex: &Lexicon) -
     }
 }
 
-fn guard_formula(s: &Sentence, lex: &Lexicon) -> Formula {
+fn guard_formula(s: &Sentence, otherwise: bool, lex: &Lexicon) -> Formula {
     let mut parts: Vec<Formula> = s.frames.scopes.iter().chain(&s.frames.states).map(|f| frame_formula(&f.keyword, &f.clause, lex)).collect();
     if let Some(trigger) = &s.frames.trigger {
-        parts.push(frame_formula(&trigger.keyword, &trigger.clause, lex));
+        let condition = frame_formula(&trigger.keyword, &trigger.clause, lex);
+        parts.push(if otherwise { Formula::not(condition) } else { condition });
     }
     if let Some(exception) = &s.exception {
         parts.push(Formula::not(clause_formula(exception, lex)));
@@ -810,6 +811,34 @@ fn guard_formula(s: &Sentence, lex: &Lexicon) -> Formula {
         0 => Formula::True,
         1 => parts.remove(0),
         _ => Formula::And(parts),
+    }
+}
+
+/// Substitute one value of a closed attribute into a guard. An unrelated
+/// condition stays unknown, so it can never by itself mark a value as missing.
+fn case_truth(guard: &Formula, attribute: &str, value: &str) -> Option<bool> {
+    match guard {
+        Formula::True => Some(true),
+        Formula::Atom(Atom::Val { attr, value: tested }) if attr == attribute => Some(tested == value),
+        Formula::Atom(_) => None,
+        Formula::Not(inner) => case_truth(inner, attribute, value).map(|holds| !holds),
+        Formula::And(parts) | Formula::Or(parts) => {
+            let decisive = matches!(guard, Formula::Or(_));
+            let mut result = Some(!decisive);
+            for part in parts {
+                match case_truth(part, attribute, value) {
+                    Some(holds) if holds == decisive => return Some(decisive),
+                    Some(_) => {}
+                    None => result = None,
+                }
+            }
+            result
+        }
+        Formula::Implies(a, b) => match (case_truth(a, attribute, value), case_truth(b, attribute, value)) {
+            (Some(false), _) | (_, Some(true)) => Some(true),
+            (Some(true), Some(false)) => Some(false),
+            _ => None,
+        },
     }
 }
 
@@ -1719,7 +1748,7 @@ fn value_universe(set: &SpecSet, lex: &Lexicon, of_the_domain: &dyn Fn(&str) -> 
             if of_a_share(&display) {
                 continue;
             }
-            let guard = guard_formula(&spec.sentence, &lex);
+            let guard = guard_formula(&spec.sentence, spec.otherwise, &lex);
             let claim = if of_the_domain(&display) { None } else { claim_formula(&spec.sentence, &empty, &lex) };
             for f in std::iter::once(&guard).chain(claim.iter()) {
                 f.atoms(true, &mut |a, _| {
@@ -2037,8 +2066,7 @@ pub fn read_sentence(sentence: &Sentence, otherwise: bool, reference: &SpecRef, 
         return Reading { kind: ConstraintKind::Spec, condition: Formula::True, claim: Some(Formula::And(bounds)), temporal: Vec::new(), bounds_a_share: true };
     }
     let temporal = crate::reading::temporal::obligation(sentence, otherwise, reference.clone(), lex).into_iter().collect();
-    let guard = guard_formula(sentence, lex);
-    let condition = if otherwise { Formula::not(guard) } else { guard };
+    let condition = guard_formula(sentence, otherwise, lex);
     let kind = if matches!(sentence.core, Core::Deontic { modal: Modal::May, .. }) { ConstraintKind::Permission } else { ConstraintKind::Spec };
     Reading { kind, condition, claim: claim_formula(sentence, &alone, lex), temporal, bounds_a_share: false }
 }
@@ -2108,7 +2136,7 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     let universe = value_universe(set, lex, &|id| grounded.as_ref().is_some_and(|g| g.claims.contains_key(id)), &|id| grounded.as_ref().is_some_and(|g| g.shares.contains(id)));
     let roles = collect_roles(set);
     let mut model = Model { background: background(&universe), ..Default::default() };
-    let mut denied_values: Vec<(String, String)> = Vec::new();
+    let mut guards = BTreeMap::<String, Vec<Formula>>::new();
     // An enumeration leaves out what is extended: an extension is declared to
     // lie outside the original whole without contradicting it.
     let mut extended: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -2184,15 +2212,18 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 }
                 model.temporal.extend(read.temporal);
                 let guard = read.condition;
+                let mut attributes = BTreeSet::new();
                 guard.atoms(true, &mut |a, positive| {
                     if let Atom::Val { attr, value } = a {
+                        attributes.insert(attr.clone());
                         if positive {
                             model.guarded_values.entry(attr.clone()).or_default().insert(value.clone());
-                        } else {
-                            denied_values.push((attr.clone(), value.clone()));
                         }
                     }
                 });
+                for attribute in attributes {
+                    guards.entry(attribute).or_default().push(guard.clone());
+                }
                 // `No request is both accepted and rejected.` excludes two actions and lists no values.
                 let denied = matches!(&sentence.core, Core::Description { subject: NpGroup::Single(np), .. } if matches!(np.det, Some(Det::No)));
                 if let (Core::Description { subject: NpGroup::Single(np), predicate: Predicate::Enumeration { values, .. }, adverb: None, .. }, true, false) = (&sentence.core, guard == Formula::True, denied) {
@@ -2401,11 +2432,13 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
             domain.extend(values);
         }
     }
-    // Denying one value of a closed domain handles every other value:
-    // `, unless the valve is Open` covers `Closed`.
-    for (attr, value) in denied_values {
+    // A value is missing only when each guard about it excludes it.
+    for (attr, guards) in guards {
         if let Some(domain) = model.closed_domains.get(&attr) {
-            model.guarded_values.entry(attr).or_default().extend(domain.iter().filter(|v| **v != value).cloned());
+            let handled = domain.iter().filter(|value| {
+                guards.iter().any(|guard| case_truth(guard, &attr, value) != Some(false))
+            }).cloned().collect();
+            model.guarded_values.insert(attr, handled);
         }
     }
     // A statement that yields to another one applies only outside the other's condition.

@@ -25,12 +25,13 @@ fn eval(expr: &Expr, valuation: &[bool]) -> bool {
     }
 }
 
-fn premises_hold(problem: &Problem, valuation: &[bool]) -> bool {
-    problem
-        .document()
-        .premises()
-        .iter()
-        .all(|expr| eval(expr, valuation))
+pub fn check_premises(problem: &Problem, valuation: &[bool]) -> bool {
+    valuation.len() == problem.document().declarations().len()
+        && problem
+            .document()
+            .premises()
+            .iter()
+            .all(|expr| eval(expr, valuation))
 }
 
 fn target_holds(problem: &Problem, valuation: &[bool]) -> bool {
@@ -42,9 +43,7 @@ fn target_holds(problem: &Problem, valuation: &[bool]) -> bool {
 
 /// Check a prospective SAT witness against the original question.
 pub fn check_witness(problem: &Problem, valuation: &[bool]) -> bool {
-    valuation.len() == problem.document().declarations().len()
-        && premises_hold(problem, valuation)
-        && target_holds(problem, valuation)
+    check_premises(problem, valuation) && target_holds(problem, valuation)
 }
 
 /// Visit every completion of a prefix, first false, then true, at each slot.
@@ -73,7 +72,7 @@ pub fn scan(problem: &Problem, budget: u64) -> Scan {
     let mut has_model = false;
     let mut has_candidate = false;
     visit(slots, &mut Vec::with_capacity(slots), &mut |valuation| {
-        if premises_hold(problem, valuation) {
+        if check_premises(problem, valuation) {
             has_model = true;
             has_candidate |= target_holds(problem, valuation);
         }

@@ -1,0 +1,185 @@
+namespace trion:
+    source STRUCTURED-INPUT:
+        title "Extension syntax to proof obligation mapping"
+        locator "urn:trion:extension:obligation-mapping"
+        kind citation
+        quote MAPPING """
+An extension supplies the ordinary statements, references, or checks defined by its syntax.
+The proof obligations of those readings are defined in the obligation specification.
+"""
+
+    source TABLE-SYNTAX:
+        title "Native tables in trion documents"
+        locator "urn:trion:syntax:table"
+        kind citation
+        quote RULES """
+A table has a quoted title and an indented pipe-delimited header, separator, and one or more rows.
+The separator has at least three hyphens in each column. Rows have the header's width and indentation.
+A literal pipe in a cell is written as \|.
+Headings name their columns. A heading ending in {id}, {statement}, or {references} declares that role.
+An id column requires a statement column. Each typed role occurs at most once.
+An id cell writes one stable identifier in brackets. A statement cell writes one complete controlled sentence.
+A references cell writes a comma-separated list of bracketed identifiers. They resolve within the package in the same way as ref declarations.
+Each statement cell has the meaning of its ordinary sentence at that row's location, including any surrounding context.
+Every cell must be present. Text columns carry readable labels or explanatory text.
+"""
+
+    source EXTENSION-READING:
+        title "Controlled sentence readings of extensions"
+        locator "urn:trion:extension:sentence-mapping"
+        kind citation
+        quote RULES """
+Sentence in the target reading rules column means the reading rules of the controlled sentence supplied by the cell, the block, the branch, or the template. Every supplied sentence must pass the controlled grammar. Named reading rules refer to the sentence pattern catalog.
+The mapping preserves the source scope and passes the ordinary sentence, its inherited conditions, or its bindings to the reader. A table selects semantic cells by their declared column roles. Ordinary text cells and references supply no sentence.
+An otherwise branch whose trigger is grounded as a type test or relation over individuals is unsupported. State the complementary condition in a separate sentence.
+A branching flow has a path-by-path presentation as controlled sentences when the path expressions can be read. Its contract uses the compound flow form, including step reachability and the choice obligations.
+The role and bind declarations have declaration semantics. A check selects a proof obligation. In a propositional check the input field is read with its named propositional grammar.
+"""
+
+    section "Extension syntax to controlled sentence patterns":
+        cite EXTENSION-READING#RULES
+        ref [GRAMMAR-CONTRACT-MAPPING]
+        ref [COMPOSITE-ABBREVIATES]
+        ref [COMPOSITE-MERGING]
+
+        table "Controlled sentence readings of extensions":
+            | Extension rule | Extended pattern | Controlled form and mapping | Target reading rules |
+            | --- | --- | --- | --- |
+            | doc-table | `table "Title":` with a `{statement}` column | Each row supplies its complete Sentence to the ordinary reader in the row's scope. An optional id cell supplies the statement identifier. | Sentence |
+            | doc-shared-context | `Where/While/When/If Clause:` containing Sentence lines | Each Sentence inherits the feature, state, or trigger frame of the heading. The frame combines with the child's own conditions under the usual scope rules. | Sentence, frame-where, frame-while, frame-when, frame-if |
+            | doc-for-each | `For each NounPhrase Variable:` containing Sentence lines, or `For each NounPhrase Variable, Sentence` | Read the supplied Sentence with Variable bound to NounPhrase in its scope. The binder adds no guard. | Sentence |
+            | doc-otherwise | `If Clause, then Sentence; otherwise, Sentence.` or a corresponding `When` form | Read the first response under the written trigger and the second response under its negation. Both responses retain the shared feature and state conditions. | Sentence, frame-if, frame-when |
+            | doc-concept | `concept:` edge `each Source -> Verb -> Cardinality Target;` | `Each Source Verb Cardinality Target.` The edge supplies the subject type, relation verb, and quantified object. | relation, noun-phrase-universal, noun-phrase-counted |
+            | doc-diagram | `diagram Kind:` containing an Element of a declared kind | Substitute the bound fields of Element into the kind's declared expansion template and read the resulting Sentence. | Sentence |
+            | composition-flow | `Actor Modal follow this flow:` with a single path | `Actor Modal perform the following actions in order:` with each Action in path order and the original sentence frames. | composition-sequence |
+            | flow-choice | `choose after Step:` within a branching flow | Read as the compound flow form. Each branch retains its condition, predecessor, and target step. | composition-flow, flow-choice |
+
+    section "Tables preserve their statements and references":
+        primitive statement cell, references cell
+
+        [EXTENSION-TABLE]
+        The trion processor shall read each statement cell as a statement.
+            cite TABLE-SYNTAX#RULES
+        The trion processor shall resolve each reference of a references cell.
+            cite TABLE-SYNTAX
+
+    section "Extension syntax and its proof obligations":
+        ref [COMPOSITE-ABBREVIATES]
+        ref [COMPOSITE-MERGING]
+
+        table "Extension forms":
+            | Form | Proof obligations {references} |
+            | --- | --- |
+            | Declared diagram, shared condition, or table with statements | [SENTENCE-INPUT-ENABLED], [OBLIGATION-COMPATIBILITY] |
+            | Details of a statement | [OBLIGATION-CORRECTNESS], [OBLIGATION-COMPLETENESS] |
+            | Equivalence check | [OBLIGATION-EXPECTED-PROPERTY], [OBLIGATION-EQUIVALENCE] |
+            | Flow choice with an otherwise branch | [OBLIGATION-CHOICE-EXCLUSIVE] |
+            | Flow choice without an otherwise branch | [OBLIGATION-CHOICE-EXCLUSIVE], [OBLIGATION-CHOICE-COVERED] |
+            | Scenario | [OBLIGATION-BEHAVIOR] |
+
+        A check means a declaration that states an expected property.
+            cite STRUCTURED-INPUT
+        The details of a statement are a specification.
+        Each statement is a reference of the details of the statement.
+        A source is a reference only if the quotes of the source are statements of the trion language.
+
+        table "Formal vocabulary introduced by extensions":
+            | Reading rule | Pattern | Contract mapping | Introduces |
+            | --- | --- | --- | --- |
+            | doc-bind | `bind Term as QualifiedRole.` | Require Role(Term, QualifiedRole) without a condition. | True, Role |
+            | doc-role | `role Name:` with an activation or a form | A matching activation binds the term to the role. A violated role form excludes that role for the term. | Implies, Not, Role |
+
+namespace trion.propositional:
+    primitive source convention interpretation
+    primitive artifact meaning, change effect, controlled grammar, core, fixed grammar version interpretation
+    primitive formal validation, input text, mapping, migration, new adapter capability
+    primitive new adapter failure, new artifact, new constructor meaning, new constructor validation, original artifact
+    primitive source intent confirmation, sugar expansion preservation, sugar expansion termination, undefined interpretation, unknown
+    primitive unknown preservation
+    primitive checked propositional input
+
+    source PROP-CHECK:
+        title "Propositional check syntax and proof obligations"
+        locator "urn:trion:extension:propositional-check"
+        kind citation
+        quote MAPPING """
+A check block with propositional input has exactly one quoted grammar field and one quoted input field.
+The input is read under the named grammar and must yield one checked propositional problem.
+The check name identifies the single obligation in MMT. Its premises are those of the input alone.
+The MMT obligation includes the checked input, its fixed grammar and Core, and the location of the check.
+Each declared name denotes one nullary Boolean relation in the formulas of the obligation.
+Constants and Boolean connectives keep their truth conditions.
+A satisfiable question selects Q-SAT.
+An entails question selects Q-NONVACUOUS-ENTAILMENT, using Q-SAT and Q-COUNTEREXAMPLE.
+An entails check with contradictory premises is refuted on Q-SAT.
+Reading an MMT obligation rejects formulas or questions that disagree with the checked input.
+The MMT reader accepts the earlier theory for saved forms that have no checked input.
+"""
+
+    section "A propositional check selects a proof obligation":
+        ref [CNL-OBLIGATIONS]
+
+        table "Propositional check forms":
+            | Check input | Proof obligations {references} |
+            | --- | --- |
+            | `satisfiable.` | [Q-BINDING], [Q-SAT] |
+            | `entails EXPRESSION.` | [Q-BINDING], [Q-SAT], [Q-COUNTEREXAMPLE], [Q-NONVACUOUS-ENTAILMENT] |
+
+        [PROP-CHECK-MAPPING]
+        The propositional translator shall preserve the premises of a checked propositional input.
+            cite PROP-CHECK#MAPPING
+
+    section "Versioned extensions and migration":
+        cite FOUNDATION
+        [PROP-EXTENSION]
+        The propositional maintainer shall record the effects of a change on the meaning of an artifact.
+        The propositional maintainer shall preserve the interpretation of a fixed grammar version.
+        The propositional maintainer shall check the termination of a sugar expansion.
+        The propositional maintainer shall check the preservation of a sugar expansion.
+        The propositional maintainer shall specify the meaning of each new constructor.
+        The propositional maintainer shall specify the validation of each new constructor.
+        The propositional maintainer shall record the capabilities of a new adapter.
+        The propositional maintainer shall record the failures of a new adapter.
+
+        [PROP-MIGRATION]
+        The propositional maintainer shall issue a new artifact for a migration.
+        The propositional maintainer shall preserve the original artifact.
+        The propositional maintainer shall report the changes to structure, premises, interpretation, and representative results.
+        The propositional maintainer shall report unknown preservation as unknown.
+
+    source PROP-EXTRACTION:
+        title "Interpretation boundaries for future input adapters"
+        locator "urn:trion:propositional:source-candidate:1"
+        kind citation
+        quote RULES """
+A source location pairs a content identifier with an item locator or a byte range.
+A missing table cell has no default reading.
+A diagram edge is an observation. Causality requires a declared interpretation.
+A table row P/Q can produce assume P implies Q. only when a versioned rule declares material implication.
+An execution model must define the meaning of assignment and iteration before their behavior can be analyzed.
+A generated or extracted controlled sentence must pass the common parser. A generated Core-shaped JSON object is not a confirmed interpretation.
+"""
+
+    section "An input candidate records its origin":
+        cite FOUNDATION
+        [PROP-ORIGIN]
+        The propositional parser shall preserve the source location of an input.
+        The propositional parser shall preserve the mapping from the input text to the core.
+
+        [PROP-CANDIDATE]
+        A source candidate records the source location.
+        A source candidate records the observation.
+        A source candidate records the proposed interpretation.
+        A source candidate records the added premises.
+        A source candidate records the uncertainties.
+        A source candidate records the confirmation status.
+
+        [PROP-EXTRACTION-RULES]
+        The propositional maintainer shall specify the interpretation of a source convention.
+            cite PROP-EXTRACTION#RULES
+
+        [PROP-CONFIRMATION]
+        A source candidate uses a versioned interpretation rule or a confirmed interpretation.
+        The propositional parser shall formalize a source candidate through the controlled grammar.
+        The propositional parser shall reject an undefined interpretation.
+        The propositional maintainer shall distinguish confirmation of the source intent from formal validation.

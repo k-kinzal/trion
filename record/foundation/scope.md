@@ -1,18 +1,18 @@
-# 命題論理解析の導入時に決めた範囲
+# Initial scope of propositional analysis
 
-初期の対象には、宣言済みの命題の上の古典二値論理を選んだ。真、偽、否定、論理積、論理和と、含意の糖衣を対象にした。問いは前提の充足可能性と帰結。空の宣言環境では一つの空付値を用いる。現在の要求は [命題論理解析の仕様](../../spec/propositional/analysis.trion) を参照。
+The initial analysis covered classical two-valued logic over declared propositions. Its expressions used truth, falsity, negation, conjunction, and disjunction, with implication as syntactic sugar. Its questions were premise satisfiability and entailment. An empty declaration environment has exactly one valuation, the empty valuation. [Current propositional analysis specification](../../spec/propositional/analysis.trion)
 
-| 前提と問い | 期待する結果 |
+| Premises and question | Expected result |
 | --- | --- |
-| P を仮定し、P が帰結するか | 整合した前提から帰結する |
-| P → Q と P を仮定し、Q が帰結するか | 整合した前提から帰結する |
-| P → Q と Q を仮定し、P が帰結するか | 帰結しない。P が偽、Q が真の反例がある |
-| P と ¬P を仮定し、Q が帰結するか | 帰結する。前提矛盾による空虚な成立 |
-| 宣言も前提もなく、偽が帰結するか | 空付値が反例になる |
-| 未宣言の R を参照、または P を重複宣言 | Invalid |
-| P and Q or R を括弧なしで記述 | 宣言・構文が整っていても Ambiguous |
-| always Q を記述 | Unsupported |
+| Assume P. Does P follow? | P follows from consistent premises. |
+| Assume P → Q and P. Does Q follow? | Q follows from consistent premises. |
+| Assume P → Q and Q. Does P follow? | The valuation P = false and Q = true refutes entailment. |
+| Assume P and ¬P. Does Q follow? | Q follows vacuously because the premises contradict each other. |
+| Does false follow with no declarations or premises? | The empty valuation is a counterexample. |
+| Reference undeclared R or declare P twice. | Invalid. |
+| Write `P and Q or R` without parentheses. | Ambiguous, even with valid declarations and tokens. |
+| Write `always Q`. | Unsupported. |
 
-A/G の責任・義務、算術、量化、状態更新、時間、確率、並行処理、一般再帰、文脈依存の照応、図表の自動抽出は初期の対象から外した。定義環境には版付きの空の環境を選んだ。名前付き定義、近似アダプター、証明書形式、既存 A/G と接続する意味契約、既存 MMT への符号化は後続の設計事項とした。
+The initial work excluded A/G responsibility and duties, arithmetic, quantification, state updates, time, probability, concurrency, general recursion, context-dependent references, and automatic extraction from diagrams or tables. We chose a versioned empty definition environment. Named definitions, approximate adapters, certificate formats, a semantic contract connecting to A/G, and encoding into the existing MMT form were follow-up design topics.
 
-既存資産の分類は [現状調査](current-architecture.md)、選択の根拠は [設計判断 001](../decisions/001-foundation-scope.md) を参照。
+See the [architecture survey](current-architecture.md) for the treatment of existing assets and [decision 001](../decisions/001-foundation-scope.md) for the rationale.

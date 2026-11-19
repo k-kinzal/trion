@@ -11,6 +11,7 @@ use crate::figure;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
+use trion_language::document::{Table, TableCell};
 use trion_language::{expand, glossary, occurrences, Diagnostic, Document, GlossaryEntry, Meta, Severity, Spec};
 use trion_verification::Analysis;
 
@@ -79,6 +80,7 @@ enum Kind {
     Include,
     Namespace,
     Section,
+    Table,
     Meta,
     Note,
     Ref,
@@ -100,6 +102,8 @@ fn kind_of(text: &str) -> Kind {
         Kind::Namespace
     } else if text.starts_with("section \"") && (text.ends_with('"') || text.ends_with("\":")) {
         Kind::Section
+    } else if text.starts_with("table \"") {
+        Kind::Table
     } else if (word("use") && !sentence && !text[4..].contains(' ')) || word("cite") || text.starts_with("unsourced \"") || text.starts_with("detailed by [") || text.starts_with("overrides [") || text == "default" || text.strip_prefix("weight ").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())) {
         Kind::Meta
     } else if text.starts_with("note \"") {
@@ -335,6 +339,7 @@ struct FileView<'a> {
     file: &'a str,
     lines: Vec<Line>,
     specs: BTreeMap<usize, VecDeque<(&'a Document, &'a Spec)>>,
+    tables: BTreeMap<usize, &'a Table>,
     out: String,
     /// The headings: level, anchor and title.
     toc: Vec<(usize, String, String)>,
@@ -401,6 +406,35 @@ impl<'a> FileView<'a> {
         out
     }
 
+    fn table(&mut self, table: &Table) {
+        self.out.push_str(&format!("<table data-file=\"{}\" data-line=\"{}\"><caption>{}</caption>\n<thead><tr>", esc(self.file), table.line, esc(&table.title)));
+        for heading in &table.headings {
+            self.out.push_str(&format!("<th scope=\"col\">{}</th>", esc(heading)));
+        }
+        self.out.push_str("</tr></thead>\n<tbody>\n");
+        for row in &table.rows {
+            let parent = row.identifier().filter(|id| {
+                self.specs.get(&row.line).and_then(|specs| specs.front())
+                    .is_some_and(|(_, first)| first.id.as_deref() != Some(id))
+            });
+            let anchor = parent.map_or_else(String::new, |id| format!(" id=\"{}\"", esc(id)));
+            self.out.push_str(&format!("<tr{anchor} data-line=\"{}\">", row.line));
+            for cell in &row.cells {
+                let body = match cell {
+                    TableCell::Text(text) => esc(text),
+                    TableCell::Identifier(id) => format!("<a class=\"id\" href=\"#{0}\">{0}</a>", esc(id)),
+                    TableCell::Statement(text) => self.statement(None, text, row.line, "span"),
+                    TableCell::References(ids) => ids.iter()
+                        .map(|id| format!("<a class=\"id\" href=\"#{0}\">{0}</a>", esc(id)))
+                        .collect::<Vec<_>>().join(", "),
+                };
+                self.out.push_str(&format!("<td>{body}</td>"));
+            }
+            self.out.push_str("</tr>\n");
+        }
+        self.out.push_str("</tbody></table>\n");
+    }
+
     fn raw_block(&self, from: usize, to: usize) -> String {
         let base = (from..to).filter(|&j| !self.lines[j].blank).map(|j| self.lines[j].indent).min().unwrap_or(0);
         let text: Vec<String> = (from..to)
@@ -454,6 +488,12 @@ impl<'a> FileView<'a> {
                     self.block(i + 1, body_end, depth + 1);
                     self.out.push_str("</section>\n");
                     i = body_end;
+                }
+                Kind::Table => {
+                    if let Some(table) = self.tables.get(&no).copied() {
+                        self.table(table);
+                    }
+                    i = self.dedent(i, end);
                 }
                 Kind::Meta => {
                     let (word, rest) = text.split_once(' ').unwrap_or((&text, ""));
@@ -749,6 +789,9 @@ pre{background:var(--soft);border:1px solid var(--line);border-radius:6px;paddin
 .status ul{margin:.3rem 0;padding-left:1.2rem}
 nav.toc{border:1px solid var(--line);border-radius:6px;padding:.6rem .9rem;margin:1rem 0}
 nav.toc ul{list-style:none;margin:0;padding-left:1rem}nav.toc>ul{padding-left:0}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+caption{text-align:left;font-weight:600;margin-bottom:.35rem}
+th,td{border:1px solid var(--line);padding:.4rem .55rem;text-align:left;vertical-align:top}
 .file{margin-top:2.5rem;border-top:2px solid var(--line)}
 .ns{margin:.4rem 0}.kw{color:var(--muted);font-style:italic}
 p.para{margin:.7rem 0}
@@ -830,15 +873,17 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
         let path = project.files.get(*file).cloned().unwrap_or_else(|| project.root.join(file));
         let text = fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let mut specs: BTreeMap<usize, VecDeque<(&Document, &Spec)>> = BTreeMap::new();
+        let mut tables = BTreeMap::new();
         for document in documents.iter().filter(|d| d.file == *file) {
             for spec in &document.specs {
                 specs.entry(spec.line).or_default().push_back((document, spec));
                 statements += 1;
             }
+            tables.extend(document.tables.iter().map(|table| (table.line, table)));
         }
         let lines = lines_of(&text);
         let count = lines.len();
-        let mut view = FileView { shared: &shared, file, lines, specs, out: String::new(), toc: Vec::new(), headings: BTreeMap::new() };
+        let mut view = FileView { shared: &shared, file, lines, specs, tables, out: String::new(), toc: Vec::new(), headings: BTreeMap::new() };
         view.block(0, count, 3);
         let anchor = format!("file-{}", slug(file));
         body.push_str(&format!("<article class=\"file\" id=\"{anchor}\"><div class=\"path\">{}</div>\n{}</article>\n", esc(file), view.out));

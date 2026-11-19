@@ -34,12 +34,7 @@ Atom(P) evaluates to false when P has value false.
 Not(False) evaluates to true.
 And(True,False) evaluates to false.
 Or(True,False) evaluates to true.
-Implies(False,False) evaluates to true.
 """
-    source PROP-MODEL:
-        title "Propositional metatheory and mathematical model"
-        locator "../../formal/Trion/Propositional.lean"
-        kind citation
 
     section "A finite tree and a declaration table":
         cite FOUNDATION
@@ -87,16 +82,9 @@ Implies(False,False) evaluates to true.
         [PROP-OR]
         A disjunction is true exactly when at least one operand is true.
 
-        [PROP-IMPLIES]
-        An implication is true exactly when the antecedent of the implication is false or the consequent of the implication is true.
-
         [PROP-TRUTH-EXAMPLES]
         The propositional checker shall check the truth examples.
             cite PROP-JSON#TRUTH
-
-        [PROP-EXPAND]
-        The propositional parser shall expand an implication to a disjunction of the negation of the antecedent and the consequent.
-            cite PROP-MODEL
 
     section "Immutable artifacts and canonical JSON":
         cite FOUNDATION

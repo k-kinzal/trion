@@ -112,6 +112,32 @@ fn each_obligation_of_the_mmt_form_has_one_result() {
 }
 
 #[test]
+fn an_output_error_reports_every_verdict_and_the_affected_formats() {
+    let f = package(CONSISTENT);
+    assert_eq!(f.convert(&["--out", "out"]).code, 0);
+    f.write("blocked", "a file cannot be the certificate directory");
+    let failed = f.prove(&["out", "--certificates", "blocked", "--format", "smt2,moxi", "--json"]);
+    assert_eq!(failed.code, 1, "{}{}", failed.stdout, failed.stderr);
+    let report = failed.json();
+    let results = report["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r["verdict"] == "proved" && r["certificates"] == serde_json::json!([])));
+    let notes = report["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 4);
+    assert!(notes.iter().all(|n| n["severity"] == "error" && n["obligation"].is_string()));
+
+    std::fs::create_dir_all(f.path().join("certs/consistency.smt2")).unwrap();
+    let partial = f.prove(&["out", "--certificates", "certs", "--format", "smt2,moxi", "--json"]);
+    assert_eq!(partial.code, 1, "{}{}", partial.stdout, partial.stderr);
+    let report = partial.json();
+    assert_eq!(report["notes"].as_array().unwrap().len(), 1);
+    assert_eq!(report["notes"][0]["format"], "smt2");
+    assert_eq!(report["notes"][0]["obligation"], "consistency");
+    assert_eq!(report["results"][0]["certificates"], serde_json::json!(["moxi"]));
+    assert_eq!(report["results"][1]["certificates"], serde_json::json!(["smt2", "moxi"]));
+}
+
+#[test]
 fn trioc_runs_no_other_program() {
     // With nothing on the search path, every format is written all the same:
     // the proofs are trioc's own, and the checkers below read them later.

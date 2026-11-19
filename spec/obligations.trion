@@ -1,0 +1,115 @@
+namespace trion:
+    primitive behavior
+
+    source COMPATIBLE-INPUT:
+        title "Inputs considered by compatibility"
+        locator "urn:trion:obligation:compatible-input"
+        kind citation
+        quote RULES """
+Start with the inputs allowed by the descriptions and the environment assumptions of the document. If there are binding normative contracts, compatibility requires an input that meets at least one of their assumptions. An empty set of normative contracts imposes no further condition on the input.
+"""
+
+    section "A proof obligation is a proposition":
+        table "Obligation and bound":
+            | Identifier {id} | Definition {statement} |
+            | --- | --- |
+            | [OBLIGATION-PROPOSITION] | A proof obligation means a proposition about a specification. |
+            | [OBLIGATION-BOUND] | A bound means a finite limit of a verification. |
+
+        A bounded obligation states the bounds of its proposition.
+
+    section "Satisfaction, consistency, and compatibility":
+        A behavior satisfies a contract exactly when the assumption of the contract does not hold in the behavior or the guarantee of the contract holds in the behavior.
+        A specification is satisfiable exactly when at least one behavior satisfies each contract of the specification.
+        An input means a behavior of the environment of a specification.
+        A response means a behavior of the system of a specification.
+        A conflict means a set of contracts that no response satisfies for an input.
+        A specification is consistent exactly when each input has a response that satisfies each contract of the specification.
+
+        table "Consistency, compatibility, and realizability":
+            | Identifier {id} | Definition {statement} |
+            | --- | --- |
+            | [SENTENCE-INPUT-ENABLED] | The proof obligation of the consistency of each specification shall require a response to each input. |
+            | [OBLIGATION-COMPATIBILITY] | A compatible specification means a specification that admits an input. |
+            | [OBLIGATION-REALIZABILITY] | A free occurrence means an occurrence that the environment decides. |
+
+        An early occurrence means a free occurrence that precedes each moment of a response.
+        A realizability obligation means a proof obligation that states the absence of each early occurrence of a response.
+        Consistency names a response for each whole input, and a system knows only the past of the input.
+
+        Compatibility requires an admissible input.
+            cite COMPATIBLE-INPUT#RULES
+
+    section "Refinement and completeness":
+        A reference means a specification that judges the correctness of a specification.
+        A specification refines a reference exactly when the specification accepts each input of the reference and each response that satisfies the specification satisfies the reference.
+
+        table "Correctness and completeness":
+            | Identifier {id} | Definition {statement} |
+            | --- | --- |
+            | [OBLIGATION-CORRECTNESS] | A correct specification means a specification that refines each reference of the specification. |
+            | [OBLIGATION-COMPLETENESS] | An unrefined reference means a reference that a specification fails to refine. |
+
+        The joint specification of an unrefined reference means the conjunction of the unrefined reference and the specification of the unrefined reference.
+        A completable reference means an unrefined reference whose joint specification is consistent.
+        A gap means a completable reference whose joint specification is compatible.
+        An incomplete specification means a specification that has a gap.
+
+    section "Expected properties":
+        table "Expected properties and equivalence":
+            | Identifier {id} | Definition {statement} |
+            | --- | --- |
+            | [OBLIGATION-EXPECTED-PROPERTY] | An expected property means a proposition that an author expects. |
+            | [OBLIGATION-EQUIVALENCE] | An equivalence obligation means a proof obligation that requires a model of the definitions and the descriptions. |
+
+        The sides of an equivalence have the same truth value in each model of the definitions and the descriptions.
+
+    section "Advice, choices, and behaviors":
+        table "Advice, choice, and behavior obligations":
+            | Identifier {id} | Definition {statement} |
+            | --- | --- |
+            | [OBLIGATION-RECOMMENDATION] | If the requirements of a specification are consistent, then a response that satisfies the requirements and the selected advice exists for each admissible input. |
+            | [OBLIGATION-CHOICE-EXCLUSIVE] | An exclusive choice has at most one true guard in each admissible situation of the choice. |
+            | [OBLIGATION-CHOICE-COVERED] | A complete choice has at least one true guard in each admissible situation of the choice. |
+            | [OBLIGATION-BEHAVIOR] | An admitted behavior satisfies each contract of the specification. |
+
+namespace trion.propositional:
+    primitive artifact identifier, propositional core, query document identifier, target formula reference
+    system propositional core
+
+    source FOUNDATION:
+        title "Formalization foundation work instruction, edition 1"
+        locator "urn:trion:foundation-work-instruction:2026-11-18:1"
+        kind citation
+
+    section "A query fixes its document and premises":
+        cite FOUNDATION
+        The kind of a query is satisfiability or entailment.
+        A query identifies one document.
+        A query uses every premise of the document of the query.
+        A satisfiability query has no target formula.
+        An entailment query has exactly one target formula.
+
+        table "Query binding":
+            | Identifier {id} | Rule {statement} |
+            | --- | --- |
+            | [Q-BINDING] | If the query document identifier differs from the artifact identifier, then the propositional core shall reject the query. |
+
+        The propositional core shall check every reference of a target formula.
+
+        table "Propositional proof obligations":
+            | Identifier {id} | Definition {statement} |
+            | --- | --- |
+            | [Q-MODEL] | A valuation is a premise model exactly when every premise is true. |
+            | [Q-SAT] | Premises are satisfiable exactly when a premise model exists. |
+            | [Q-UNSAT] | Premises are unsatisfiable exactly when no premise model exists. |
+            | [Q-COUNTEREXAMPLE] | A valuation is a counterexample exactly when the valuation is a premise model and the target is false. |
+            | [Q-ENTAILS] | A target follows exactly when no counterexample exists. |
+            | [Q-INCONSISTENT] | Contradictory premises have no premise model. |
+            | [Q-EMPTY] | Every valuation satisfies the empty premise set. |
+            | [Q-OPEN] | Non-entailment differs from entailment of the negation. |
+            | [PROP-QUERY-CONDITION] | The satisfiability condition is the conjunction of the premises. |
+            | [Q-NONVACUOUS-ENTAILMENT] | A nonvacuous entailment holds exactly when the premises are satisfiable and no counterexample exists. |
+
+        Each target follows from contradictory premises.
+        The entailment condition is the conjunction of the premises and the negation of the target.

@@ -95,13 +95,7 @@ impl Accepted {
     }
 
     pub fn from_json(bytes: &[u8]) -> Result<Self, String> {
-        let saved: Saved = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        let rebuilt = formalize(&saved.source, saved.grammar)
-            .map_err(|error| format!("saved input is no longer accepted: {error:?}"))?;
-        if rebuilt.0 != saved {
-            return Err("saved input differs from the versioned Core or provenance".into());
-        }
-        Ok(rebuilt)
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())
     }
 
     pub fn canonical_cnl(&self) -> String {
@@ -125,6 +119,21 @@ impl Accepted {
             }
         }
         text
+    }
+}
+
+impl<'de> Deserialize<'de> for Accepted {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let saved = Saved::deserialize(deserializer)?;
+        let rebuilt = formalize(&saved.source, saved.grammar).map_err(|error| {
+            serde::de::Error::custom(format!("saved input is no longer accepted: {error:?}"))
+        })?;
+        if rebuilt.0 != saved {
+            return Err(serde::de::Error::custom(
+                "saved input differs from the versioned Core or provenance",
+            ));
+        }
+        Ok(rebuilt)
     }
 }
 

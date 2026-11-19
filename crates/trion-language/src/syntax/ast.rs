@@ -967,26 +967,37 @@ impl Specification {
     }
 }
 
-impl Sentence {
-    /// Render the sentence in canonical form: frame keywords in title case,
-    /// closed-class words lowercase, `If …, then …`, single spaces, trailing
-    /// period. Open-class words keep their surface casing.
-    pub fn render(&self) -> String {
+impl Frames {
+    pub(crate) fn render(&self) -> Vec<String> {
+        let title_case = |keyword: &str| {
+            let mut name = keyword.to_ascii_lowercase();
+            if let Some(initial) = name.get_mut(..1) {
+                initial.make_ascii_uppercase();
+            }
+            name
+        };
         let mut parts: Vec<String> = Vec::new();
-        for scope in &self.frames.scopes {
-            parts.push(format!("Where {},", scope.clause.render()));
+        for frame in self.scopes.iter().chain(&self.states) {
+            parts.push(format!("{} {},", title_case(&frame.keyword), frame.clause.render()));
         }
-        for state in &self.frames.states {
-            parts.push(format!("While {},", state.clause.render()));
-        }
-        if let Some(trigger) = &self.frames.trigger {
+        if let Some(trigger) = &self.trigger {
             match trigger.kind {
-                TriggerKind::Event => parts.push(format!("When {},", trigger.clause.render())),
+                TriggerKind::Event => parts.push(format!("{} {},", title_case(&trigger.keyword), trigger.clause.render())),
                 TriggerKind::Contingency => {
                     parts.push(format!("If {}, then", trigger.clause.render()))
                 }
             }
         }
+        parts
+    }
+}
+
+impl Sentence {
+    /// Render the sentence in canonical form: frame keywords in title case,
+    /// closed-class words lowercase, `If …, then …`, single spaces, trailing
+    /// period. Open-class words keep their surface casing.
+    pub fn render(&self) -> String {
+        let mut parts = self.frames.render();
         parts.push(self.core.render());
         if let Some(iff) = &self.iff {
             parts.push(format!("exactly when {}", iff.render()));

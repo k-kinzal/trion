@@ -40,9 +40,17 @@ every contract. An implementation that accepts every input exists. -/
 def consistent (input : Behaviour → Input) (contracts : List (Contract Behaviour)) : Prop :=
   ∀ given, ∃ behaviour, input behaviour = given ∧ kept contracts behaviour
 
-/-- Compatibility: some behaviour of the environment meets an assumption of the document. -/
+/-- Compatibility: some behaviour of the environment meets an assumption of the document.
+An empty set of normative contracts leaves the environment unrestricted by those contracts. -/
 def compatible (contracts : List (Contract Behaviour)) : Prop :=
-  ∃ behaviour, asked contracts behaviour
+  ∃ behaviour, contracts = [] ∨ asked contracts behaviour
+
+theorem compatible_empty : compatible ([] : List (Contract Behaviour)) ↔ Nonempty Behaviour := by
+  constructor
+  · rintro ⟨behaviour, _⟩
+    exact ⟨behaviour⟩
+  · rintro ⟨behaviour⟩
+    exact ⟨behaviour, Or.inl rfl⟩
 
 /-- Refinement: the finer document accepts every environment of the coarser one, and
 every behaviour that keeps the finer document keeps the coarser one. -/

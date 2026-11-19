@@ -1,0 +1,5 @@
+namespace p:
+    table "Invalid row":
+        | Form | Rule {references} |
+        | --- | --- |
+        | Missing reference | |

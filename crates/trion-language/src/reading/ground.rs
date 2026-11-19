@@ -534,6 +534,16 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, scope: usize) -> Option<Ground
                 }
                 match typed::read(&display, &crate::expand::lowered(&spec.sentence), &types, &scoped) {
                     Reading::Untyped => {}
+                    Reading::Typed(meaning) if spec.otherwise && meaning.frames.iter().any(|frame| {
+                        matches!(frame.kind, typed::FrameKind::When | typed::FrameKind::If)
+                            && frame.conditions.iter().any(|condition| matches!(condition, Condition::Related(_) | Condition::Kind { .. }))
+                    }) => {
+                        individuals.outside.push(OutsideOf {
+                            statement: SpecRef { id: display, file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() },
+                            construct: "otherwise".into(),
+                            why: "the grounding of a trigger over individual types or relations does not preserve its complement: state the complementary condition in a separate sentence".into(),
+                        });
+                    }
                     Reading::Typed(meaning) => {
                         read.insert((p, spec.display_id()), *meaning);
                     }

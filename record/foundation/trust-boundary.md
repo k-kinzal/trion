@@ -1,22 +1,24 @@
-# 検証対象と信頼範囲
+# Verification and trust boundary
 
-## ゲート1
+## Gate 1. The formal model
 
-既存の `formal/` の Lean 4.35.0 ツールチェーンで [命題論理モデル](../../formal/Trion/Propositional.lean) を検査する。`lake build` は定理と公理の一覧を照合する `#guard_msgs` も評価する。使用公理は命題外延性 `propext` と商の健全性 `Quot.sound`。信頼するのは Lean のカーネルとこの二つの公理、記述した定理が規範仕様を表すことのレビュー。
+We check the [propositional model](../../formal/Trion/Propositional.lean) with the Lean 4.35.0 toolchain pinned under `formal/`. During `lake build`, `#guard_msgs` checks the recorded list of axioms used by the theorems. Those axioms are propositional extensionality (`propext`) and quotient soundness (`Quot.sound`). The verification trusts the Lean kernel, those two axioms, and the review of whether the theorems express the normative specification.
 
-| 要件 | 対象 | 前提 |
+| Requirement | Theorems and scope | Preconditions |
 | --- | --- | --- |
-| M01 | `eval_correct`。再帰する Boolean 評価を別定義の述語と照合する | 有限木と全域付値。すべての参照は `Fin n` |
-| M02 | `expand_correct`。含意の述語による意味を保存する | 整形式の表層木。文字列の解析を含まない |
-| M03 | `query_condition_exact`、`translate_exact`、`target_query_exact`。全付値での反例条件と NNF の一致 | 宣言スロットを共有する全域付値。ワーカーの応答は前提にしない |
-| M04 | `witness_correct`、`valuations_complete`、`valuation_count`、`empty_valuation`、`cut_off`、`exclusion_correct`、`unsat_sound`、`entails_sound` | 有限な宣言環境、全参照を含む付値、全件検査可能な予算。有限木に対する結論 |
+| M01 | `eval_correct` relates the recursive Boolean evaluator to a separately defined truth predicate. | Finite trees and total valuations. Every reference is a `Fin n`. |
+| M02 | `expand_correct` preserves the predicate semantics of implication during expansion. | Well-formed surface trees. Parsing text is outside the theorem's scope. |
+| M03 | `query_condition_exact`, `translate_exact`, and `target_query_exact` cover the NNF adapter. `mmt_formula_exact` preserves truth at every valuation. `mmt_question_exact` preserves satisfiability and nonvacuous entailment for the propositional MMT fragment. | Total valuations over the same declaration slots. Each distinct declared name denotes one nullary MMT relation. |
+| M04 | `witness_correct`, `valuations_complete`, `valuation_count`, `empty_valuation`, `cut_off`, `exclusion_correct`, `unsat_sound`, and `entails_sound` establish witness and exhaustive-check soundness. | Finite declarations covering every reference, finite expression trees, and a sufficient budget for exhaustive conclusions. |
 
-スロット数が 0 の場合は empty_valuation と valuations_complete を適用する。評価、展開、変換、付値の生成は Lean の構造再帰で定義している。M04 の生成順は参照評価器と同じく、先頭スロットの偽の枝、真の枝の順。モデルではその順のリストとして表す。
+For zero slots, `empty_valuation` and `valuations_complete` cover the empty valuation. Evaluation, expansion, translation, and valuation generation use structural recursion. The model and the reference evaluator both enumerate the false branch of the first slot before the true branch.
 
-## ゲート2
+## Gate 2. Implementation conformance
 
-Rust の実装は Lean からの抽出コードではない。Core の式型、スロット順、検査済み文書と問いを入力処理・参照評価・アダプター間で共有する。参照評価の構造再帰と付値の列挙は、後段の NNF への変換、NNF の評価、付値の列挙と独立している。
+The Rust implementation shares the Core expression type, slot order, and validated document and question between input processing, the reference evaluator, and the adapter. The reference evaluator's recursion and enumeration are independent of the backend's NNF translation, evaluation, and enumeration.
 
-検査に残る信頼範囲には、Rust の変換・評価・列挙がモデルに対応すること、文法、JSON とダイジェスト、依存グラフ確認、結果の受理・表示、OS のプロセス制御が含まれる。これらは適合試験と故障注入で検査する。文法の意味と元資料の意図が一致するかは、元資料の規約または確認記録に依存する。
+Conformance tests and fault injection exercise the correspondence between Rust and the model, the grammar, JSON and digests, dependency direction, result acceptance and reporting, and OS process control. Whether the grammar's interpretation captures the intent of source material depends on the source conventions or a confirmation record.
 
-定理の妥当性と検査器の信頼の区別についての参考資料。 [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/)
+The MMT theorems cover the Boolean formulas and the questions they form. The MMT reader checks that each propositional obligation agrees with its archived Core input. The certificate checker verifies backend answers against the MMT questions. The reference evaluator independently checks recovered valuations against the original Core and compares each decided answer with enumeration when the budget covers all valuations. Larger universal results carry checked certificate evidence. The Rust lowering, MMT reader and serializer, witness recovery, and the binding and replay code are exercised by conformance and fault injection. [MMT lowering](../../crates/trion-verification/src/analysis/references.rs) · [Evidence acceptance and replay](../../crates/trioc-cli/src/propositional.rs) · [CLI conformance tests](../../crates/trion-cli/tests/analysis_cli.rs)
+
+The Lean reference discusses theorem validation and the trusted checker. [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/)

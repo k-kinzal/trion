@@ -153,6 +153,21 @@ fn a_declared_diagram_kind_is_normative_and_an_undeclared_one_is_not() {
 }
 
 #[test]
+fn a_declared_diagram_round_trips_with_its_inherited_configuration() {
+    let terms = "primitive audit, enabled, door, bell, light, closed, rung, red\n";
+    let f = package(&format!(
+        "{terms}{KIND}Where the audit is enabled:\n    [T] diagram transition:\n        [T/pay] closed -> rung -> red;\n"
+    ));
+    let expression = &expressions(&f, "T/pay")[0];
+    let sentence = expression["text"].as_str().unwrap();
+    assert!(sentence.starts_with("Where the audit is enabled,"), "{sentence}");
+    let authored = package(&format!("{terms}[T/pay] {sentence}\n"));
+    assert_eq!(contracts(&f), contracts(&authored));
+    let conversion = f.convert(&["--properties", "--json"]);
+    assert_eq!(conversion.code, 0, "{}{}", conversion.stdout, conversion.stderr);
+}
+
+#[test]
 fn a_target_cardinality_leaves_the_inverse_relation_free() {
     let exists = "[O] There is an order.\n[B] There is a buyer.\n";
     // One buyer for each order says nothing of the orders of a buyer.

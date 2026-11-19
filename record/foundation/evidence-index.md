@@ -1,36 +1,38 @@
-# 命題論理解析の証拠一覧
+# Propositional analysis evidence index
 
-対象スナップショットと実行結果は [ローカル検証記録](propositional-verification.md) に記す。規範の定義、Lean で検査した命題、Rust の適合試験はそれぞれ根拠が異なる。対象と残る信頼範囲は [検証対象と信頼範囲](trust-boundary.md) を参照。
+This index links the normative definitions, the Lean theorems, and the Rust conformance tests. The [local verification record](propositional-verification.md) identifies the snapshots and reports the results. The [trust boundary](trust-boundary.md) records the scope of each check and the remaining trust assumptions.
 
-| 要件 | 規範定義と機械検査 | 適合試験と検出する故障 |
+| Requirement | Normative definition and mechanical checks | Conformance tests and faults detected |
 | --- | --- | --- |
-| F01 版付きの規範意味論 | [Core](../../spec/propositional/core.trion)、[問い](../../spec/propositional/queries.trion)。M01 と M02 を機械検査 | [規範例](../../tests/adapters/boolean.rs) と [文法試験](../../tests/grammar/propositional.rs)。含意の前件・後件を逆にすると不一致。 |
-| F02 閉じた正式構造 | [整形式と保存](../../spec/propositional/core.trion)。Lean の `Expr n` と `Fin n` で対象を限定 | [Core 適合試験](../../tests/conformance/core.rs)。未知構成子、余分なペイロード、表外の参照、破損、重複を拒否。 |
-| F03 独立した Core | [設計判断](../decisions/001-foundation-scope.md)、[拡張規則](../../spec/propositional/extensions.trion) | [Cargo の依存グラフ](../../crates/trion-cli/tests/self_hosting.rs) と [交換演習](../../tests/architecture/propositional.rs)。禁止された後段依存、対応範囲を無視した変換を検出。 |
-| F04 前提と問いの追跡 | [問い](../../spec/propositional/queries.trion)、[結果](../../spec/propositional/results.trion)、[CNL の対応情報](../../spec/propositional/grammar.trion) | [CLI](../../crates/trion-cli/tests/analysis_cli.rs) と [故障注入](../../tests/fault-injection/analysis.rs)。前提を混ぜた文書、別の問い・前提の応答を拒否。 |
-| F05 変換の条件と保存 | [変換契約](../../spec/propositional/translation.trion)。M03 を機械検査 | [独立照合](../../tests/adapters/boolean.rs)、[交換演習](../../tests/architecture/propositional.rs)、[故障注入](../../tests/fault-injection/analysis.rs)。制約の欠落と能力の不足を検出。 |
-| F06 結論を根拠と照合 | [結果](../../spec/propositional/results.trion)。M04 を機械検査 | [結果受理試験](../../tests/adapters/boolean.rs)、[故障注入](../../tests/fault-injection/analysis.rs)、[CLI](../../crates/trion-cli/tests/analysis_cli.rs)。誤った候補、前提矛盾、unknown、途中終了、時間切れ、範囲欠落を検査。 |
-| F07 固定版と再検査 | [保存](../../spec/propositional/core.trion)、[拡張規則](../../spec/propositional/extensions.trion) | [版固定](../../tests/grammar/propositional.rs) と [再検査](../../crates/trion-cli/tests/analysis_cli.rs)。旧版解釈の変更、版違い、変換・証拠の改変を拒否。 |
-| F08 保証範囲 | [検証対象と信頼範囲](trust-boundary.md)、[変換契約](../../spec/propositional/translation.trion)、[結果](../../spec/propositional/results.trion) | [Lean の再検査](../../formal/Trion/Propositional.lean)、[限定応答の注入](../../tests/fault-injection/analysis.rs)、[ローカル検証記録](propositional-verification.md)。 |
+| F01. Versioned normative semantics | [Core](../../spec/propositional/core.trion) and [proof obligations](../../spec/obligations.trion). Lean checks M01 and M02. | [Worked examples](../../tests/adapters/boolean.rs) and [grammar tests](../../tests/grammar/propositional.rs) catch reversed implications. |
+| F02. Closed formal structure | [Well-formedness and interchange](../../spec/propositional/core.trion). Lean limits the domain with `Expr n` and `Fin n`. | [Core conformance tests](../../tests/conformance/core.rs) reject unknown constructors, extra fields, out-of-range references, malformed data, and duplicates. |
+| F03. Independent Core | [Design decision](../decisions/001-foundation-scope.md) and [extension rules](../../spec/extensions.trion). | [Cargo dependency graph](../../crates/trion-cli/tests/self_hosting.rs) and [adapter replacement](../../tests/architecture/propositional.rs) catch prohibited dependencies and unchecked backend capability. |
+| F04. Premise and question tracking | [Proof obligations](../../spec/obligations.trion), [results](../../spec/propositional/results.trion), and [CNL provenance](../../spec/grammar.trion). | [CLI tests](../../crates/trion-cli/tests/analysis_cli.rs) and [fault injection](../../tests/fault-injection/analysis.rs) reject altered premises and answers bound to a different question or premise set. MMT readback checks the lowered questions against their archived Core. |
+| F05. Translation conditions and preservation | [NNF contract](../../spec/propositional/translation.trion), [propositional MMT mapping](../../spec/extensions.trion), and [M03 theorems](../../formal/Trion/Propositional.lean). | [Independent comparison](../../tests/adapters/boolean.rs), [adapter replacement](../../tests/architecture/propositional.rs), [fault injection](../../tests/fault-injection/analysis.rs), and [MMT readback tests](../../crates/trion-cli/tests/analysis_cli.rs). |
+| F06. Conclusions bound to evidence | [Results](../../spec/propositional/results.trion). Lean checks M04. | [Result acceptance](../../tests/adapters/boolean.rs), [fault injection](../../tests/fault-injection/analysis.rs), and [CLI tests](../../crates/trion-cli/tests/analysis_cli.rs) exercise invalid candidates, contradictory premises, unknown, interruption, timeout, and absent scope. The MMT tests also exercise the exhaustive and checked certificate evidence paths. |
+| F07. Version pinning and replay | [Interchange](../../spec/propositional/core.trion) and [extension rules](../../spec/extensions.trion). | [Version pinning](../../tests/grammar/propositional.rs) and [replay](../../crates/trion-cli/tests/analysis_cli.rs) reject changes to old interpretations, version mismatches, and tampering with translation or evidence. |
+| F08. Scope of guarantees | [Trust boundary](trust-boundary.md), [translation contract](../../spec/propositional/translation.trion), and [results](../../spec/propositional/results.trion). | [Lean checks](../../formal/Trion/Propositional.lean), [limited-result injection](../../tests/fault-injection/analysis.rs), and [local verification](propositional-verification.md). |
 
 ## M01–M04
 
-[Lean モデル](../../formal/Trion/Propositional.lean)の定理、公理、検査対象は [検証対象と信頼範囲](trust-boundary.md) に記載した。M04 の付値生成については、3 命題で各付値だけが唯一の証人になる例と、0 命題で空付値だけが証人になる例を実装でも試した。 [Core 適合試験](../../tests/conformance/core.rs)
+The [trust boundary](trust-boundary.md) lists the theorems and axioms of the [Lean model](../../formal/Trion/Propositional.lean). Runtime tests for M04 check that each valuation over three propositions can serve as the sole witness to a question and that zero propositions have exactly one witness, the empty valuation. [Core conformance tests](../../tests/conformance/core.rs)
 
-独立照合では、命題数 0〜4、式の深さ最大 5、前提数 0〜3、各命題数で 32 ケースを種 `0x8af7_239b_0061_c45d` から生成する。定数、宣言済み参照、否定、論理積、論理和を使い、充足可能性と帰結を交互に選ぶ。全付値で前提を固定した小問でも後段と参照評価を照合し、名前を一貫して変更した場合も比較する。手計算例は含意とその逆、矛盾、空付値を別に保持する。生成器と検査する性質を分ける設計を参照した。 [試験コード](../../tests/adapters/boolean.rs) · [QuickCheck 原論文](https://research.chalmers.se/en/publication/237427)
+The independent comparison generates 32 cases for each proposition count from zero to four. It uses a maximum expression depth of five, up to three premises, and seed `0x8af7_239b_0061_c45d`. It generates constants, declared references, negation, conjunction, and disjunction, alternating satisfiability and entailment questions. Additional comparisons fix the premises to each valuation or consistently rename the propositions. Hand-worked examples cover implication, its converse, contradiction, and the empty valuation. The tests define the properties separately from the input generator. [Conformance tests](../../tests/adapters/boolean.rs) and [QuickCheck paper](https://research.chalmers.se/en/publication/237427)
 
-## 完成判定
+## Completion criteria
 
-| 第15節の項目 | 根拠 |
+| Criterion from Section 15 | Evidence |
 | --- | --- |
-| F01〜F08、全構成子と整形式性 | 上表、[仕様の自己検査](../../crates/trion-cli/tests/self_hosting.rs)、[Core 規範仕様](../../spec/propositional/core.trion) |
-| M01〜M04、前提と使用公理 | [Lean モデル](../../formal/Trion/Propositional.lean) と [信頼範囲](trust-boundary.md) |
-| 配備する CLI と独立評価、Core の依存 | [CLI 一貫試験](../../crates/trion-cli/tests/analysis_cli.rs)、[生成照合](../../tests/adapters/boolean.rs)、[依存方向](../../crates/trion-cli/tests/self_hosting.rs) |
-| 前提、問い、変換、証拠、範囲の追跡 | [CLI 一貫試験](../../crates/trion-cli/tests/analysis_cli.rs) と [F04〜F07 の試験](../../tests/fault-injection/analysis.rs) |
-| 曖昧、未対応、未決着、矛盾、障害 | [文法試験](../../tests/grammar/propositional.rs)、[結果試験](../../tests/adapters/boolean.rs)、[強制終了と時間切れ](../../tests/fault-injection/analysis.rs) |
-| 重大な故障を個別に検出 | [故障入力の試験](../../tests/fault-injection/analysis.rs)、[依存関係の検査](../../crates/trion-cli/tests/self_hosting.rs)、[cargo-mutants による照合](propositional-verification.md) |
-| 文法追加と制限された後段への交換 | [交換演習](../../tests/architecture/propositional.rs) |
-| 版の固定、証拠の再検査、移行 | [保存仕様](../../spec/propositional/core.trion)、[移行規則](../../spec/propositional/extensions.trion)、[版固定の回帰](../../tests/grammar/propositional.rs) |
-| 未定義の図表・擬似コードを扱わない | [図表の入口](../../spec/propositional/extensions.trion) と [構文・構造の拒否例](../../tests/grammar/propositional.rs) |
-| モデルの証明、適合試験、元資料の確認 | [信頼範囲](trust-boundary.md) と [出所の契約](../../spec/propositional/extensions.trion) |
-| 同一スナップショットに結び付いた証拠 | [Git の検証対象とローカル検証記録](propositional-verification.md) |
+| F01–F08, all constructors, and well-formedness | The requirement table, [self-hosting checks](../../crates/trion-cli/tests/self_hosting.rs), and [Core specification](../../spec/propositional/core.trion). |
+| M01–M04, their premises and axioms | [Lean model](../../formal/Trion/Propositional.lean) and [trust boundary](trust-boundary.md). |
+| Deployed CLI, independent evaluation, and Core dependencies | [End-to-end tests](../../crates/trion-cli/tests/analysis_cli.rs), [generated comparison](../../tests/adapters/boolean.rs), and [Cargo dependency checks](../../crates/trion-cli/tests/self_hosting.rs). |
+| Traceability of premises, questions, translations, evidence, and scope | [End-to-end tests](../../crates/trion-cli/tests/analysis_cli.rs) and [F04–F07 fault injection](../../tests/fault-injection/analysis.rs). |
+| Ambiguity, unsupported input or backend, unknown, contradiction, and failure | [Grammar tests](../../tests/grammar/propositional.rs), [result tests](../../tests/adapters/boolean.rs), and [process failure tests](../../tests/fault-injection/analysis.rs). |
+| Detection of individual faults | [Fault injection](../../tests/fault-injection/analysis.rs), [dependency checks](../../crates/trion-cli/tests/self_hosting.rs), and [the per-fault verification record](propositional-verification.md). |
+| Grammar extension and replacement with a restricted adapter | [Architecture tests](../../tests/architecture/propositional.rs). |
+| Version pinning, evidence replay, and migration | [Interchange](../../spec/propositional/core.trion), [migration rules](../../spec/extensions.trion), and [version regression tests](../../tests/grammar/propositional.rs). |
+| Handling of undefined diagram, table, and pseudocode semantics | [Extension rules](../../spec/extensions.trion) and [rejection tests](../../tests/grammar/propositional.rs). |
+| Model proofs, conformance tests, and confirmation of source intent | [Trust boundary](trust-boundary.md) and [source provenance contract](../../spec/extensions.trion). |
+| Evidence bound to one snapshot | [Git snapshot and verification results](propositional-verification.md). |
+| Local verification | [Verification record](propositional-verification.md) for the locked workspace build, Rust conformance tests, and Lean checks. |
+| Native tables and obligation mappings | [Table conformance tests](../../crates/trion-cli/tests/tables.rs) and [self-hosting tests](../../crates/trion-cli/tests/self_hosting.rs) check equivalent MMT readings, direct references to the independent obligation file, source locations, rendering, and rejection of malformed rows. |

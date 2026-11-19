@@ -21,9 +21,11 @@ use super::responsibility::{Authored, Situated};
 use super::situations;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use trion_core::{Expr, Problem, Question};
+use trion_language::document::PropositionalCheck;
 use trion_language::reading::{ConstraintKind, Model};
 use trion_language::{Diagnostic, SpecRef, SpecSet};
-use trion_solver::{for_all_exists, Answer, ForAll, Formula, Instance, Status};
+use trion_solver::{for_all_exists, Answer, Atom, ForAll, Formula, Instance, Status};
 
 /// The proof obligations of a package within its bounds, over one pool of
 /// formulas.
@@ -40,6 +42,9 @@ pub struct ProofObligations {
     #[serde(default)]
     pub owners: BTreeMap<usize, String>,
     pub obligations: Vec<ProofObligation>,
+    /// Checked source of each propositional obligation, by its position.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub propositional: BTreeMap<usize, PropositionalCheck>,
     /// What building the obligations found: a block that names what is not
     /// there, or a question that cannot be stated. These are findings of the
     /// conversion and no part of the form.
@@ -80,6 +85,58 @@ pub enum ObligationQuestion {
     Any { parts: Vec<ObligationQuestion> },
     /// The part is refuted.
     Not { part: Box<ObligationQuestion> },
+}
+
+/// Lower a checked propositional problem into the questions of the MMT
+/// form. These formulas have their own premises and do not use the
+/// background or the contract groups of the surrounding document.
+fn propositional_question(problem: &Problem, mut add: impl FnMut(&Formula) -> usize) -> (ObligationQuestion, String) {
+    fn formula(expr: &Expr, names: &[String]) -> Formula {
+        match expr {
+            Expr::True => Formula::True,
+            Expr::False => Formula::not(Formula::True),
+            Expr::Atom(slot) => Formula::atom(Atom::Rel { name: names[*slot as usize].clone(), args: vec![] }),
+            Expr::Not(inner) => Formula::not(formula(inner, names)),
+            Expr::And(left, right) => Formula::And(vec![formula(left, names), formula(right, names)]),
+            Expr::Or(left, right) => Formula::Or(vec![formula(left, names), formula(right, names)]),
+        }
+    }
+
+    let document = problem.document();
+    let names = document.declarations();
+    let premises: Vec<Formula> = document.premises().iter().map(|expr| formula(expr, names)).collect();
+    let query: Vec<usize> = premises.iter().map(&mut add).collect();
+    let satisfiable = ObligationQuestion::Satisfiable { query: query.clone() };
+    let (question, claim) = match problem.query().question() {
+        Question::Satisfiable => (satisfiable, "the premises are satisfiable".to_string()),
+        Question::Entails(target) => {
+            let target = formula(target, names);
+            let mut query = query;
+            query.push(add(&Formula::not(target.clone())));
+            let no_counterexample = ObligationQuestion::Unsatisfiable { query };
+            let claim = format!("the premises are satisfiable and entail {target}");
+            (ObligationQuestion::All { parts: vec![satisfiable, no_counterexample] }, claim)
+        }
+    };
+    let premises = premises.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+    let proposition = format!("over the Boolean valuations of [{}] ({}), with premises [{premises}]: {claim}", names.join(", "), trion_core::SEMANTICS);
+    (question, proposition)
+}
+
+pub const PROPOSITIONAL_CHECK: &str = "propositional_check";
+
+/// The questions of this fragment, with the formula references resolved.
+fn propositional_formulas(question: &ObligationQuestion, pool: &[Formula]) -> Option<Vec<Vec<Formula>>> {
+    let formulas = |query: &[usize]| query.iter().map(|&id| pool.get(id).cloned()).collect::<Option<Vec<_>>>();
+    match question {
+        ObligationQuestion::Satisfiable { query } => Some(vec![formulas(query)?]),
+        ObligationQuestion::All { parts } => match parts.as_slice() {
+            [ObligationQuestion::Satisfiable { query: premises }, ObligationQuestion::Unsatisfiable { query: counterexamples }] =>
+                Some(vec![formulas(premises)?, formulas(counterexamples)?]),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The verdict of an obligation.
@@ -132,6 +189,28 @@ pub struct Decision {
 }
 
 impl ProofObligations {
+    /// Recover the exact MMT questions bound to one original Core problem.
+    pub fn propositional_questions(&self, position: usize) -> Result<Vec<Vec<Formula>>, String> {
+        let obligation = &self.obligations[position];
+        let input = self.propositional.get(&position).ok_or_else(|| format!("{} has no checked propositional input", obligation.name))?;
+        let mut expected_pool = Vec::new();
+        let (expected, proposition) = propositional_question(input.input.problem(), |formula| {
+            expected_pool.push(formula.clone());
+            expected_pool.len() - 1
+        });
+        let mismatch = || format!("{} does not match the questions of its original Core input", obligation.name);
+        let formulas = propositional_formulas(&obligation.question, &self.pool).ok_or_else(mismatch)?;
+        if obligation.property == PROPOSITIONAL_CHECK
+            && obligation.name == format!("check/{}", input.name)
+            && obligation.proposition == proposition
+            && obligation.statements.is_empty()
+            && Some(&formulas) == propositional_formulas(&expected, &expected_pool).as_ref()
+        {
+            return Ok(formulas);
+        }
+        Err(mismatch())
+    }
+
     /// An instance that holds the pool, each formula under its own number.
     pub fn instance(&self, decisions: Option<u64>) -> Instance {
         let inst = Instance::new(&[], &[], decisions);
@@ -815,6 +894,19 @@ pub(super) fn build(set: &SpecSet, model: &Model, lex: &trion_language::reading:
         });
     }
 
+    let mut propositional = BTreeMap::new();
+    for check in set.packages.iter().flat_map(|p| &p.documents).flat_map(|d| &d.propositional_checks) {
+        let (question, proposition) = propositional_question(check.input.problem(), |formula| inst.add(formula));
+        propositional.insert(obligations.len(), check.clone());
+        obligations.push(ProofObligation {
+            name: format!("check/{}", check.name),
+            property: PROPOSITIONAL_CHECK.to_string(),
+            proposition,
+            statements: Vec::new(),
+            question,
+        });
+    }
+
     // Each example of consistency: its input, read alone, is consistent or
     // is not, as the example expects.
     for (example, read) in super::blocks::consistency_examples(set, scope) {
@@ -932,7 +1024,7 @@ pub(super) fn build(set: &SpecSet, model: &Model, lex: &trion_language::reading:
             question: ObligationQuestion::Any { parts: vec![refines, ObligationQuestion::Not { part: Box::new(ObligationQuestion::All { parts: vec![read.consistency(&inst, &both, &mut apart), read.compatibility(&inst, &both, &mut apart)] }) }] },
         });
     }
-    ProofObligations { moments, individuals: model.instance_scope, pool: inst.formulas(), owners, obligations, findings }
+    ProofObligations { moments, individuals: model.instance_scope, pool: inst.formulas(), owners, obligations, propositional, findings }
 }
 
 /// A quote of a source that reads as statements of the trion language,

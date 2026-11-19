@@ -19,7 +19,12 @@ pub(crate) enum Command {
         timeout_ms: u64,
     },
     /// Recheck the saved artifact, conversion, response and outcome.
-    Replay { record: PathBuf },
+    Replay {
+        record: PathBuf,
+        /// The original MMT archive or file for a saved propositional proof report.
+        #[arg(long)]
+        form: Option<PathBuf>,
+    },
     /// Recheck two saved records and stop if their verified conclusions conflict.
     Compare { left: PathBuf, right: PathBuf },
     #[command(name = "nnf-worker", hide = true)]
@@ -88,8 +93,15 @@ pub(crate) fn dispatch(command: Command) -> Result<bool, String> {
             Ok(record.outcome().execution() == Execution::Completed
                 && record.outcome().premises() != Premises::Contradictory)
         }
-        Command::Replay { record } => {
-            println!("{}", replay(record)?.outcome().summary());
+        Command::Replay { record, form } => {
+            if let Some(form) = form {
+                let form = crate::mmt::Form::read_path(&form)?;
+                let bytes = std::fs::read(&record).map_err(|error| format!("cannot read {}: {error}", record.display()))?;
+                let count = crate::propositional::replay(&form, &bytes)?;
+                println!("Rechecked {count} propositional MMT result(s).");
+            } else {
+                println!("{}", replay(record)?.outcome().summary());
+            }
             Ok(true)
         }
         Command::Compare { left, right } => {

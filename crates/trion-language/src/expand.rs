@@ -7,20 +7,7 @@ use crate::syntax::ast::*;
 use serde::Serialize;
 
 fn frames_text(frames: &Frames) -> String {
-    let mut parts = Vec::new();
-    for scope in &frames.scopes {
-        parts.push(format!("Where {},", scope.clause.render()));
-    }
-    for state in &frames.states {
-        parts.push(format!("While {},", state.clause.render()));
-    }
-    if let Some(trigger) = &frames.trigger {
-        match trigger.kind {
-            TriggerKind::Event => parts.push(format!("When {},", trigger.clause.render())),
-            TriggerKind::Contingency => parts.push(format!("If {}, then", trigger.clause.render())),
-        }
-    }
-    parts.join(" ")
+    frames.render().join(" ")
 }
 
 /// The steps of a flow in order, when the flow is one path without choices.
@@ -414,10 +401,8 @@ fn expand_marked(spec: &Spec) -> String {
 
 fn expand_whole(spec: &Spec) -> String {
     if let Some(expansion) = &spec.expansion {
-        // A concept edge inside a shared context holds under that context.
-        let frames = frames_text(&spec.sentence.frames);
-        if let (false, Some(rest)) = (frames.is_empty(), expansion.strip_prefix("Each ")) {
-            return capitalized(format!("{frames} each {rest}"));
+        if !spec.scopes.is_empty() || spec.abbreviates.is_some() {
+            return capitalized(spec.sentence.render());
         }
         return capitalized(expansion.clone());
     }

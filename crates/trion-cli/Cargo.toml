@@ -17,7 +17,7 @@ name = "trioc"
 path = "src/bin/trioc.rs"
 
 [dependencies]
-trion-cnl = { path = "../trion-cnl" }
+trion-cnl.workspace = true
 trion-language.workspace = true
 trion-solver.workspace = true
 trion-verification.workspace = true

@@ -13,6 +13,7 @@ mod convert;
 mod doc;
 mod figure;
 mod markdown;
+mod formalize;
 
 pub use command::run;
 pub use convert::{findings, Findings};

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "trioc", version, about = "Prove the obligations of the MMT form that trion writes, and issue their certificates")]
+#[command(name = "trioc", version, about = "Prove MMT obligations and check formal analyses")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -19,6 +19,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(flatten)]
+    Analysis(crate::analysis::Command),
     /// Prove each proof obligation of an MMT form that `trion --format mmt`
     /// wrote. Each obligation gets one result: proved, refuted or unproved,
     /// with the bound that it is about. trioc proves with trion's own solver
@@ -50,6 +52,7 @@ enum Command {
 
 fn dispatch(cli: Cli) -> Result<bool, String> {
     match cli.command {
+        Command::Analysis(command) => crate::analysis::dispatch(command).map(|success| !success),
         Command::Prove { form, json, certificates, format, decision_limit, against } => {
             let path = if form.is_dir() { form.join(crate::mmt::FILE) } else { form };
             let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;

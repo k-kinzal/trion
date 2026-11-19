@@ -9,13 +9,16 @@ name = "trioc_cli"
 path = "src/lib.rs"
 
 [dependencies]
+trion-cnl = { path = "../trion-cnl" }
+trion-boolean = { path = "../trion-boolean" }
+trion-analysis = { path = "../trion-analysis" }
 trion-language.workspace = true
 trion-solver.workspace = true
 trion-verification.workspace = true
 trion-checker.workspace = true
 mmt.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 clap.workspace = true
 toml.workspace = true
 sha2.workspace = true

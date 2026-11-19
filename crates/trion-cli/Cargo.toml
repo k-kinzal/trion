@@ -17,6 +17,7 @@ name = "trioc"
 path = "src/bin/trioc.rs"
 
 [dependencies]
+trion-cnl = { path = "../trion-cnl" }
 trion-language.workspace = true
 trion-solver.workspace = true
 trion-verification.workspace = true
@@ -29,4 +30,5 @@ toml.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+cargo_metadata = "0.23.1"
 tempfile.workspace = true

@@ -3,3 +3,4 @@ import Trion.Distribution
 import Trion.Expansion
 import Trion.Merging
 import Trion.Document
+import Trion.Propositional

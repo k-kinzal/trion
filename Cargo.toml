@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-checker", "crates/trion-cli", "crates/trioc-cli", "crates/trion-lsp", "crates/trion-format-rust-test", "crates/smtlib", "crates/moxi", "crates/alethe", "crates/eunoia", "crates/cpc", "crates/mmt"]
+members = ["crates/trion-solver", "crates/trion-language", "crates/trion-verification", "crates/trion-checker", "crates/trion-cli", "crates/trioc-cli", "crates/trion-lsp", "crates/trion-format-rust-test", "crates/smtlib", "crates/moxi", "crates/alethe", "crates/eunoia", "crates/cpc", "crates/mmt", "crates/trion-core", "crates/trion-reference", "crates/trion-cnl", "crates/trion-boolean", "crates/trion-analysis"]
 
 [workspace.package]
 version = "0.1.0"

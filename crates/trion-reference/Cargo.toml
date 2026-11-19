@@ -1,0 +1,14 @@
+[package]
+name = "trion-reference"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trion-core = { path = "../trion-core" }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[[test]]
+name = "conformance"
+path = "../../tests/conformance/core.rs"

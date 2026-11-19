@@ -1,0 +1,68 @@
+namespace trion.propositional:
+    primitive certificate, unchecked response
+    primitive adapter version, candidate, checked, checker version, conclusion
+    primitive conversion, entailment witness, exhaustive result, incomplete, input provenance
+    primitive interrupted search, malformed evidence, observed response, reconstructed outcome, replay
+    primitive saved outcome, saved response, search, setting, unknown
+    primitive unsatisfiable answer, value, witness, worker version
+
+    section "Applicability, execution, and logical conclusion":
+        cite FOUNDATION
+        The applicability of an adapter is applicable, unsupported, or precondition failed.
+        The execution state of an analysis is not run, completed, undecided, timeout, resource limit, backend failure, or evidence rejected.
+        The conclusion of an analysis is satisfiable, unsatisfiable, entailment, non-entailment, or absent conclusion.
+        The premise status of an analysis is consistent, contradictory, unchecked, or undecided.
+        The evidence of an analysis is checked model, checked counterexample, exhaustive, external response, or absent evidence.
+
+        [R-UNVERIFIED]
+        The propositional runner shall not report an unchecked response as a verified conclusion.
+        The propositional checker shall not accept an unsat core as a certificate.
+
+        [R-BINDING]
+        If the evidence document differs from the query document, then the propositional checker shall reject the evidence.
+        If the evidence query differs from the original query, then the propositional checker shall reject the evidence.
+        If the evidence conversion differs from the original conversion, then the propositional checker shall reject the evidence.
+        If the evidence settings differ from the original settings, then the propositional checker shall reject the evidence.
+        The propositional checker shall reject evidence with a missing scope.
+        The propositional checker shall reject malformed evidence.
+
+        [R-WITNESS]
+        The propositional checker shall require a value for every declaration slot.
+        The propositional checker shall check a witness against the original premises.
+        The propositional checker shall check an entailment witness against the negation of the original target.
+        If the witness is checked and the search is incomplete, then the propositional checker shall accept the witness.
+
+        [R-EXHAUSTIVE]
+        The propositional checker shall report an exhaustive result only if the checker inspects every valuation.
+        The propositional checker shall report entailment only if the checker checks the consistency of the premises.
+        The propositional checker shall reject an unsatisfiable answer when a candidate exists.
+
+        [R-NO-EXHAUSTION]
+        If enumeration is incomplete and the answer is unsatisfiable, then the propositional checker shall report an external response.
+        If enumeration is incomplete and the answer is unsatisfiable, then the propositional checker shall leave the conclusion undecided.
+
+        [R-FAILURE]
+        The propositional runner shall report unknown as undecided.
+        The propositional runner shall distinguish a timeout, a resource limit, and a backend failure.
+        The propositional runner shall report a conclusion for an interrupted search only if the evidence is checked.
+
+        [R-VACUITY]
+        If contradictory premises entail a target, then the propositional runner shall report vacuous entailment.
+
+        [R-CONFLICT]
+        If checked results conflict, then the propositional runner shall preserve both records.
+        If checked results conflict, then the propositional runner shall report an inconsistency.
+
+    section "Reproducible analysis":
+        cite FOUNDATION
+        [R-SAVED]
+        The propositional runner shall retain the document, query, and input provenance.
+        The propositional runner shall retain the adapter version.
+        The propositional runner shall retain the checker version.
+        The propositional runner shall retain the worker version.
+        The propositional runner shall retain the settings, resource limits, target problem, and observed response.
+
+        [R-REPLAY]
+        The propositional runner shall reconstruct the conversion during replay.
+        The propositional runner shall check the saved response during replay.
+        The propositional runner shall compare the reconstructed outcome to the saved outcome.

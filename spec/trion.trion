@@ -10,6 +10,7 @@ include "proof.trion"
 include "documents.trion"
 include "tool.trion"
 include "limits.trion"
+include "propositional/analysis.trion"
 
 namespace trion:
     use formal

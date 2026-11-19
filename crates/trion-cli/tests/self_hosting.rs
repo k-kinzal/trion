@@ -2,6 +2,8 @@
 
 mod common;
 use common::*;
+use cargo_metadata::{CargoOpt, Metadata, MetadataCommand, Source};
+use std::collections::HashSet;
 use std::fs;
 use trion_cli::project;
 
@@ -19,25 +21,51 @@ fn read(path: &str) -> String {
     fs::read_to_string(repo_root().join(path)).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-/// The packages that a manifest depends on, in any of its dependency
-/// sections (`name = …`, `name.workspace = true`, `[dependencies.name]`).
-fn dependencies(manifest: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut section = "";
-    for line in manifest.lines().map(str::trim) {
-        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-            section = header;
-            if let Some(name) = ["dependencies.", "dev-dependencies.", "build-dependencies."].iter().find_map(|p| header.strip_prefix(p)) {
-                names.push(name.to_string());
+fn cargo_workspace() -> &'static Metadata {
+    static WORKSPACE: std::sync::OnceLock<Metadata> = std::sync::OnceLock::new();
+    WORKSPACE.get_or_init(|| {
+        MetadataCommand::new()
+            .current_dir(repo_root())
+            .features(CargoOpt::AllFeatures)
+            .other_options(vec!["--locked".into()])
+            .exec()
+            .expect("Cargo should resolve the locked workspace")
+    })
+}
+
+#[test]
+fn the_core_has_no_language_or_backend_dependencies() {
+    let workspace = cargo_workspace();
+    let core = workspace
+        .workspace_packages()
+        .into_iter()
+        .find(|package| package.name.as_str() == "trion-core")
+        .expect("the workspace contains the Core");
+    for dependency in &core.dependencies {
+        assert!(
+            ["serde", "serde_json", "sha2"].contains(&dependency.name.as_str())
+                && dependency.source.as_ref().is_some_and(Source::is_crates_io),
+            "unexpected Core dependency: {}",
+            dependency.name
+        );
+    }
+
+    let resolve = workspace.resolve.as_ref().expect("Cargo resolved the dependencies");
+    let mut reached = HashSet::new();
+    let mut pending = vec![&core.id];
+    while let Some(id) = pending.pop() {
+        for dependency in &resolve[id].deps {
+            let package = &workspace[&dependency.pkg];
+            assert!(
+                package.source.as_ref().is_some_and(Source::is_crates_io),
+                "Core transitively depends on {}",
+                package.name
+            );
+            if reached.insert(&dependency.pkg) {
+                pending.push(&dependency.pkg);
             }
-            continue;
-        }
-        if section.ends_with("dependencies") && !line.is_empty() && !line.starts_with('#') {
-            let name = line.split(['=', '.']).next().unwrap_or("").trim();
-            names.push(name.trim_matches('"').to_string());
         }
     }
-    names
 }
 
 /// The format crates: each models one format of formal methods (its
@@ -52,40 +80,50 @@ const FORMATS: [&str; 6] = ["smtlib", "moxi", "alethe", "eunoia", "cpc", "mmt"];
 // depend on what it checks, and no format crate can come to depend on trion.
 #[test]
 fn the_workspace_holds_its_packages_and_its_formats_and_what_checks_stands_apart() {
-    let workspace = read("Cargo.toml");
-    let trion_packages = ["trion-solver", "trion-language", "trion-verification", "trion-checker", "trion-cli", "trioc-cli", "trion-lsp", "trion-format-rust-test"];
-    for package in trion_packages.iter().chain(&FORMATS) {
-        assert!(workspace.contains(&format!("crates/{package}")), "{package}");
-        assert!(read(&format!("crates/{package}/Cargo.toml")).contains(&format!("name = \"{package}\"")), "{package}");
+    let packages = cargo_workspace().workspace_packages();
+    let trion_packages = [
+        "trion-solver", "trion-language", "trion-verification", "trion-checker",
+        "trion-cli", "trioc-cli", "trion-lsp", "trion-format-rust-test",
+        "trion-core", "trion-reference", "trion-cnl", "trion-boolean", "trion-analysis",
+    ];
+    let package = |name: &str| {
+        packages.iter().copied().find(|pkg| pkg.name.as_str() == name)
+            .unwrap_or_else(|| panic!("missing workspace package {name}"))
+    };
+    for name in trion_packages.iter().chain(&FORMATS) {
+        assert!(package(name).manifest_path.ends_with(format!("crates/{name}/Cargo.toml")));
     }
-    // The workspace consists of these and of no other package.
-    let members = fs::read_dir(repo_root().join("crates")).unwrap().flatten().filter(|entry| entry.path().join("Cargo.toml").is_file()).count();
-    assert_eq!(members, trion_packages.len() + FORMATS.len());
-    // A format crate depends on no trion crate, and on another format crate
-    // only where one format is built on another: MoXI, Alethe and CPC on
-    // SMT-LIB, CPC on Eunoia. trion's commands may depend on any of them.
-    let allowed: [(&str, &[&str]); 6] = [("smtlib", &[]), ("moxi", &["smtlib"]), ("alethe", &["smtlib"]), ("eunoia", &[]), ("cpc", &["smtlib", "eunoia"]), ("mmt", &[])];
+    assert_eq!(packages.len(), trion_packages.len() + FORMATS.len());
+    let dependencies = |name: &str| {
+        package(name).dependencies.iter().map(|dep| dep.name.as_str())
+    };
+
+    // MoXI, Alethe and CPC use SMT-LIB, and CPC uses Eunoia.
+    let allowed: [(&str, &[&str]); 6] = [
+        ("smtlib", &[]), ("moxi", &["smtlib"]), ("alethe", &["smtlib"]),
+        ("eunoia", &[]), ("cpc", &["smtlib", "eunoia"]), ("mmt", &[]),
+    ];
     for (format, may) in allowed {
-        for dependency in dependencies(&read(&format!("crates/{format}/Cargo.toml"))) {
-            let in_workspace = trion_packages.contains(&dependency.as_str()) || FORMATS.contains(&dependency.as_str());
-            assert!(!in_workspace || may.contains(&dependency.as_str()), "the format crate {format} depends on {dependency}");
+        for dependency in dependencies(format) {
+            let in_workspace = trion_packages.contains(&dependency) || FORMATS.contains(&dependency);
+            assert!(!in_workspace || may.contains(&dependency), "the format crate {format} depends on {dependency}");
             assert!(!dependency.starts_with("trion") && !dependency.starts_with("trioc"), "the format crate {format} depends on {dependency}");
         }
     }
-    // An extension format is a program outside the trion processor: it
-    // reads the report of the conversion and depends on no part of trion
-    // that reads or proves (spec/tool.trion).
-    let extension = read("crates/trion-format-rust-test/Cargo.toml");
-    assert!(["trion-language", "trion-verification", "trion-cli", "trioc-cli", "trion-checker"].iter().all(|p| !extension.contains(p)), "{extension}");
-    // The checker reads the language and decides with the solver; it does
-    // not depend on the verification, and the verification does not depend on it.
-    let checker = read("crates/trion-checker/Cargo.toml");
-    assert!(!checker.contains("trion-verification") && !checker.contains("trion-cli") && !checker.contains("trioc-cli"), "{checker}");
-    assert!(!read("crates/trion-verification/Cargo.toml").contains("trion-checker"));
-    assert!(!read("crates/trion-language/Cargo.toml").contains("trion-checker"));
-    // `trioc` verifies what `trion` writes: it does not depend on `trion`.
-    let trioc = read("crates/trioc-cli/Cargo.toml");
-    assert!(!trioc.contains("trion-cli") && !trioc.contains("trion-lsp"), "{trioc}");
+
+    // The extension consumes the conversion report. The checker and trioc
+    // stay independent of the packages whose answers they check.
+    for (name, forbidden) in [
+        ("trion-format-rust-test", &["trion-language", "trion-verification", "trion-cli", "trioc-cli", "trion-checker"][..]),
+        ("trion-checker", &["trion-verification", "trion-cli", "trioc-cli"]),
+        ("trion-verification", &["trion-checker"]),
+        ("trion-language", &["trion-checker"]),
+        ("trioc-cli", &["trion-cli", "trion-lsp"]),
+    ] {
+        for dependency in dependencies(name) {
+            assert!(!forbidden.contains(&dependency), "{name} depends on {dependency}");
+        }
+    }
     // The checker of certificates shares no code with the search.
     let certificates = read("crates/trion-checker/src/certificate.rs");
     for word in ["decide", "Instance", "Prover", "trion_verification", "trion_language"] {
@@ -231,6 +269,14 @@ fn every_statement_of_the_specification_has_a_formal_reading() {
         .filter(|id| !modelled.contains(id.as_str()))
         .collect();
     assert!(silent.is_empty(), "statements without a contract: {silent:?}");
+    for requirement in 1..=8 {
+        let id = format!("F{requirement:02}");
+        let present = loaded.root_specs().any(|spec| {
+            spec.file == "spec/propositional/analysis.trion"
+                && spec.display_id().split('/').next() == Some(id.as_str())
+        });
+        assert!(present, "the current specification is missing propositional requirement {id}");
+    }
 }
 
 #[test]

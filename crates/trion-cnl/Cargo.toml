@@ -1,0 +1,13 @@
+[package]
+name = "trion-cnl"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trion-core = { path = "../trion-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[[test]]
+name = "grammar"
+path = "../../tests/grammar/propositional.rs"

@@ -19,7 +19,7 @@
 
 use crate::convert::{convert, Converted};
 use crate::project::{self, Project};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use trioc_cli::check::written;
@@ -89,8 +89,10 @@ fn run_extension(name: &str, report: &serde_json::Value, dir: &std::path::Path) 
 /// write the MMT form of the package and its documents. Nothing is proved;
 /// `trioc prove` proves the obligations of the MMT form.
 #[derive(Parser)]
-#[command(name = "trion", version)]
+#[command(name = "trion", version, args_conflicts_with_subcommands = true)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
     #[arg(default_value = ".")]
     path: PathBuf,
     /// Print a JSON report instead of text.
@@ -120,6 +122,12 @@ struct Cli {
     /// behaviours next to each scenario.
     #[arg(long)]
     properties: bool,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Convert a controlled propositional document to a checked artifact.
+    Formalize(crate::formalize::Options),
 }
 
 /// The bounds that the obligations are about: the manifest says them, and
@@ -234,7 +242,14 @@ fn dispatch(cli: Cli) -> Result<bool, String> {
 
 /// Runs the command that the arguments of the process name.
 pub fn run() -> ExitCode {
-    match dispatch(Cli::parse()) {
+    let cli = Cli::parse();
+    let result = match cli.command {
+        Some(Command::Formalize(options)) => {
+            crate::formalize::run(options).map(|accepted| !accepted).map_err(|error| error.to_string())
+        }
+        None => dispatch(cli),
+    };
+    match result {
         Ok(false) => ExitCode::SUCCESS,
         Ok(true) => ExitCode::from(1),
         Err(message) => {

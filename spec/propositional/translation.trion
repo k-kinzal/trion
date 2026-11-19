@@ -1,0 +1,63 @@
+namespace trion.propositional:
+    primitive proposed approximation counterexample relation
+    primitive added assumption, approximation, assumption, auxiliary variable, candidate scope
+    primitive checked problem, constant, conversion stage, missing capability, negative polarity
+    primitive original slot order, query condition truth, query scope, required capability, result
+    primitive version, violated conversion precondition, witness
+
+    section "Exact Boolean conversion":
+        cite FOUNDATION
+        A target term means a Boolean constant, a signed slot, a conjunction, or a disjunction.
+        A target problem means a conjunction of target terms.
+        An empty conjunction is true.
+        A target valuation uses the original declaration slots.
+
+        [PROP-QUERY-CONDITION]
+        The satisfiability condition is the conjunction of the premises.
+        The entailment condition is the conjunction of the premises and the negation of the target.
+
+        [PROP-NNF]
+        The propositional translator shall push negations to constants and slots.
+        The propositional translator shall exchange conjunction and disjunction under negative polarity.
+        The propositional translator shall invert a constant or signed slot under negative polarity.
+
+        [PROP-EXACT]
+        The propositional translator shall preserve the truth of the query condition at every valuation.
+        The propositional translator shall add no assumption.
+        The propositional translator shall add no auxiliary variable.
+        The propositional translator shall use the original slot order for a witness.
+
+        [PROP-CAPABILITIES]
+        The propositional translator shall derive required capabilities from the checked problem.
+        The propositional translator shall report a missing capability as unsupported.
+        The propositional translator shall report a violated conversion precondition.
+        The propositional translator shall preserve the checked document.
+
+        [PROP-TRANSLATION-TRACE]
+        The propositional translator shall record the conversion stages, versions, and target problem.
+
+    source PROP-APPROXIMATION:
+        title "Counterexample contracts for future extensions"
+        locator "urn:trion:propositional:counterexample-contracts:1"
+        kind citation
+        quote RULES """
+Exact translation represents exactly the original counterexamples.
+Overapproximation contains every original counterexample and can add candidates.
+Underapproximation covers only a subset of the original counterexamples.
+A verified absence of candidates implies absence of original counterexamples for exact translation and overapproximation.
+Underapproximation with no candidate leaves the original query undecided.
+A recovered candidate must satisfy the original counterexample condition.
+A search bound is part of a bounded proposition. It does not establish the unbounded proposition.
+A conclusion under extra assumptions remains conditional unless those assumptions follow from the original premises.
+"""
+
+    section "Scope of translation":
+        cite FOUNDATION
+        [PROP-COUNTEREXAMPLE-CONTRACT]
+        The propositional maintainer shall record the counterexample relation of a proposed approximation.
+            cite PROP-APPROXIMATION#RULES
+
+        [PROP-EXACT-ONLY]
+        The propositional translator shall reject approximation.
+        The propositional translator shall reject added assumptions.
+        If the candidate scope differs from the query scope, then the propositional checker shall reject the result.

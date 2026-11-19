@@ -1,0 +1,62 @@
+namespace trion.propositional:
+    primitive source convention interpretation
+    primitive artifact meaning, change effect, controlled grammar, core, fixed grammar version interpretation
+    primitive formal validation, input text, mapping, migration, new adapter capability
+    primitive new adapter failure, new artifact, new constructor meaning, new constructor validation, original artifact
+    primitive source intent confirmation, sugar expansion preservation, sugar expansion termination, undefined interpretation, unknown
+    primitive unknown preservation
+
+    section "Versioned extensions and migration":
+        cite FOUNDATION
+        [PROP-EXTENSION]
+        The propositional maintainer shall record the effects of a change on the meaning of an artifact.
+        The propositional maintainer shall preserve the interpretation of a fixed grammar version.
+        The propositional maintainer shall check the termination of a sugar expansion.
+        The propositional maintainer shall check the preservation of a sugar expansion.
+        The propositional maintainer shall specify the meaning of each new constructor.
+        The propositional maintainer shall specify the validation of each new constructor.
+        The propositional maintainer shall record the capabilities of a new adapter.
+        The propositional maintainer shall record the failures of a new adapter.
+
+        [PROP-MIGRATION]
+        The propositional maintainer shall issue a new artifact for a migration.
+        The propositional maintainer shall preserve the original artifact.
+        The propositional maintainer shall report the changes to structure, premises, interpretation, and representative results.
+        The propositional maintainer shall report unknown preservation as unknown.
+
+    source PROP-EXTRACTION:
+        title "Interpretation boundaries for future input adapters"
+        locator "urn:trion:propositional:source-candidate:1"
+        kind citation
+        quote RULES """
+A source location pairs a content identifier with an item locator or a byte range.
+A missing table cell has no default reading.
+A diagram edge is an observation. Causality requires a declared interpretation.
+A table row P/Q can produce assume P implies Q. only when a versioned rule declares material implication.
+An execution model must define the meaning of assignment and iteration before their behavior can be analyzed.
+A generated or extracted controlled sentence must pass the common parser. A generated Core-shaped JSON object is not a confirmed interpretation.
+"""
+
+    section "An input candidate records its origin":
+        cite FOUNDATION
+        [PROP-ORIGIN]
+        The propositional parser shall preserve the source location of an input.
+        The propositional parser shall preserve the mapping from the input text to the core.
+
+        [PROP-CANDIDATE]
+        A source candidate records the source location.
+        A source candidate records the observation.
+        A source candidate records the proposed interpretation.
+        A source candidate records the added premises.
+        A source candidate records the uncertainties.
+        A source candidate records the confirmation status.
+
+        [PROP-EXTRACTION-RULES]
+        The propositional maintainer shall specify the interpretation of a source convention.
+            cite PROP-EXTRACTION#RULES
+
+        [PROP-CONFIRMATION]
+        A source candidate uses a versioned interpretation rule or a confirmed interpretation.
+        The propositional parser shall formalize a source candidate through the controlled grammar.
+        The propositional parser shall reject an undefined interpretation.
+        The propositional maintainer shall distinguish confirmation of the source intent from formal validation.

@@ -1,0 +1,129 @@
+namespace trion.propositional:
+    primitive truth example
+    primitive 48, alternative JSON key order, canonical document lowercase hexadecimal SHA-256 digest, canonical JSON, canonical query lowercase hexadecimal SHA-256 digest
+    primitive declaration order, document identifier, duplicate JSON field, duplicate name, formula depth
+    primitive insignificant whitespace, issued artifact, lowercase name, malformed payload, missing JSON field
+    primitive name spelling, operand order, ordinary JSON whitespace, premise duplicate, premise order
+    primitive unknown JSON field, unsupported version, uppercase, UTF-8
+
+    source PROP-JSON:
+        title "classical-propositional/1 canonical Core JSON"
+        locator "urn:trion:core-json:1"
+        kind citation
+        quote DOCUMENT """
+document = {"semantics":"classical-propositional/1","schema":"core-json/1","definitions":"empty/1","declarations":[name,...],"premises":[expr,...]}
+expr = "true" | "false" | {"atom":u32} | {"not":expr} | {"and":[expr,expr]} | {"or":[expr,expr]}
+"""
+        quote QUERY """
+query = {"document":document_id,"question":question}
+question = "satisfiable" | {"entails":expr}
+problem = {"document":document,"query":query}
+"""
+        quote ENCODING """
+Object keys appear in the order shown. Lists can be empty.
+Both integer slots and declaration offsets start at zero.
+Names match [A-Za-z][A-Za-z0-9_]* and are case-sensitive.
+Names have no normalization or namespace lookup.
+Canonical bytes are UTF-8 without insignificant whitespace or a trailing newline.
+The digest is SHA-256 in 64 lowercase hexadecimal digits.
+"""
+        quote TRUTH """
+True evaluates to true under the empty valuation.
+False evaluates to false under the empty valuation.
+Atom(P) evaluates to false when P has value false.
+Not(False) evaluates to true.
+And(True,False) evaluates to false.
+Or(True,False) evaluates to true.
+Implies(False,False) evaluates to true.
+"""
+    source PROP-MODEL:
+        title "Propositional metatheory and mathematical model"
+        locator "../../formal/Trion/Propositional.lean"
+        kind citation
+
+    section "A finite tree and a declaration table":
+        cite FOUNDATION
+        A declaration table means an ordered list of proposition names.
+        A proposition name means an ASCII name that matches "[A-Za-z][A-Za-z0-9_]*".
+        A slot means the zero-based index of a name in the declaration table.
+        A valuation means a total function from slots to Boolean values.
+        A formula means a finite tree of propositional constructors.
+        The definition environment of propositional analysis is empty.
+        The premises of a document denote a set of formulas.
+        The constructor of a formula is truth literal, falsity literal, proposition reference, negation operator, conjunction operator, or disjunction operator.
+
+        [PROP-NAMES]
+        The propositional core shall distinguish uppercase and lowercase names.
+        The propositional core shall preserve the spelling of each name.
+        The propositional core shall reject each duplicate name.
+        The propositional core shall reject each undeclared slot.
+
+        [PROP-EMPTY]
+        An empty declaration table has exactly one valuation.
+
+        [PROP-UNCONSTRAINED]
+        A declaration imposes no truth value.
+
+        [PROP-PROFILE]
+        If the depth of a formula exceeds 48, then the propositional core shall reject the formula.
+
+    section "Truth at a valuation":
+        cite FOUNDATION
+        [PROP-TRUE]
+        Every valuation satisfies the truth constant.
+
+        [PROP-FALSE]
+        No valuation satisfies the falsity constant.
+
+        [PROP-ATOM]
+        An atom is true exactly when the value of the slot of the atom is true.
+
+        [PROP-NOT]
+        A negation is true exactly when the operand of the negation is false.
+
+        [PROP-AND]
+        A conjunction is true exactly when both operands are true.
+
+        [PROP-OR]
+        A disjunction is true exactly when at least one operand is true.
+
+        [PROP-IMPLIES]
+        An implication is true exactly when the antecedent of the implication is false or the consequent of the implication is true.
+
+        [PROP-TRUTH-EXAMPLES]
+        The propositional checker shall check the truth examples.
+            cite PROP-JSON#TRUTH
+
+        [PROP-EXPAND]
+        The propositional parser shall expand an implication to a disjunction of the negation of the antecedent and the consequent.
+            cite PROP-MODEL
+
+    section "Immutable artifacts and canonical JSON":
+        cite FOUNDATION
+        [PROP-JSON-WRITE]
+        The propositional core shall write a document in canonical JSON.
+            cite PROP-JSON#DOCUMENT
+        The propositional core shall write a query in canonical JSON.
+            cite PROP-JSON#QUERY
+        The propositional core shall write canonical JSON as UTF-8.
+            cite PROP-JSON#ENCODING
+        The propositional core shall omit insignificant whitespace from canonical JSON.
+        The propositional core shall preserve the declaration order.
+        The propositional core shall preserve the premise order.
+        The propositional core shall preserve premise duplicates.
+        The propositional core shall preserve the operand order.
+
+        [PROP-JSON-READ]
+        The propositional core shall reject each unknown JSON field.
+        The propositional core shall reject each duplicate JSON field.
+        The propositional core shall reject each missing JSON field.
+        The propositional core shall reject each unsupported version.
+        The propositional core shall reject each malformed payload.
+
+        [PROP-IDENTITY]
+        The propositional core shall identify a document using the lowercase hexadecimal SHA-256 digest of the canonical document.
+        The propositional core shall identify a query using the lowercase hexadecimal SHA-256 digest of the canonical query.
+        The propositional core shall exclude source locations from a document identifier.
+        The propositional core shall preserve an issued artifact.
+        The propositional core shall accept ordinary JSON whitespace.
+        The propositional core shall accept alternative JSON key orders.

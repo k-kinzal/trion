@@ -1,0 +1,5 @@
+proposition P.
+proposition Q.
+assume P implies Q.
+assume P.
+entails Q.

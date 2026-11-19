@@ -15,6 +15,7 @@ pub mod digest;
 pub mod mmt;
 pub mod project;
 pub mod prove;
+mod analysis;
 pub mod sources;
 
 pub use command::run;

@@ -4,27 +4,10 @@ namespace trion:
     section "Nouns and verbs":
         A noun denotes an entity.
         A verb denotes a relation among entities.
-        A term means a noun or a verb of a specification.
         Each term has exactly one meaning.
-        A formal assertion means an atom that a verb forms from nouns.
-
-        Each specification defines the nouns and the verbs of the specification.
-        A defined term means a term that a definition defines.
-        A described term means a term that a descriptive sentence relates to a term.
-        A primitive term means a term that a primitive declaration names.
-        A grounded term means a defined term, a described term, or a primitive term.
-        An ungrounded term means a term that has no definition, no description, and no primitive declaration.
-
-        [WORD-GROUNDED]
-        If a normative sentence names an ungrounded term, then the trion processor shall reject the normative sentence.
 
         [WORD-NO-OUTSIDE-KNOWLEDGE]
         The trion processor shall derive the meaning of each term from the statements of the specification.
-
-    section "How a term is grounded":
-        A definition has the word "means" after the defined term.
-        A primitive declaration means a declaration that accepts a term without a definition.
-        The statements that name a primitive term determine the meaning of the primitive term.
 
         example DESCRIBED-TERMS:
             kind consistency
@@ -33,3 +16,33 @@ Each room has exactly one owner.
 [A] The owner of a room may archive the room.
 """
             expect consistent
+
+    section "Names and target constraints":
+        Each canonical symbol has exactly one owning namespace.
+        Each alias denotes a canonical symbol.
+        Each canonical symbol has a symbol kind.
+        Each specification reference names a specification.
+        Each specification application has a target mapping.
+        Each derived class has a nominal formula.
+        Each target description states a target constraint.
+
+        [WORD-RESOLVE-ALIAS]
+        The trion processor shall resolve each alias to the canonical symbol of the alias.
+
+        [WORD-CHECK-KIND]
+        The trion processor shall check each symbol kind.
+
+        [WORD-REFERENCE]
+        The trion processor shall resolve each specification reference.
+
+        [WORD-APPLY-SPECIFICATION]
+        The trion processor shall apply each contract of a specification application to the corresponding target.
+
+        [WORD-CHECK-FORM-BINDING]
+        The trion processor shall check each form binding against the statements of the target of the form binding.
+
+        [WORD-EXPAND-CLASS]
+        The trion processor shall expand each derived class into the nominal formula of the derived class.
+
+        [WORD-TARGET-CONSTRAINT]
+        The trion processor shall read each target description as a target constraint.

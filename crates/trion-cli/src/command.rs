@@ -89,7 +89,7 @@ fn run_extension(name: &str, report: &serde_json::Value, dir: &std::path::Path) 
 /// write the MMT form of the package and its documents. Nothing is proved;
 /// `trioc prove` proves the obligations of the MMT form.
 #[derive(Parser)]
-#[command(name = "trion", version, args_conflicts_with_subcommands = true)]
+#[command(name = "trion", args_conflicts_with_subcommands = true)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -145,10 +145,15 @@ fn write(path: &std::path::Path, text: &str) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
-fn report(converted: &Converted, written: &[PathBuf]) -> serde_json::Value {
+fn report(project: &Project, converted: &Converted, written: &[PathBuf]) -> serde_json::Value {
     let analysis = &converted.analysis;
     serde_json::json!({
         "conforms": !converted.failed(),
+        "applications": project.applications,
+        "references": project.references,
+        "symbols": converted.resolved_symbols(),
+        "input_digest": project.input_digest(),
+        "definition_expansions": converted.analysis.model.definition_expansions,
         "diagnostics": converted.diagnostics,
         // What a normative statement says and no rule reads, gives a meaning, or can express.
         "opaque": analysis.silence.opaque,
@@ -160,7 +165,7 @@ fn report(converted: &Converted, written: &[PathBuf]) -> serde_json::Value {
         "sources": converted.sources,
         "relations": analysis.relations,
         "individuals": analysis.model.individuals,
-        "readings": analysis.model.individuals.iter().flat_map(|i| &i.meanings).map(|m| serde_json::json!({"statement": m.statement, "version": m.version, "lines": m.lines()})).collect::<Vec<_>>(),
+        "readings": analysis.model.individuals.iter().flat_map(|i| &i.meanings).map(|m| serde_json::json!({"statement": m.statement, "lines": m.lines()})).collect::<Vec<_>>(),
         "control": converted.control,
         "contracts": converted.contracts,
         // The examples that demonstrate the conversion: each observed what it expects, or the package does not convert.
@@ -190,7 +195,7 @@ fn dispatch(cli: Cli) -> Result<bool, String> {
                 Format::Markdown => crate::markdown::render(&project, &converted, cli.file.as_deref())?,
                 Format::Html => crate::doc::render(&project, &converted, cli.file.as_deref())?,
                 Format::Extension(name) => {
-                    paths.extend(run_extension(name, &report(&converted, &[]), dir)?);
+                    paths.extend(run_extension(name, &report(&project, &converted, &[]), dir)?);
                     continue;
                 }
             };
@@ -209,7 +214,7 @@ fn dispatch(cli: Cli) -> Result<bool, String> {
         eprintln!("nothing is written: the package does not conform to the language");
     }
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(&report(&converted, &paths)).unwrap_or_default());
+        println!("{}", serde_json::to_string_pretty(&report(&project, &converted, &paths)).unwrap_or_default());
     } else {
         for diagnostic in converted.all() {
             print!("{}", written(diagnostic));
@@ -221,7 +226,7 @@ fn dispatch(cli: Cli) -> Result<bool, String> {
         // and the document show it.
         if let Some(individuals) = &converted.analysis.model.individuals {
             let types: std::collections::BTreeSet<&str> = individuals.types.iter().map(|(_, carrier)| carrier.as_str()).collect();
-            println!("individuals: semantic version {}; domains of {} individuals of each declared type ({})", individuals.version, individuals.scope, types.into_iter().collect::<Vec<_>>().join(", "));
+            println!("individuals: domains of {} individuals of each declared type ({})", individuals.scope, types.into_iter().collect::<Vec<_>>().join(", "));
             for meaning in &individuals.meanings {
                 println!("reading [{}]:", meaning.statement);
                 for line in meaning.lines() {

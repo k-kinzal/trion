@@ -9,16 +9,14 @@ use trion_reference::{check_premises, check_witness, scan, Scan};
 use trion_solver::{Answer, Atom, Formula, Status};
 use trion_verification::ObligationVerdict;
 
-const VERSION: &str = "mmt-propositional-evidence/1";
-const LOWERING: &str = "core-to-mmt-propositional/1";
-const CHECKER: &str = "mmt-certificate-checker/1";
-const SOLVER: &str = "trion-mmt-solver/1";
+const LOWERING: &str = "core-to-mmt-propositional";
+const CHECKER: &str = "mmt-certificate-checker";
+const SOLVER: &str = "trion-mmt-solver";
 const REFERENCE_BUDGET: u64 = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Record {
-    version: String,
     lowering: String,
     certificate_checker: String,
     reference_evaluator: String,
@@ -111,10 +109,9 @@ pub(crate) fn check(
             reason: Some(reason),
         });
     Ok(Record {
-        version: VERSION.into(),
         lowering: LOWERING.into(),
         certificate_checker: CHECKER.into(),
-        reference_evaluator: trion_reference::VERSION.into(),
+        reference_evaluator: trion_reference::ID.into(),
         solver: SOLVER.into(),
         subject_id: sha256(binding),
         scope: "all_valuations".into(),

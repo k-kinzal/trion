@@ -39,6 +39,8 @@ impl<'a> Authored<'a> {
     pub(super) fn is_description(&self, c: &Constraint) -> bool {
         c.refs.first().and_then(|r| self.owner(r)).is_some_and(|(s, _)| !matches!(s.sentence.core, Core::Deontic { .. }))
     }
+
+
 }
 
 /// What the responsibility of the system and of the environment reads besides the model.
@@ -62,6 +64,11 @@ impl Situated {
         // none of them one that it may choose.
         for entry in model.individuals.iter().flat_map(|individuals| &individuals.atoms) {
             if matches!(entry.fact, trion_language::reading::Fact::Kind { .. } | trion_language::reading::Fact::Related { .. }) {
+                if let trion_language::reading::Fact::Kind { kind, .. } = &entry.fact {
+                    if control.system_individual_types.contains(kind) {
+                        continue;
+                    }
+                }
                 given.extend(entry.atom.symbols().into_iter().map(str::to_string));
             }
         }
@@ -75,6 +82,13 @@ impl Situated {
         let mut found = false;
         formula.atoms(true, &mut |atom, _| found |= atom.symbols().into_iter().any(|symbol| self.system.contains(symbol)));
         found
+    }
+
+    pub(super) fn describes_system(&self, model: &Model, constraint: &Constraint) -> bool {
+        if let Some(subjects) = constraint.refs.first().and_then(|source| model.domain_contracts.get(&source.id)) {
+            return subjects.iter().any(|subject| self.system.contains(subject));
+        }
+        self.about_system(&constraint.guarantee)
     }
 
     /// Put a condition about the response in the guarantee. Conjuncts

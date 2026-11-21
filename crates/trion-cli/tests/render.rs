@@ -40,7 +40,6 @@ fn a_package_reads_as_one_document_in_its_authored_order() {
     let spec = "namespace p.room\n\nsection \"Room types\"\n\nA room means a space. Each room has one door.\n[ROOM-OPEN] The API shall open the room.\n\nThe API shall log the door.\n\nsection \"Members\"\n\n[MEMBER] The API shall list the members.\n";
     let html = render_with("p.room", &["API", "door", "member"], spec);
     assert!(html.starts_with("<!DOCTYPE html>"), "{html}");
-    assert!(html.contains("edition test"), "{html}");
     // Sections are headings, and the contents link to them in order.
     let types = html.find(">Room types</h3>").expect("a heading");
     let members = html.find(">Members</h3>").expect("a second heading");

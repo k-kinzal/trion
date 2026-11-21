@@ -1,4 +1,4 @@
-use crate::{Diagnostic, Grammar, Mapping, Rejected, Root, Span};
+use crate::{Diagnostic, Mapping, Rejected, Root, Span};
 use std::collections::BTreeMap;
 use trion_core::{CoreDocument, Expr, Problem, Question, MAX_DEPTH};
 
@@ -277,7 +277,6 @@ struct Parser<'a> {
     tokens: Vec<Token>,
     cursor: usize,
     source: &'a str,
-    grammar: Grammar,
     slots: BTreeMap<&'a str, u32>,
     ambiguity: Option<Span>,
 }
@@ -370,9 +369,6 @@ impl<'a> Parser<'a> {
                 Ok(Surface::new(Form::Not(Box::new(child)), span))
             }
             TokenKind::If => {
-                if self.grammar == Grammar::V1 {
-                    return Err(unsupported_feature(token.span, "if"));
-                }
                 self.take();
                 let left = self.unary(depth - 1)?;
                 self.expect(TokenKind::Then, "expected 'then' after the antecedent")?;
@@ -398,13 +394,11 @@ impl<'a> Parser<'a> {
 
 pub(crate) fn document(
     source: &str,
-    grammar: Grammar,
 ) -> Result<(Problem, Vec<Mapping>), Rejected> {
     let mut parser = Parser {
         tokens: lex(source)?,
         cursor: 0,
         source,
-        grammar,
         slots: BTreeMap::new(),
         ambiguity: None,
     };

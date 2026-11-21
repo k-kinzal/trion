@@ -114,7 +114,7 @@ fn a_concept_block_and_a_flow_can_detail_a_statement() {
 fn a_control_declaration_reaches_the_namespaces_that_use_it() {
     let manifest = "[package]\nname = \"p\"\nentry = \"p.trion\"\n";
     let files = |declared: &str, used: &str| {
-        let base = format!("package p edition \"1\"\n\nnamespace p.base\n{declared}A helper means a part of the system.\n\nnamespace p.app\n{used}A helper means a part of the application.\n[W] When the helper finishes, the API shall log the result.\n");
+        let base = format!("package p\n\nnamespace p.base\n{declared}A helper means a part of the system.\n\nnamespace p.app\n{used}A helper means a part of the application.\n[W] When the helper finishes, the API shall log the result.\n");
         Fixture::raw(&[("trion.toml", manifest), ("p.trion", &base)]).verify(&["--json"]).json()
     };
     let system = |report: &Value| report["control"]["system"].as_array().unwrap().iter().any(|a| a.as_str().unwrap().ends_with("app::helper"));

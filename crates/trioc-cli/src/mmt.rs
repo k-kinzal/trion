@@ -7,8 +7,7 @@
 //! is. MMT reads the archive and type-checks every declaration
 //! (`build <archive> mmt-omdoc`). The theory of the package holds
 //!
-//! - the subject: the package, the revision of its texts, the version of the
-//!   rules that read them and the bounds of the obligations;
+//! - the subject: the package, its input digest and the bounds of the obligations;
 //! - the actors of the system and of the environment;
 //! - for each statement, its one contract by responsibility (`A`, `G`):
 //!   schematic in the individuals of its parameters, with its timing (when
@@ -169,7 +168,7 @@ theory Contracts : ur:?LF =
   individuals : int ⟶ domain❙
   no_individuals : domain❙
   subject : type❙
-  about : string ⟶ string ⟶ string ⟶ string ⟶ int ⟶ domain ⟶ subject❙
+  about : string ⟶ string ⟶ int ⟶ domain ⟶ subject❙
   actor : type❙
   system : string ⟶ actor❙
   environment : string ⟶ actor❙
@@ -265,12 +264,18 @@ pub enum Scope {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Form {
     pub package: String,
-    pub revision: String,
-    pub semantics: String,
-    pub tool: String,
+    pub input_digest: String,
     pub system: Vec<String>,
     pub environment: Vec<String>,
     pub contracts: Vec<Contract>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub applications: Vec<crate::project::AppliedSpecification>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<crate::project::ResolvedSpecification>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub symbols: Vec<trion_language::reading::ResolvedSymbol>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub definition_expansions: BTreeMap<String, Vec<trion_language::SpecRef>>,
     pub obligations: ProofObligations,
 }
 
@@ -508,12 +513,28 @@ impl Form {
         let mut theory = Theory::new(path.clone()).with_meta(contracts());
         let mut decls = Vec::new();
         let domain = self.obligations.individuals.map_or(meta("no_individuals"), |n| apply("individuals", vec![count(n)]));
-        decls.push(constant(&path, "the_subject", "subject", apply("about", vec![literal(&self.package), literal(&self.revision), literal(&self.semantics), literal(&self.tool), count(self.obligations.moments), domain])));
+        decls.push(constant(&path, "the_subject", "subject", apply("about", vec![literal(&self.package), literal(&self.input_digest), count(self.obligations.moments), domain])));
         for (number, actor) in self.system.iter().enumerate() {
             decls.push(constant(&path, &format!("system{number}"), "actor", apply("system", vec![literal(actor)])));
         }
         for (number, actor) in self.environment.iter().enumerate() {
             decls.push(constant(&path, &format!("environment{number}"), "actor", apply("environment", vec![literal(actor)])));
+        }
+        if !self.references.is_empty() {
+            let entries: Vec<_> = self.references.iter().map(|reference| serde_json::to_string(reference).expect("serializable reference")).collect();
+            decls.push(constant(&path, "specification_references", "strings", strings(&entries)));
+        }
+        if !self.applications.is_empty() {
+            let entries: Vec<_> = self.applications.iter().map(|application| serde_json::to_string(application).expect("serializable application")).collect();
+            decls.push(constant(&path, "specification_applications", "strings", strings(&entries)));
+        }
+        if !self.symbols.is_empty() {
+            let entries: Vec<_> = self.symbols.iter().map(|symbol| serde_json::to_string(symbol).expect("serializable symbol resolution")).collect();
+            decls.push(constant(&path, "resolved_symbols", "strings", strings(&entries)));
+        }
+        if !self.definition_expansions.is_empty() {
+            let entries: Vec<_> = self.definition_expansions.iter().map(|entry| serde_json::to_string(&entry).expect("serializable definition expansion")).collect();
+            decls.push(constant(&path, "definition_expansions", "strings", strings(&entries)));
         }
         for (number, contract) in self.contracts.iter().enumerate() {
             let variables = contract.parameters.iter().map(|(variable, kind)| apply("variable", vec![literal(variable), literal(kind)])).chain(contract.chosen.iter().map(|(variable, kind)| apply("chosen_variable", vec![literal(variable), literal(kind)])));
@@ -742,7 +763,7 @@ fn question_of(term: &Term, theory: &MPath, pool: &BTreeMap<String, usize>) -> R
 
 impl Form {
     /// Reads the source file of an MMT form with the `mmt` crate: the file
-    /// must read over LF, declare the meta-theory of this version of trioc,
+    /// must read over LF, declare the trion contracts meta-theory,
     /// and hold one theory over it, whose constants are what [`Form::write`]
     /// writes. An error is reported with its line and column.
     pub fn read(text: &str) -> Result<Form, String> {
@@ -756,7 +777,7 @@ impl Form {
         match lib.theory(&contracts()) {
             None => return Err(format!("the file does not declare the meta-theory `{META}?Contracts`")),
             Some(declared) if [base(false)?, base(true)?].iter().all(|known| known.theory(&contracts()) != Some(declared)) =>
-                return Err(format!("the file declares a meta-theory `{META}?Contracts` other than the one of this version")),
+                return Err(format!("the file declares a meta-theory `{META}?Contracts` that differs from the contracts meta-theory")),
             Some(_) => {}
         }
         let packages: Vec<&MPath> = read.theories().iter().filter(|p| **p != contracts()).collect();
@@ -782,7 +803,7 @@ impl Form {
 
     /// The form that the constants of the theory of a package state.
     fn of_theory(lib: &Library, theory: &Theory) -> Result<Form, String> {
-        let mut form = Form { package: String::new(), revision: String::new(), semantics: String::new(), tool: String::new(), system: Vec::new(), environment: Vec::new(), contracts: Vec::new(), obligations: ProofObligations { moments: 0, individuals: None, pool: Vec::new(), owners: BTreeMap::new(), obligations: Vec::new(), propositional: BTreeMap::new(), findings: Vec::new() } };
+        let mut form = Form { package: String::new(), input_digest: String::new(), system: Vec::new(), environment: Vec::new(), contracts: Vec::new(), applications: Vec::new(), references: Vec::new(), symbols: Vec::new(), definition_expansions: BTreeMap::new(), obligations: ProofObligations { moments: 0, individuals: None, pool: Vec::new(), owners: BTreeMap::new(), obligations: Vec::new(), propositional: BTreeMap::new(), findings: Vec::new() } };
         let mut pool: BTreeMap<String, usize> = BTreeMap::new();
         let mut subject = false;
         for declaration in theory.declarations() {
@@ -801,15 +822,13 @@ impl Form {
             let sort = name_of(sort).map_err(at)?;
             match sort {
                 "subject" => {
-                    let a = args(value, "about", 6).map_err(at)?;
+                    let a = args(value, "about", 4).map_err(at)?;
                     form.package = text_of(&a[0]).map_err(at)?;
-                    form.revision = text_of(&a[1]).map_err(at)?;
-                    form.semantics = text_of(&a[2]).map_err(at)?;
-                    form.tool = text_of(&a[3]).map_err(at)?;
-                    form.obligations.moments = count_of(&a[4]).map_err(at)?;
-                    form.obligations.individuals = match parts(&a[5]) {
+                    form.input_digest = text_of(&a[1]).map_err(at)?;
+                    form.obligations.moments = count_of(&a[2]).map_err(at)?;
+                    form.obligations.individuals = match parts(&a[3]) {
                         Some(("no_individuals", [])) => None,
-                        _ => Some(count_of(&args(&a[5], "individuals", 1).map_err(at)?[0]).map_err(at)?),
+                        _ => Some(count_of(&args(&a[3], "individuals", 1).map_err(at)?[0]).map_err(at)?),
                     };
                     subject = true;
                 }
@@ -818,6 +837,26 @@ impl Form {
                     Some(("environment", [actor])) => form.environment.push(text_of(actor).map_err(at)?),
                     _ => return Err(at(format!("`{value}` is no actor"))),
                 },
+                "strings" if name == "specification_references" => {
+                    form.references = texts_of(value).map_err(at)?.into_iter().map(|entry| {
+                        serde_json::from_str(&entry).map_err(|error| at(format!("invalid specification reference: {error}")))
+                    }).collect::<Result<_, _>>()?;
+                }
+                "strings" if name == "specification_applications" => {
+                    form.applications = texts_of(value).map_err(at)?.into_iter().map(|entry| {
+                        serde_json::from_str(&entry).map_err(|error| at(format!("invalid application metadata: {error}")))
+                    }).collect::<Result<_, _>>()?;
+                }
+                "strings" if name == "resolved_symbols" => {
+                    form.symbols = texts_of(value).map_err(at)?.into_iter().map(|entry| {
+                        serde_json::from_str(&entry).map_err(|error| at(format!("invalid symbol resolution metadata: {error}")))
+                    }).collect::<Result<_, _>>()?;
+                }
+                "strings" if name == "definition_expansions" => {
+                    form.definition_expansions = texts_of(value).map_err(at)?.into_iter().map(|entry| {
+                        serde_json::from_str(&entry).map_err(|error| at(format!("invalid definition metadata: {error}")))
+                    }).collect::<Result<_, _>>()?;
+                }
                 "statement" => {
                     let a = args(value, "stated", 9).map_err(at)?;
                     let role = name_of(&a[4]).map_err(at)?;
@@ -903,15 +942,17 @@ mod tests {
         let pool = vec![Formula::And(atoms.clone()), Formula::Implies(Box::new(Formula::True), Box::new(Formula::Not(Box::new(Formula::Or(vec![]))))), atoms[0].clone()];
         Form {
             package: "p".to_string(),
-            revision: "r".to_string(),
-            semantics: "1".to_string(),
-            tool: "0.1.0".to_string(),
+            input_digest: "r".to_string(),
             system: vec!["API".to_string()],
             environment: vec!["user".to_string()],
             contracts: vec![
                 Contract { id: "A".to_string(), file: "a.trion".to_string(), line: 3, text: "When a user sends a message, the API shall store the message.".to_string(), role: "guarantee".to_string(), parameters: vec![("user".to_string(), "user".to_string())], chosen: vec![("some user".to_string(), "user".to_string())], assume: Formula::True, guarantee: atoms[0].clone(), timing: vec!["activation: each occurrence of user send message".to_string(), "action API|store message: start then completion; completes within 5 s measured from the activation".to_string()], scope: Scope::Unscoped },
                 Contract { id: "D".to_string(), file: "a.trion".to_string(), line: 5, text: "No user sends a message.".to_string(), role: "assumption".to_string(), parameters: Vec::new(), chosen: Vec::new(), assume: atoms[0].clone(), guarantee: Formula::True, timing: Vec::new(), scope: Scope::Block { head: "While the door is open".to_string(), file: "a.trion".to_string(), line: 4 } },
             ],
+            applications: Vec::new(),
+            references: Vec::new(),
+            symbols: Vec::new(),
+            definition_expansions: BTreeMap::new(),
             obligations: ProofObligations {
                 moments: 3,
                 individuals: Some(2),
@@ -973,7 +1014,7 @@ mod tests {
         // Another file, and another meta-theory.
         assert!(Form::read("namespace http://elsewhere❚\ntheory p =\n❚\n").unwrap_err().contains("does not declare the meta-theory"));
         let error = Form::read(&text.replacen("  scenario : property❙\n", "", 1)).unwrap_err();
-        assert!(error.contains("other than the one of this version"), "{error}");
+        assert!(error.contains("that differs from the contracts meta-theory"), "{error}");
     }
 
     #[test]

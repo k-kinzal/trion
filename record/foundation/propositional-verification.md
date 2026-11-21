@@ -2,7 +2,7 @@
 
 The baseline commit was `ef14d84`. All runs recorded here were local. The first implementation check used working-tree content identifier `5307a8a5a1fb8a2dc7fbc0570fcad48b1a32fcf0d3aabbd127b819d91813e9c4`. Each section records results for the configuration at the time of that run.
 
-The initial changes added a propositional fragment, an equivalent grammar extension, and an exact backend. The [evidence index](evidence-index.md) traces F01–F08. The existing entry points handle timed A/G contracts and MMT. Propositional artifacts use JSON and the definition environment `empty/1`. [Design decision 001](../decisions/001-foundation-scope.md) and [architecture survey](current-architecture.md)
+The initial changes added a propositional fragment, an equivalent grammar extension, and an exact backend. The [evidence index](evidence-index.md) traces F01–F08. The existing entry points handle timed A/G contracts and MMT. Propositional artifacts use JSON and the definition environment `empty`. [Design decision 001](../decisions/001-foundation-scope.md) and [architecture survey](current-architecture.md)
 
 ## Demonstration
 
@@ -15,7 +15,7 @@ target/debug/trioc analyze target/card.core.json > target/card.analysis.json
 target/debug/trioc replay target/card.analysis.json
 ```
 
-Run `target/debug/trioc replay tests/fixtures/propositional/card.analysis.json` to check the saved [analysis record](../../tests/fixtures/propositional/card.analysis.json). Separate commands handle conversion and analysis. The alternate spelling `assume if P then Q.` expands to the same Core under `--grammar propositional-cnl/2`.
+Run `target/debug/trioc replay tests/fixtures/propositional/card.analysis.json` to check the saved [analysis record](../../tests/fixtures/propositional/card.analysis.json). Separate commands handle conversion and analysis. The alternate spelling `assume if P then Q.` expands to the same Core.
 
 On acceptance, `trion formalize` emits an artifact that records the input status. Ambiguous, unsupported, and invalid inputs produce a diagnostic with a location and exit code 1. `trioc analyze` writes the record to standard output and a summary to standard error. Unknown, contradictory premises, and timeouts also return exit code 1. Exit code 0 from `replay` indicates that the saved result agreed with the replay.
 
@@ -54,7 +54,7 @@ The checked content identifier was `9b1a32a4ff0df9d30b51ed180f259546645f507a5b91
 
 ## Checks after revising names and verification tooling
 
-Git tree `3ac200e8101f9eff0f88655b415854fe3528465a` identifies the checked snapshot. A temporary index and `git write-tree` captured the working tree, excluding this record. The saved propositional semantics identifier was `classical-propositional/1`. The demonstration records were regenerated from their original inputs.
+Git tree `3ac200e8101f9eff0f88655b415854fe3528465a` identifies the checked snapshot. A temporary index and `git write-tree` captured the working tree, excluding this record. The saved propositional semantics identifier was `classical-propositional`. The demonstration records were regenerated from their original inputs.
 
 - `trion . --out target/propositional-current-spec` and `trioc prove target/propositional-current-spec` proved 13 bounded obligations from the current specification.
 - `cargo check --locked -p trion-core` and `cargo test --locked -p trion-cli --test self_hosting --test analysis_cli` passed. The dependency test rejected `smtlib` when it was added to Core as a build dependency in a copy.
@@ -111,7 +111,7 @@ An isolated export of the same tree was changed one fault at a time. Every mutat
 | Ignore an unsupported constructor | Consume an unknown Core constructor and replace it with truth. | [`rejects_corrupt_forms_and_queries`](../../tests/conformance/core.rs) |
 | Promote unknown or timeout to success | Return entailment after unknown and after timeout, in separate runs. | [`unknown_timeouts_and_malformed_output_do_not_become_success`](../../tests/fault-injection/analysis.rs) |
 | Accept evidence from another question or premise set | Bypass the request identity check and pass a valuation that happens to satisfy the new question. | [`alien_evidence_is_refused_even_if_its_valuation_works`](../../tests/fault-injection/analysis.rs) |
-| Change a fixed grammar version | Admit the second grammar's conditional spelling in the first grammar. | [`grammar_versions_pin_the_extension_and_old_associations`](../../tests/grammar/propositional.rs) |
+| Change the expansion of a conditional | Give the conditional a different meaning from implication. | [`conditional_and_implication_have_the_same_reading`](../../tests/grammar/propositional.rs) |
 | Insert an assumption into the original Core | Add positive P to the saved premises of the open question `entails P`. | [`replay_rejects_added_assumptions_and_fabricated_guarantees`](../../tests/fault-injection/analysis.rs) |
 | Add a backend dependency to Core | Add the `smtlib` crate to the Core manifest. | [`the_core_has_no_language_or_backend_dependencies`](../../crates/trion-cli/tests/self_hosting.rs) |
 | Omit the scope of a limited search | Suppress scope in the MMT result of a run with a decision limit. The Boolean adapter separately receives fabricated responses with missing or unsupported scopes. | [`mmt_propositional_proof_reports_limits_and_checked_certificates`](../../crates/trion-cli/tests/analysis_cli.rs) · [`bounded_and_missing_scope_responses_are_refused`](../../tests/fault-injection/analysis.rs) |

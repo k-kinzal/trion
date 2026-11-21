@@ -20,9 +20,11 @@ mod key;
 mod lexicon;
 mod meaning;
 mod model;
+mod nominal;
 mod normal;
 mod priority;
 mod rules;
+mod signatures;
 mod temporal;
 pub mod typed;
 mod vocabulary;
@@ -34,7 +36,8 @@ pub use model::{Applied, Constraint, ConstraintKind, Extent, Model};
 pub use priority::{Preference, Priority, ReaderQuery};
 pub use rules::rules;
 pub use temporal::Obligation;
-pub use vocabulary::{glossary, occurrences, Derivation as VocabDerivation, GlossaryDerivation, GlossaryEntry, VocabEntry};
+pub use vocabulary::{glossary, occurrences, Derivation as VocabDerivation, GlossaryDerivation, GlossaryEntry, ResolvedSymbol, VocabEntry};
+pub use nominal::mappable_nominal;
 
 /// The sentences that the declarations of individuals generate: the set
 /// with each statement about declared types replaced by its instances, each
@@ -48,7 +51,7 @@ pub fn generated(set: &crate::SpecSet, lex: &Lexicon, scope: usize) -> Option<cr
 pub use grounding::silence;
 pub use instances::DEFAULT_SCOPE;
 pub use meaning::check as check_refinements;
-pub use model::{compile, group_formula, match_core, np_key, read_sentence, role_prefix, subject_key, Reading, SUBJECT_VARIABLE};
+pub use model::{compile, explicit_enumeration, group_formula, match_core, np_key, read_sentence, role_prefix, subject_key, Reading, SUBJECT_VARIABLE};
 pub use priority::{authored_condition, check as check_priorities};
 pub use rules::entry_lines;
 pub use temporal::{continues, is_count, moment_atom, moment_time, at_each_moment, at_every_moment, at_first_moment, diagnostics as temporal_diagnostics, situation_guarantee, unroll, unroll_complete, unroll_complete_in, unroll_axiom, unroll_background, Activation, Trace};

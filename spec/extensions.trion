@@ -91,7 +91,7 @@ The role and bind declarations have declaration semantics. A check selects a pro
 
 namespace trion.propositional:
     primitive source convention interpretation
-    primitive artifact meaning, change effect, controlled grammar, core, fixed grammar version interpretation
+    primitive artifact meaning, change effect, controlled grammar, core
     primitive formal validation, input text, mapping, migration, new adapter capability
     primitive new adapter failure, new artifact, new constructor meaning, new constructor validation, original artifact
     primitive source intent confirmation, sugar expansion preservation, sugar expansion termination, undefined interpretation, unknown
@@ -129,11 +129,10 @@ The MMT reader accepts the earlier theory for saved forms that have no checked i
         The propositional translator shall preserve the premises of a checked propositional input.
             cite PROP-CHECK#MAPPING
 
-    section "Versioned extensions and migration":
+    section "Checking extensions and transformations":
         cite FOUNDATION
         [PROP-EXTENSION]
         The propositional maintainer shall record the effects of a change on the meaning of an artifact.
-        The propositional maintainer shall preserve the interpretation of a fixed grammar version.
         The propositional maintainer shall check the termination of a sugar expansion.
         The propositional maintainer shall check the preservation of a sugar expansion.
         The propositional maintainer shall specify the meaning of each new constructor.
@@ -149,13 +148,13 @@ The MMT reader accepts the earlier theory for saved forms that have no checked i
 
     source PROP-EXTRACTION:
         title "Interpretation boundaries for future input adapters"
-        locator "urn:trion:propositional:source-candidate:1"
+        locator "urn:trion:propositional:source-candidate"
         kind citation
         quote RULES """
 A source location pairs a content identifier with an item locator or a byte range.
 A missing table cell has no default reading.
 A diagram edge is an observation. Causality requires a declared interpretation.
-A table row P/Q can produce assume P implies Q. only when a versioned rule declares material implication.
+A table row P/Q can produce assume P implies Q. only when a rule declares material implication.
 An execution model must define the meaning of assignment and iteration before their behavior can be analyzed.
 A generated or extracted controlled sentence must pass the common parser. A generated Core-shaped JSON object is not a confirmed interpretation.
 """
@@ -179,7 +178,7 @@ A generated or extracted controlled sentence must pass the common parser. A gene
             cite PROP-EXTRACTION#RULES
 
         [PROP-CONFIRMATION]
-        A source candidate uses a versioned interpretation rule or a confirmed interpretation.
+        A source candidate uses an interpretation rule or a confirmed interpretation.
         The propositional parser shall formalize a source candidate through the controlled grammar.
         The propositional parser shall reject an undefined interpretation.
         The propositional maintainer shall distinguish confirmation of the source intent from formal validation.

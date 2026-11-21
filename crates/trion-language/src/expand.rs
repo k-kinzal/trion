@@ -111,7 +111,7 @@ fn negated_clause(clause: &Clause) -> Clause {
     match &mut out.body {
         ClauseBody::Copular { predicate, .. } => {
             let mut words: Vec<String> = match &*predicate {
-                Predicate::Words { words } => words.clone(),
+                Predicate::Words { words, .. } => words.clone(),
                 other => other.clone().render().split_whitespace().map(str::to_string).collect(),
             };
             if words.first().is_some_and(|w| w == "not") {
@@ -119,7 +119,7 @@ fn negated_clause(clause: &Clause) -> Clause {
             } else {
                 words.insert(0, "not".to_string());
             }
-            *predicate = Predicate::Words { words };
+            *predicate = Predicate::Words { words, nominal: None };
         }
         ClauseBody::Verbal { verb, negation, .. } => {
             if negation.take().is_some() {

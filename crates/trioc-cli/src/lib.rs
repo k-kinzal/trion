@@ -14,6 +14,7 @@ mod command;
 pub mod digest;
 pub mod mmt;
 pub mod project;
+mod project_application;
 pub mod prove;
 mod propositional;
 mod analysis;

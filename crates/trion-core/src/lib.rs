@@ -1,4 +1,4 @@
-//! classical-propositional/1 interchange types and validation. See spec/propositional/core.trion and spec/obligations.trion.
+//! classical-propositional interchange types and validation. See spec/propositional/core.trion and spec/obligations.trion.
 
 use serde::de::{self, value::MapAccessDeserializer, IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -6,9 +6,9 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::{fmt, marker::PhantomData};
 
-pub const SEMANTICS: &str = "classical-propositional/1";
-pub const SCHEMA: &str = "core-json/1";
-pub const DEFINITIONS: &str = "empty/1";
+pub const SEMANTICS: &str = "classical-propositional";
+pub const SCHEMA: &str = "core-json";
+pub const DEFINITIONS: &str = "empty";
 pub const MAX_DEPTH: usize = 48;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -68,7 +68,7 @@ struct ProblemData {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    Version { field: &'static str, value: String },
+    UnsupportedTag { field: &'static str, value: String },
     Name(String),
     Duplicate(String),
     TooManyDeclarations,
@@ -80,7 +80,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Version { field, value } => write!(f, "unsupported {field} version {value:?}"),
+            Self::UnsupportedTag { field, value } => write!(f, "unsupported {field} {value:?}"),
             Self::Name(name) => write!(f, "invalid proposition name {name:?}"),
             Self::Duplicate(name) => write!(f, "duplicate declaration {name:?}"),
             Self::TooManyDeclarations => f.write_str("declaration table has too many slots"),
@@ -126,7 +126,7 @@ impl TryFrom<DocumentData> for CoreDocument {
             ("definitions", DEFINITIONS, &data.definitions),
         ] {
             if found != expected {
-                return Err(Error::Version {
+                return Err(Error::UnsupportedTag {
                     field,
                     value: found.clone(),
                 });

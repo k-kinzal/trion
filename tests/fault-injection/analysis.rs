@@ -4,7 +4,7 @@ mod common;
 use common::{worker, SETTINGS};
 use trion_analysis::{analyze, run_worker, Conclusion, Evidence, Execution, Observation, Record};
 use trion_boolean::{solve, Reply, Request, Response, Term, EXACT};
-use trion_cnl::{formalize, Grammar};
+use trion_cnl::{formalize};
 
 fn response(request: &Request, reply: Reply) -> Observation {
     Observation::Response(
@@ -21,7 +21,6 @@ fn response(request: &Request, reply: Reply) -> Observation {
 fn dropping_a_constraint_changes_the_answer_and_is_detected() {
     let input = formalize(
         "proposition P. proposition Q. assume P implies Q. assume P. entails Q.",
-        Grammar::V1,
     )
     .unwrap();
     let checked = analyze(input.problem(), &EXACT, SETTINGS, worker);
@@ -39,7 +38,7 @@ fn dropping_a_constraint_changes_the_answer_and_is_detected() {
 
 #[test]
 fn unknown_timeouts_and_malformed_output_do_not_become_success() {
-    let input = formalize("entails false.", Grammar::V1).unwrap();
+    let input = formalize("entails false.").unwrap();
     for (observation, expected, evidence) in [
         (Observation::Timeout, Execution::Timeout, Evidence::None),
         (
@@ -81,7 +80,7 @@ fn actual_worker_exit_and_timeout_are_observed() {
         }
         _ => {}
     }
-    let input = formalize("entails false.", Grammar::V1).unwrap();
+    let input = formalize("entails false.").unwrap();
     let executable = std::env::current_exe().unwrap();
     let worker = |mode| {
         let mut command = std::process::Command::new(&executable);
@@ -112,9 +111,9 @@ fn actual_worker_exit_and_timeout_are_observed() {
 
 #[test]
 fn alien_evidence_is_refused_even_if_its_valuation_works() {
-    let original = formalize("proposition P. entails P.", Grammar::V1).unwrap();
-    let other_query = formalize("proposition P. entails true and P.", Grammar::V1).unwrap();
-    let other_premises = formalize("proposition P. assume true. entails P.", Grammar::V1).unwrap();
+    let original = formalize("proposition P. entails P.").unwrap();
+    let other_query = formalize("proposition P. entails true and P.").unwrap();
+    let other_premises = formalize("proposition P. assume true. entails P.").unwrap();
     for other in [other_query, other_premises] {
         let previous = analyze(other.problem(), &EXACT, SETTINGS, worker);
         assert_eq!(previous.outcome().conclusion(), Conclusion::DoesNotEntail);
@@ -129,7 +128,7 @@ fn alien_evidence_is_refused_even_if_its_valuation_works() {
 
 #[test]
 fn replay_rejects_added_assumptions_and_fabricated_guarantees() {
-    let input = formalize("proposition P. entails P.", Grammar::V1).unwrap();
+    let input = formalize("proposition P. entails P.").unwrap();
     let snapshot = serde_json::to_vec(input.problem()).unwrap();
     let record = analyze(input.problem(), &EXACT, SETTINGS, worker);
     let original = serde_json::to_value(&record).unwrap();
@@ -153,7 +152,7 @@ fn replay_rejects_added_assumptions_and_fabricated_guarantees() {
 
 #[test]
 fn bounded_and_missing_scope_responses_are_refused() {
-    let input = formalize("proposition P. entails true.", Grammar::V1).unwrap();
+    let input = formalize("proposition P. entails true.").unwrap();
     let full = analyze(input.problem(), &EXACT, SETTINGS, worker);
     assert_eq!(full.outcome().conclusion(), Conclusion::Entails);
     for scope in [None, Some(serde_json::json!({"bounded": 1}))] {

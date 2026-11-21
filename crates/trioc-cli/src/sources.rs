@@ -200,7 +200,15 @@ pub fn check(project: &Project) -> SourceReport {
 
     for loaded in &project.sources {
         let source = &loaded.decl;
-        if let Some(coverage) = check_source(loaded, &cited, &mut report.diagnostics) {
+        // A reference keeps the dependency's own evidence without adding its
+        // sentences to the contracts of this project.
+        let catalogue = project.set.packages.iter().find(|package| package.documents.iter().any(|doc| {
+            doc.sources.iter().any(|origin| origin.file == source.file && origin.line == source.line)
+        }));
+        let evidence: Vec<&Spec> = cited.iter().copied().chain(
+            catalogue.into_iter().flat_map(|package| &package.documents).flat_map(|doc| &doc.symbol_sources)
+        ).collect();
+        if let Some(coverage) = check_source(loaded, &evidence, &mut report.diagnostics) {
             let minimum = source.minimum.as_deref().and_then(|m| m.parse::<f64>().ok()).unwrap_or(100.0);
             if coverage.percent < minimum {
                 report.diagnostics.push(Diagnostic::error("source-coverage-below-minimum", format!("source {} is {:.2}% covered; the minimum is {minimum:.2}%", coverage.id, coverage.percent), vec![at_declaration(source)]));

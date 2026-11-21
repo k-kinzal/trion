@@ -3,7 +3,7 @@ include "translation.trion"
 include "results.trion"
 
 namespace trion.propositional:
-    primitive artifact definition environment, artifact grammar version, artifact semantic version, check trusted base, conclusion
+    primitive artifact definition environment, check trusted base, conclusion
     primitive conversion failure condition, conversion preservation property, external process, network, parser
     primitive result evidence, result scope, solver, unknown constructor
 
@@ -16,7 +16,7 @@ namespace trion.propositional:
         Propositional analysis means the analysis of classical two-valued propositional formulas.
 
         [F01]
-        The propositional core shall record the semantic version of each artifact.
+        The propositional core shall record the meaning of the propositions of each artifact.
 
         [F02]
         The propositional core shall reject each unknown constructor.
@@ -39,7 +39,7 @@ namespace trion.propositional:
         The propositional runner shall record the conclusion and the evidence of each result.
 
         [F07]
-        The propositional parser shall record the grammar version of each artifact.
+        The propositional parser shall record the source mapping of each artifact.
         The propositional core shall record the definition environment of each artifact.
 
         [F08]

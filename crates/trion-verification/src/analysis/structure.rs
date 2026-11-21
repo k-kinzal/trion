@@ -21,6 +21,7 @@ pub(super) fn check_model(set: &SpecSet, model: &Model, lex: &Lexicon, out: &mut
     find_unit_mismatches(model, out);
     check_extensions(set, model, lex, out);
     check_classifications(set, model, lex, out);
+    check_bound_classifications(set, lex, out);
     find_required_missing(set, model, lex, out);
 }
 
@@ -101,13 +102,24 @@ fn find_required_missing(set: &SpecSet, model: &Model, lex: &Lexicon, out: &mut 
     for pkg in &set.packages {
         for (doc, role) in pkg.documents.iter().flat_map(|d| d.roles.iter().map(move |r| (d, r))) {
             let qualified = format!("{}.{}", trion_language::reading::role_prefix(&pkg.name, &doc.namespace), role.name);
-            let bound: BTreeSet<String> = model.constraints.iter().flat_map(|c| role_subjects(&c.guarantee, &qualified)).collect();
-            for subject in &bound {
+            let mut bound = BTreeMap::<String, Vec<SpecRef>>::new();
+            for constraint in &model.constraints {
+                for subject in role_subjects(&constraint.guarantee, &qualified) {
+                    let sources = bound.entry(subject).or_default();
+                    for at in &constraint.refs {
+                        if !sources.contains(at) {
+                            sources.push(at.clone());
+                        }
+                    }
+                }
+            }
+            for (subject, sources) in bound {
                 for rule in &role.required {
-                    let satisfied = specs.iter().any(|(s, scoped)| trion_language::reading::match_core(&rule.pattern.core, &s.sentence.core).iter().any(|b| b.get(trion_language::reading::SUBJECT_VARIABLE).map(|v| scoped.resolve(&scoped.canon(v))).as_ref() == Some(subject)));
+                    let satisfied = specs.iter().any(|(s, scoped)| trion_language::reading::match_core(&rule.pattern.core, &s.sentence.core).iter().any(|b| b.get(trion_language::reading::SUBJECT_VARIABLE).map(|v| scoped.resolve(&scoped.canon(v))).as_ref() == Some(&subject)));
                     if !satisfied {
                         let at = SpecRef { id: format!("{qualified}::{}", rule.id), file: rule.file.clone(), line: rule.line, text: rule.text.clone() };
-                        out.push(Diagnostic::error("missing-required-form", format!("{subject} is bound to {qualified} but has no specification of the required form `{}`", rule.pattern.source), vec![at]));
+                        let refs = std::iter::once(at).chain(sources.iter().cloned()).collect();
+                        out.push(Diagnostic::error("missing-required-form", format!("{subject} is bound to {qualified} but has no specification of the required form `{}`", rule.pattern.source), refs));
                     }
                 }
             }
@@ -256,7 +268,7 @@ fn check_extensions(set: &SpecSet, model: &Model, lex: &Lexicon, out: &mut Vec<D
 fn check_classifications(set: &SpecSet, model: &Model, lex: &Lexicon, out: &mut Vec<Diagnostic>) {
     let docs: Vec<_> = set.packages.iter().flat_map(|p| &p.documents).collect();
     for doc in &docs {
-        let uses: BTreeSet<&String> = doc.imports.iter().map(|i| &i.namespace).collect();
+        let uses: BTreeSet<&String> = doc.imports.iter().filter(|i| !i.reference_only).map(|i| &i.namespace).collect();
         let mut attrs = BTreeSet::new();
         // A classification binds the blocks that use its namespace, not the
         // namespace that defines it.
@@ -272,6 +284,77 @@ fn check_classifications(set: &SpecSet, model: &Model, lex: &Lexicon, out: &mut 
                     if !base.contains(form) && !extended(form) {
                         let at = SpecRef { id: spec.display_id(), file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() };
                         out.push(Diagnostic::error("syntax-not-allowed", format!("this sentence uses {form}, which `{attr}` does not include; rewrite it or declare `extend {attr} with {form}.`"), vec![at]));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A classification can be applied to the sentences of a named subject
+/// using the same binding as a role. Its enumeration supplies a form
+/// interface even when the dependency's contracts are reference-only.
+fn check_bound_classifications(set: &SpecSet, lex: &Lexicon, out: &mut Vec<Diagnostic>) {
+    use trion_language::syntax::ast::NpGroup;
+    let docs: Vec<_> = set.packages.iter().flat_map(|pkg| &pkg.documents).collect();
+    let exports: BTreeMap<_, _> = set.packages.iter().flat_map(|pkg| {
+        pkg.documents.iter().flat_map(move |doc| {
+            let namespace = trion_language::reading::role_prefix(&pkg.name, &doc.namespace);
+            doc.classifications.iter().map(move |class| (format!("{namespace}.{}", class.attr), (doc, class)))
+        })
+    }).collect();
+    for doc in docs.iter() {
+        let scoped = lex.in_document(doc);
+        for binding in &doc.bindings {
+            let Some((source, classification)) = exports.get(&binding.role) else { continue };
+            let target = scoped.resolve(&scoped.canon(&binding.term));
+            let namespace = lex.in_document(source);
+            let attribute = namespace.resolve(&namespace.canon(&classification.attr));
+            let mut forms = BTreeSet::new();
+            let mut refs = vec![
+                SpecRef::point(&binding.file, binding.line, &binding.text),
+                SpecRef::point(&classification.file, classification.line, &classification.text),
+            ];
+            for origin in docs.iter().filter(|origin| origin.namespace == source.namespace && origin.application_scope.is_none()) {
+                let scoped = lex.in_document(origin);
+                for spec in origin.specs.iter().chain(&origin.symbol_sources).filter(|spec| !spec.otherwise && !spec.default && spec.scope_lines.is_empty()) {
+                    if let Some((name, values)) = trion_language::reading::explicit_enumeration(&spec.sentence, &scoped) {
+                        if name == attribute {
+                            forms.extend(values);
+                            refs.push(SpecRef { id: spec.display_id(), file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() });
+                        }
+                    }
+                }
+            }
+            if forms.is_empty() {
+                out.push(Diagnostic::error(
+                    "extend-open-domain",
+                    format!("the classification `{}` needs an unconditional enumeration before it can be bound", binding.role),
+                    refs,
+                ));
+                continue;
+            }
+            for target_doc in &docs {
+                let target_lex = lex.in_document(target_doc);
+                for spec in &target_doc.specs {
+                    let group = match &spec.sentence.core {
+                        Core::Description { subject, .. } | Core::Deontic { subject, .. }
+                        | Core::Relation { subject, .. } | Core::Existence { subject } => subject,
+                        _ => continue,
+                    };
+                    let items = match group {
+                        NpGroup::Single(noun) => std::slice::from_ref(noun),
+                        NpGroup::Coordinated { items, .. } => items.as_slice(),
+                    };
+                    if !items.iter().any(|noun| trion_language::reading::subject_key(noun, &target_lex) == target) {
+                        continue;
+                    }
+                    for form in trion_language::syntax::syntax_forms(&spec.sentence) {
+                        if !forms.contains(form) {
+                            let statement = SpecRef { id: spec.display_id(), file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() };
+                            let refs = std::iter::once(statement).chain(refs.iter().cloned()).collect();
+                            out.push(Diagnostic::error("syntax-not-allowed", format!("the sentence about `{target}` uses {form}, which its binding to `{}` does not permit", binding.role), refs));
+                        }
                     }
                 }
             }

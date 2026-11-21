@@ -130,16 +130,33 @@
     "file-directive": {
       "patterns": [
         {
-          "begin": "^\\s*(package)\\s+(\\S+)\\s+(edition)(?=\\s)",
+          "begin": "^\\s*(refer|apply)\\s+(\\S+)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.trion"
+            },
+            "2": {
+              "name": "entity.name.namespace.package.trion"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#string"
+            },
+            {
+              "include": "#comment"
+            }
+          ]
+        },
+        {
+          "begin": "^\\s*(package)\\s+([a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*)(?=\\s*(?://.*)?$)",
           "beginCaptures": {
             "1": {
               "name": "keyword.other.directive.package.trion"
             },
             "2": {
               "name": "entity.name.namespace.package.trion"
-            },
-            "3": {
-              "name": "keyword.other.directive.edition.trion"
             }
           },
           "end": "$",

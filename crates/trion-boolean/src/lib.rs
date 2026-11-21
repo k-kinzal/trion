@@ -7,10 +7,10 @@ use trion_core::{sha256, Expr, Problem, Question, DEFINITIONS, SEMANTICS};
 
 pub use worker::solve;
 
-pub const ADAPTER: &str = "boolean-nnf/1";
-pub const BACKEND: &str = "nnf-enumerator/1";
-pub const PROTOCOL: &str = "nnf-work/1";
-pub const STAGES: [&str; 2] = ["query-condition/1", "negation-normal-form/1"];
+pub const ADAPTER: &str = "boolean-nnf";
+pub const BACKEND: &str = "nnf-enumerator";
+pub const PROTOCOL: &str = "nnf-work";
+pub const STAGES: [&str; 2] = ["query-condition", "negation-normal-form"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Constructor {

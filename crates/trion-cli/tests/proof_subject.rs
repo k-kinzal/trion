@@ -1,7 +1,6 @@
 //! What a result is about, and when a saved result holds (plan W13).
 //!
-//! A result names its subject: the package, the digest of its texts, the
-//! semantic version, the version of the program and the bounds of its
+//! A result names its subject: the package, the digests of its inputs and obligations, and the bounds of its
 //! obligations. A saved result is a result about its own subject only, and
 //! `trioc prove --against` compares each field.
 
@@ -24,25 +23,46 @@ fn a_report_names_what_it_is_about() {
     // The same text, rules, programs and settings: the same subject.
     assert_eq!(subject(&first), subject(&again));
     assert_eq!(subject(&first)["package"], "x");
-    assert_eq!(subject(&first)["semantics"], "0.1.0");
-    assert_eq!(subject(&first)["tool"], "0.1.0");
+    assert_eq!(subject(&first)["input_digest"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        subject(&first)["obligations_digest"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
     assert_eq!(subject(&first)["moments"], 3);
     // Another bound is another subject.
     let longer = f.verify(&["--json", "--trace-length", "4"]).json();
     assert_eq!(subject(&longer)["moments"], 4);
-    assert_eq!(subject(&first)["revision"], subject(&longer)["revision"]);
+    assert_eq!(
+        subject(&first)["input_digest"],
+        subject(&longer)["input_digest"]
+    );
     // Another text is another subject.
-    f.write("a.trion", &wrap("x", "primitive API\n\n[A]\nThe API shall not stop.\n"));
+    f.write(
+        "a.trion",
+        &wrap("x", "primitive API\n\n[A]\nThe API shall not stop.\n"),
+    );
     let other = f.verify(&["--json"]).json();
-    assert_ne!(subject(&first)["revision"], subject(&other)["revision"]);
+    assert_ne!(
+        subject(&first)["input_digest"],
+        subject(&other)["input_digest"]
+    );
     // The declarations of a package decide which reading applies, not another set of rules.
     let typed = Fixture::new(&[MANIFEST, ("a.trion", "individuals user\nprimitive API\n\n[A]\nWhen a user enters, the API shall greet the user.\n")]);
-    assert_eq!(subject(&typed.verify(&["--json"]).json())["semantics"], "0.1.0");
+    assert_eq!(subject(&typed.verify(&["--json"]).json())["individuals"], 3);
 }
 
 /// The message of the refusal of a saved result.
 fn stale(report: &Value) -> String {
-    report["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "result-stale").map(|d| d["message"].as_str().unwrap().to_string()).unwrap_or_else(|| panic!("no result-stale: {report}"))
+    report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["code"] == "result-stale")
+        .map(|d| d["message"].as_str().unwrap().to_string())
+        .unwrap_or_else(|| panic!("no result-stale: {report}"))
 }
 
 #[test]
@@ -61,21 +81,38 @@ fn a_saved_result_about_another_subject_is_refused() {
     let longer = f.verify(&["--json", "--against", "saved.json", "--trace-length", "4"]);
     assert_ne!(longer.code, 0);
     let message = stale(&longer.json());
-    assert!(message.contains("moments (`4` here, `3` saved)"), "{message}");
+    assert!(
+        message.contains("moments (`4` here, `3` saved)"),
+        "{message}"
+    );
     // Another text.
-    f.write("a.trion", &wrap("x", "primitive API\n\n[A]\nThe API shall stop.\n\n[B]\nThe API may wait.\n"));
+    f.write(
+        "a.trion",
+        &wrap(
+            "x",
+            "primitive API\n\n[A]\nThe API shall stop.\n\n[B]\nThe API may wait.\n",
+        ),
+    );
     let edited = f.verify(&["--json", "--against", "saved.json"]);
     assert_ne!(edited.code, 0);
     assert!(unverified(&edited.json()).contains(&"result-stale".to_string()));
-    assert!(stale(&edited.json()).contains("revision ("), "{}", edited.stdout);
+    assert!(
+        stale(&edited.json()).contains("input_digest ("),
+        "{}",
+        edited.stdout
+    );
     // A result whose other fields are kept while one is changed.
     let mut altered = proof.clone();
-    altered["subject"]["semantics"] = Value::String("9.9.9".to_string());
+    altered["subject"]["obligations_digest"] = Value::String("different obligations".to_string());
     f.write("a.trion", &wrap("x", TEXT));
     f.write("altered.json", &altered.to_string());
     let refused = f.verify(&["--json", "--against", "altered.json"]);
     assert_ne!(refused.code, 0);
-    assert!(stale(&refused.json()).contains("semantics (`\"0.1.0\"` here, `\"9.9.9\"` saved)"), "{}", refused.stdout);
+    assert!(
+        stale(&refused.json()).contains("obligations_digest ("),
+        "{}",
+        refused.stdout
+    );
     // A file that is no result.
     f.write("nothing.json", "{}");
     assert_ne!(f.verify(&["--json", "--against", "nothing.json"]).code, 0);

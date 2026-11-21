@@ -74,7 +74,10 @@ impl Isolation {
             is_root: pkg.is_root,
             documents: pkg.documents.iter().map(|doc| {
                 let mut kept = doc.clone();
-                kept.specs.retain(|s| matches!(s.sentence.core, Core::Definition { .. }));
+                if doc.application_mapping.is_empty() {
+                    kept.symbol_sources.extend(doc.specs.iter().filter(|spec| !matches!(spec.sentence.core, Core::Definition { .. })).cloned());
+                }
+                kept.specs.retain(|s| matches!(s.sentence.core, Core::Definition { .. }) || !doc.application_mapping.is_empty());
                 kept.checks.clear();
                 kept.propositional_checks.clear();
                 kept.examples.clear();
@@ -95,7 +98,9 @@ impl Isolation {
             }
         }
         // A set that reads a statement alone copies the definitions that it keeps, and no other.
-        let specs: Vec<Vec<Vec<Spec>>> = packages.iter_mut().map(|pkg| pkg.documents.iter_mut().map(|doc| std::mem::take(&mut doc.specs)).collect()).collect();
+        let specs: Vec<Vec<Vec<Spec>>> = packages.iter_mut().map(|pkg| pkg.documents.iter_mut().map(|doc| {
+            if doc.application_mapping.is_empty() { std::mem::take(&mut doc.specs) } else { Vec::new() }
+        }).collect()).collect();
         Isolation { packages, specs, definitions, scope }
     }
 

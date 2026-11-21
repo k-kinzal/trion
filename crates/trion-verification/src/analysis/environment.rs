@@ -1,6 +1,7 @@
 //! The environment of a specification: who controls what each actor does.
 
 use trion_language::reading::{ConstraintKind, Model};
+use trion_language::SpecRef;
 use trion_solver::{Atom, Formula};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,6 +23,10 @@ pub struct Control {
     /// is read as the situation shows it.
     #[serde(skip)]
     pub declared_system: BTreeSet<String>,
+    #[serde(skip)]
+    pub(super) system_individual_types: BTreeSet<String>,
+    #[serde(skip)]
+    pub(super) conflicting_carriers: BTreeMap<String, Vec<SpecRef>>,
 }
 
 fn actor_of(key: &str) -> Option<&str> {
@@ -142,6 +147,52 @@ pub(super) fn control(set: &trion_language::document::SpecSet, model: &Model, le
                     NpGroup::Coordinated { items, .. } => items.iter().collect(),
                 };
                 awaited.extend(subjects.into_iter().map(|np| trion_language::reading::subject_key(np, &scoped)));
+            }
+        }
+    }
+    // A grounded actor keeps the declared responsibility of its carrier.
+    if let Some(individuals) = &model.individuals {
+        let declared_carriers: BTreeSet<_> = set.packages.iter()
+            .flat_map(|package| &package.documents)
+
+            .flat_map(|doc| {
+                let scoped = lex.in_document(doc);
+                doc.individuals.iter().map(move |decl| scoped.resolve(&scoped.canon(&decl.name)))
+            })
+            .collect();
+        let carriers: BTreeMap<&str, &str> = individuals.types.iter()
+            .map(|(name, carrier)| (name.as_str(), carrier.as_str()))
+            .collect();
+        let mut boundaries = BTreeMap::<&str, Vec<(bool, SpecRef)>>::new();
+        for doc in set.packages.iter().flat_map(|p| &p.documents) {
+            let scoped = lex.in_document(doc);
+            for decl in &doc.controls {
+                let name = scoped.resolve(&scoped.canon(&decl.name));
+                if let Some(&carrier) = carriers.get(name.as_str()).filter(|_| declared_carriers.contains(&name)) {
+                    let at = SpecRef::point(&decl.file, decl.line, &format!("{} {}", decl.by, decl.name));
+                    let environment = decl.by == "environment";
+                    boundaries.entry(carrier).or_default().push((environment, at));
+                    if !environment {
+                        out.system_individual_types.insert(name);
+                    }
+                }
+            }
+        }
+        for (carrier, declarations) in boundaries {
+            let environment = declarations[0].0;
+            if declarations.iter().any(|(by_environment, _)| *by_environment != environment) {
+                out.conflicting_carriers.insert(carrier.to_string(), declarations.into_iter().map(|(_, at)| at).collect());
+                continue;
+            }
+            let by = if environment {
+                (&mut out.declared_environment, &mut out.environment)
+            } else {
+                (&mut out.declared_system, &mut out.system)
+            };
+            for slot in 1..=individuals.scope {
+                let actor = format!("{carrier}#{slot}");
+                by.0.insert(actor.clone());
+                by.1.insert(actor);
             }
         }
     }

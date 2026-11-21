@@ -14,7 +14,7 @@ class TrionPluginTest : BasePlatformTestCase() {
 
     private val sample = """
         // A comment.
-        package chat edition "2026-11-09"
+        package chat
 
         namespace chat.api:
             use grpc
@@ -60,9 +60,9 @@ class TrionPluginTest : BasePlatformTestCase() {
 
     // trion: verifies trion#EDITOR-INTELLIJ
     fun testCommentingUsesTheSlashPrefix() {
-        myFixture.configureByText("sample.trion", "package chat edition \"1\"")
+        myFixture.configureByText("sample.trion", "package chat")
         myFixture.performEditorAction("CommentByLineComment")
-        myFixture.checkResult("// package chat edition \"1\"")
+        myFixture.checkResult("// package chat")
     }
 
     // trion: verifies trion#EDITOR-INTELLIJ

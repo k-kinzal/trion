@@ -1,7 +1,7 @@
 //! Diagnostics: every finding is reported through [`Diagnostic`], under a
 //! code of the registry [`CODES`].
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -12,7 +12,7 @@ pub enum Severity {
 }
 
 /// The position and source text of a specification or declaration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpecRef {
     pub id: String,
     pub file: String,
@@ -36,6 +36,14 @@ pub struct Diagnostic {
     pub code: String,
     pub message: String,
     pub refs: Vec<SpecRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualification: Option<Qualification>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Qualification {
+    pub name: String,
+    pub candidates: Vec<String>,
 }
 
 impl Diagnostic {
@@ -46,6 +54,7 @@ impl Diagnostic {
             code: code.to_string(),
             message: message.into(),
             refs,
+            qualification: None,
         }
     }
 
@@ -56,6 +65,7 @@ impl Diagnostic {
             code: code.to_string(),
             message: message.into(),
             refs,
+            qualification: None,
         }
     }
 
@@ -66,7 +76,16 @@ impl Diagnostic {
             code: code.to_string(),
             message: message.into(),
             refs,
+            qualification: None,
         }
+    }
+
+    pub(crate) fn qualifying(mut self, name: &str, owners: &[String]) -> Self {
+        self.qualification = Some(Qualification {
+            name: name.to_string(),
+            candidates: owners.iter().map(|owner| format!("{owner}::{name}")).collect(),
+        });
+        self
     }
 }
 

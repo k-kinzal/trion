@@ -47,11 +47,11 @@ For a mixed guard, an environment-only conjunct stays in A. A guard part that me
             | recommendation | `Actor should Action.` | For an action k, A = True and G = And(Not(Forbid(k)), Not(Discouraged(k))). The result carries recommendation strength. | True, And, Not, Forbid, Discouraged |
             | recommendation-against | `Actor should not Action.` | For an action k, A = True and G = Discouraged(k). The result carries recommendation strength. | True, Discouraged |
             | permission | `Actor may Action.` | For an action k, A = True and G = Not(Forbid(k)). The result carries permission strength. | True, Not, Forbid |
-            | description | `Subject is/are Predicate.` | Read the predicate as a value, quantity, relation, or domain declaration. Put a system claim in G and an environment-only claim in A. | True, Val, Dom, Num, Lin, Rel |
+            | description | `Subject is/are Predicate.` | Read the predicate as a value, quantity, relation, or domain declaration. The structured nominal reading represents classification and ownership as relations on the subject. Put a system claim in G and an environment-only claim in A. | True, Val, Dom, Num, Lin, Rel |
             | description-adverb | `Subject is/are always/never/not Predicate.` | Use the description reading as an invariant. Negate it for never or not. | True, Val, Dom, Num, Lin, Rel, Not |
             | relation | `Subject FiniteVerb [Object].` | Read a plain named action as Act. A universal relation applies if its subject exists. Typed subjects can give a relation of individuals. A verbal comparison between quantities reads a linear relation. | True, Act, Event, And, Not, Implies, Num, Lin, Rel |
             | existence | `There is/are NounPhrase.` | Assert existence, or a cardinality when given. Conjoin the claims for the subjects. Over declared individuals, evaluate the claim in that domain. | True, Event, And, Num, Rel |
-            | definition | `Term means DefiningNounPhrase.` | State the inclusion in a named kind and, when present, its defining restriction. The definition contributes vocabulary constraints. | True, Dom, Rel |
+            | definition | `Term means DefiningNounPhrase.` | Introduce a fresh unary class abbreviation. Expand the nominal formula on the subject at each use. | None |
             | statements-and | `Statement and Statement.` | Expand coordinated statements within the shared scope. Their contracts hold together. | None |
 
         table "Conditions and compound actions":
@@ -115,7 +115,7 @@ For a mixed guard, an environment-only conjunct stays in A. A guard part that me
             | noun-phrase-bare | `Name` | Name the party, value, object, or kind required by the enclosing slot. | None |
             | noun-phrase-article | `the/a/an Noun` | Bind the noun in the enclosing slot under its article. | None |
             | noun-phrase-universal | `each/every/all/any Noun` | Apply the reading to the eligible individuals of the kind in its domain. | And |
-            | noun-phrase-none | `no Noun` | Exclude the individuals or occurrences selected by the enclosing phrase. | Not |
+            | noun-phrase-none | `no Noun` | Exclude the individuals or occurrences selected by the enclosing phrase. For a representative, deny the claim where the representative exists. | Not, Implies |
             | noun-phrase-existential | `some Noun` | Require a witness among the eligible individuals. | Or |
             | noun-phrase-counted | `Count Noun` | Bound the number of individuals or occurrences in a slot with a counting reading. | Num, Lin |
             | noun-phrase-reference | `ReferenceDeterminer Noun` | Resolve the reference within the sentence under the reference rules. | None |
@@ -159,17 +159,17 @@ For a mixed guard, an environment-only conjunct stays in A. A guard part that me
 namespace trion.propositional:
     primitive grammar example
     primitive ambiguity, artifact, artifact formal structure, author, binary operator
-    primitive carriage return, propositional-cnl/1, propositional-cnl/2, conditional spelling, declaration order
+    primitive carriage return, conditional spelling, declaration order
     primitive diagnostic byte range, excessive exchange depth, excluded feature, expansion core node, expression
     primitive forward reference, grammar keyword, invalid token, invalid UTF-8, propositional concrete syntax
-    primitive reason, requested grammar version, same grouping level, saved core, saved input
-    primitive saved input grammar, saved source mapping, source digest, source range, space
-    primitive tab, then, token line feed, unavailable grammar version, UTF-8
-    primitive version, word if, zero-based half-open UTF-8 byte range
+    primitive reason, same grouping level, saved core, saved input
+    primitive saved source mapping, source digest, source range, space
+    primitive tab, then, token line feed, UTF-8
+    primitive word if, zero-based half-open UTF-8 byte range
 
     source PROP-INPUT:
         title "propositional concrete syntax"
-        locator "urn:trion:propositional-cnl:1"
+        locator "urn:trion:propositional-cnl"
         kind citation
         quote GRAMMAR """
 document    = declaration* premise* question EOF
@@ -177,12 +177,9 @@ declaration = "proposition" name "."
 premise     = "assume" expression "."
 question    = ("entails" expression | "satisfiable") "."
 expression  = unary [binary unary]
-unary       = name | "true" | "false" | "not" unary | "(" expression ")"
+unary       = name | "true" | "false" | "not" unary | "if" unary "then" unary | "(" expression ")"
 binary      = "and" | "or" | "implies"
 name        = an ASCII letter followed by zero or more ASCII letters, digits, or underscores, excluding reserved words
-"""
-        quote EXTENSION """
-propositional-cnl/2 adds to unary: "if" unary "then" unary
 """
         quote OBLIGATIONS """
 declaration supplies a name in the valuation domain.
@@ -198,8 +195,8 @@ Decimal digit tokens are unsupported.
 """
 
         quote EXAMPLES """
-Accepted in both versions: proposition P. proposition Q. assume P implies Q. assume P. entails Q.
-Accepted in propositional-cnl/2 and unsupported in propositional-cnl/1: proposition P. proposition Q. assume if P then Q. assume P. entails Q.
+Accepted: proposition P. proposition Q. assume P implies Q. assume P. entails Q.
+Equivalent spelling: proposition P. proposition Q. assume if P then Q. assume P. entails Q.
 Accepted with a true target: entails false implies false.
 Accepted with the empty valuation as counterexample: entails false.
 Ambiguous: entails true or false and false.
@@ -220,13 +217,8 @@ The Or points to the span of the whole implication.
         locator "../formal/Trion/Propositional.lean"
         kind citation
 
-    section "Versioned concrete syntax":
+    section "Propositional concrete syntax":
         cite FOUNDATION
-        [CNL-VERSION]
-        The propositional parser shall use the requested grammar version.
-        The propositional parser shall use "propositional-cnl/1" when the author gives no version.
-        The propositional parser shall reject an unavailable grammar version.
-
         [CNL-SYNTAX]
         The propositional parser shall apply the propositional concrete syntax.
             cite PROP-INPUT#GRAMMAR
@@ -247,10 +239,9 @@ The Or points to the span of the whole implication.
         The propositional parser shall report excessive exchange depth as unsupported.
 
         [CNL-IF]
-        The propositional parser shall admit the conditional spelling in "propositional-cnl/2".
-            cite PROP-INPUT#EXTENSION
+        The propositional parser shall admit the conditional spelling.
+            cite PROP-INPUT#GRAMMAR
         The propositional parser shall expand the conditional spelling as an implication.
-        The propositional parser shall report the conditional spelling in "propositional-cnl/1" as unsupported.
 
         [PROP-IMPLIES]
         An implication is true exactly when the antecedent of the implication is false or the consequent of the implication is true.
@@ -308,10 +299,9 @@ The Or points to the span of the whole implication.
             | Disjunction | `P or Q` | At least one of P and Q is true |
             | Implication | `P implies Q` | P is false or Q is true |
             | Grouping | `(P and Q) implies R` | At most one binary operator at each parenthesis level. `P and Q implies R` is ambiguous. |
-            | Alternate implication in `propositional-cnl/2` | `if P then (Q or R)` | Equivalent to `P implies (Q or R)`. Parenthesize a branch that contains a binary expression. |
+            | Alternate implication | `if P then (Q or R)` | Equivalent to `P implies (Q or R)`. Parenthesize a branch that contains a binary expression. |
 
         check CARD-ACCESS:
-            grammar "propositional-cnl/1"
             input """
 proposition P.
 proposition Q.

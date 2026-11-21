@@ -1,42 +1,57 @@
-package formal edition "2026-11-12"
+package formal
 
 namespace formal:
-    primitive situation, symbol, set, pair, sequence, collection
+    environment situation, proof checker
 
     section "Formulas and what satisfies them":
-
-        A formula means a statement that has a truth value in each situation.
-        The truth value of a formula is true or false.
-        An atom means a formula that has no part that is a formula.
-        A situation satisfies a formula exactly when the formula is true in the situation.
-        A conjunction means a formula that is true exactly when each part of the formula is true.
-        A disjunction means a formula that is true exactly when at least one part of the formula is true.
-        A negation means a formula that is true exactly when the part of the formula is false.
-        An implication means a formula that has a premise and a conclusion.
-        An implication is false exactly when the premise of the implication is true and the conclusion of the implication is false.
-
-        A formula set means a collection of formulas.
-        A formula set is satisfiable exactly when at least one situation satisfies each formula of the formula set.
-        A formula set is unsatisfiable exactly when no situation satisfies each formula of the formula set.
-        A model means a situation that satisfies each formula of a formula set.
+        [FORMULA-TYPE] A formula is a statement.
+        [FORMULA-TRUTH] Each formula has a truth value in each situation.
+        [TRUTH-VALUES] The truth value of a formula is true or false.
+        [ATOM-TYPE] An atom is a formula.
+        [ATOM-PART] No atom has a formula as a part.
+        [FORMULA-SATISFACTION] A situation satisfies a formula exactly when the formula is true in the situation.
+        [CONJUNCTION-TYPE] A conjunction is a formula.
+        [CONJUNCTION-TRUTH] A conjunction is true exactly when each part of the conjunction is true.
+        [DISJUNCTION-TYPE] A disjunction is a formula.
+        [DISJUNCTION-TRUTH] A disjunction is true exactly when at least one part of the disjunction is true.
+        [NEGATION-TYPE] A negation is a formula.
+        [NEGATION-TRUTH] A negation is true exactly when the part of the negation is false.
+        [IMPLICATION-TYPE] An implication is a formula.
+        [IMPLICATION-PREMISE] An implication has exactly one premise.
+        [IMPLICATION-CONCLUSION] An implication has exactly one conclusion.
+        [IMPLICATION-TRUTH] An implication is false exactly when the premise of the implication is true and the conclusion of the implication is false.
+        [SET-TYPE] A formula set is a collection.
+        [SET-MEMBER] Each member of a formula set is a formula.
+        [SET-SAT] A formula set is satisfiable exactly when at least one situation satisfies each formula of the formula set.
+        [SET-UNSAT] A formula set is unsatisfiable exactly when no situation satisfies each formula of the formula set.
+        [MODEL-TYPE] A model is a situation.
+        [MODEL-SAT] While a model exists, the model satisfies each formula of the formula set.
 
     section "Contracts":
-
-        A contract means a pair of an assumption and a guarantee.
-        An assumption means the formula that a contract supposes.
-        A guarantee means the formula that a contract requires.
-        A situation satisfies a contract exactly when the situation does not satisfy the assumption of the contract or the situation satisfies the guarantee of the contract.
-        A contract holds vacuously in a situation exactly when the situation does not satisfy the assumption of the contract.
+        [CONTRACT-TYPE] A contract is a pair.
+        [CONTRACT-ASSUMPTION] A contract has exactly one assumption.
+        [CONTRACT-GUARANTEE] A contract has exactly one guarantee.
+        [ASSUMPTION-TYPE] The assumption of the contract is a formula.
+        [ASSUMPTION-SUPPOSE] While a contract exists, the contract supposes the assumption.
+        [GUARANTEE-TYPE] The guarantee of the contract is a formula.
+        [GUARANTEE-REQUIRE] While a contract exists, the contract requires the guarantee.
+        [CONTRACT-SAT] A situation satisfies a contract exactly when the situation does not satisfy the assumption of the contract or the situation satisfies the guarantee of the contract.
+        [CONTRACT-VACUOUS] A contract holds vacuously in a situation exactly when the situation does not satisfy the assumption of the contract.
 
     section "Proofs":
-
-        An inference rule means a rule that derives a formula from formulas.
-        A derivation means a sequence of applications of inference rules.
-        A contradiction means a formula that no situation satisfies.
-        A proof means a derivation that a proof checker accepts.
-        A proof checker means a program that checks each step of a derivation against the inference rules.
-        A calculus means a set of inference rules.
-        A calculus is sound exactly when each formula set that yields a contradiction in the calculus is unsatisfiable.
-        A calculus is refutationally complete exactly when each unsatisfiable formula set yields a contradiction in the calculus.
-        A calculus is terminating exactly when each derivation of the calculus ends.
-        A calculus is confluent exactly when each order of rule applications reaches the same result.
+        [RULE-TYPE] An inference rule is a rule.
+        [RULE-DERIVES] While an inference rule exists, the inference rule derives a formula from formulas.
+        [DERIVATION-TYPE] A derivation is a sequence.
+        [DERIVATION-STEPS] Each step of a derivation is an application of the inference rule.
+        [CONTRADICTION-TYPE] A contradiction is a formula.
+        [CONTRADICTION-SAT] No situation satisfies the contradiction.
+        [PROOF-TYPE] A proof is a derivation.
+        [PROOF-ACCEPT] While a proof exists, the proof checker accepts the proof.
+        [CHECKER-TYPE] A proof checker is a program.
+        [CHECKER-STEPS] While a proof checker exists, the proof checker checks each step of the derivation against the inference rules.
+        [CALCULUS-TYPE] A calculus is a set.
+        [CALCULUS-MEMBER] Each member of a calculus is an inference rule.
+        [CALCULUS-SOUND] A calculus is sound exactly when each formula set that yields a contradiction in the calculus is unsatisfiable.
+        [CALCULUS-COMPLETE] A calculus is refutationally complete exactly when each unsatisfiable formula set yields a contradiction in the calculus.
+        [CALCULUS-TERMINATING] A calculus is terminating exactly when each derivation of the calculus ends.
+        [CALCULUS-CONFLUENT] A calculus is confluent exactly when each order of rule applications reaches the same result.

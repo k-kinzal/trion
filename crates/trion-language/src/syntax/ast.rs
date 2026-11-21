@@ -882,7 +882,12 @@ pub enum Predicate {
     /// `greater accuracy` is *not* this — comparisons parse first. A struct
     /// variant (not a newtype over the list): an internally tagged enum
     /// cannot serialize a newtype variant holding a sequence.
-    Words { words: Vec<String> },
+    Words {
+        words: Vec<String>,
+        /// The noun phrases, including their determiners, owners and restrictions.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nominal: Option<NpGroup>,
+    },
     /// trion extension: `[one of] A, B and C` after a description's copula
     /// declares the closed set of values of the subject.
     Enumeration {
@@ -1354,7 +1359,7 @@ impl Predicate {
             Predicate::Comparison(comparison) => comparison.render(),
             Predicate::AbleTo { vp } => format!("able to {}", vp.render()),
             Predicate::Pp { preposition, np } => format!("{preposition} {}", np.render()),
-            Predicate::Words { words } => words.join(" "),
+            Predicate::Words { words, .. } => words.join(" "),
             Predicate::Enumeration {
                 one_of,
                 conj,

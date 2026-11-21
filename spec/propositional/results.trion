@@ -1,14 +1,14 @@
 namespace trion.propositional:
     primitive certificate, unchecked response, unconfirmed
-    primitive adapter version, candidate, checked, checker version, conclusion
+    primitive adapter identifier, candidate, checked, checker identifier, conclusion
     primitive conversion, entailment witness, exhaustive result, incomplete, input provenance
     primitive interrupted search, malformed evidence, observed response, reconstructed outcome, replay
     primitive saved outcome, saved response, search, setting, unknown
-    primitive unsatisfiable answer, value, witness, worker version
+    primitive unsatisfiable answer, value, witness, worker identifier
 
     source PROP-MMT-EVIDENCE:
         title "Propositional evidence in MMT proof results"
-        locator "urn:trion:propositional:mmt-evidence:1"
+        locator "urn:trion:propositional:mmt-evidence"
         kind citation
         quote RULES """
 The MMT proof verdict describes the asserted obligation.
@@ -75,9 +75,9 @@ The outer verdict, reason, and question count of a propositional result agree wi
         cite FOUNDATION
         [R-SAVED]
         The propositional runner shall retain the document, query, and input provenance.
-        The propositional runner shall retain the adapter version.
-        The propositional runner shall retain the checker version.
-        The propositional runner shall retain the worker version.
+        The propositional runner shall retain the adapter identifier.
+        The propositional runner shall retain the checker identifier.
+        The propositional runner shall retain the worker identifier.
         The propositional runner shall retain the settings, resource limits, target problem, and observed response.
 
         [R-REPLAY]

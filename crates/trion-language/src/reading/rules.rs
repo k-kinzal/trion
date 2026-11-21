@@ -45,14 +45,58 @@ pub(super) struct Open {
 
 use crate::syntax::words::{classify, is_literal as literal, Closed, WordClass};
 
-struct Walk {
+#[derive(Clone, Copy)]
+pub(super) enum Argument<'a> {
+    Group(&'a NpGroup),
+    Noun(&'a Np),
+}
+
+impl<'a> Argument<'a> {
+    pub(super) fn nouns(self) -> &'a [Np] {
+        match self {
+            Self::Group(NpGroup::Single(np)) | Self::Noun(np) => std::slice::from_ref(np),
+            Self::Group(NpGroup::Coordinated { items, .. }) => items,
+        }
+    }
+}
+
+pub(super) struct Call<'a> {
+    pub verb: &'a str,
+    pub actor: Option<Argument<'a>>,
+    pub object: Option<Argument<'a>>,
+    pub roles: &'a [RolePp],
+    pub content: bool,
+    pub passive: bool,
+}
+
+struct Walk<'a> {
     open: Vec<Open>,
     rules: BTreeSet<&'static str>,
     /// `true` inside the verb phrases of a statement with a modal verb.
     normative: bool,
+    calls: Option<&'a mut dyn FnMut(Call<'_>)>,
 }
 
-impl Walk {
+impl Walk<'_> {
+    fn call(&mut self, call: Call<'_>) {
+        if let Some(visit) = self.calls.as_deref_mut() {
+            visit(call);
+        }
+    }
+
+    fn passive(&mut self, subject: Option<Argument<'_>>, predicate: &Predicate, agent: Option<&NpGroup>, roles: &[RolePp]) {
+        let agent = agent.or_else(|| roles.iter().find_map(|role| match role {
+            RolePp::Agent(agent) => Some(agent),
+            _ => None,
+        }));
+        let Predicate::Words { words, nominal: None } = predicate else { return };
+        let words = if words.first().is_some_and(|word| word.eq_ignore_ascii_case("not")) { &words[1..] } else { words };
+        if let [verb] = words {
+            if agent.is_some() || crate::reading::model::is_participle(&verb.to_lowercase()) {
+                self.call(Call { verb, actor: agent.map(Argument::Group), object: subject, roles, content: false, passive: true });
+            }
+        }
+    }
     fn words(&mut self, words: &[String], place: Place) {
         let phrase = words.join(" ");
         // A quoted literal may span several words: what stands between two quotes is no word.
@@ -128,12 +172,16 @@ impl Walk {
                 }
                 RelativeBody::Copular { predicate, agent, roles, .. } => {
                     self.rules.insert("relative-copular");
-                    self.predicate(predicate);
+                    if agent.is_some() || roles.iter().any(|role| matches!(role, RolePp::Agent(_))) {
+                        self.passive(Some(Argument::Noun(np)), predicate, agent.as_ref(), roles);
+                    }
+                    self.predicate(predicate, Some(Argument::Noun(np)));
                     agent.iter().for_each(|g| self.group(g));
                     self.roles(roles);
                 }
                 RelativeBody::Verbal { verb, manner, object, roles, negation, .. } => {
                     self.verb(verb);
+                    self.call(Call { verb, actor: Some(Argument::Noun(np)), object: object.as_ref().map(Argument::Group), roles, content: false, passive: false });
                     self.rules.insert(if negation.is_some() { "relative-verbal-denied" } else { "relative-verbal" });
                     self.words(manner, Place::Manner);
                     object.iter().for_each(|g| self.group(g));
@@ -141,6 +189,7 @@ impl Walk {
                 }
                 RelativeBody::ObjectGap { subject, verb, manner, roles, .. } => {
                     self.verb(verb);
+                    self.call(Call { verb, actor: Some(Argument::Group(subject)), object: Some(Argument::Noun(np)), roles, content: false, passive: false });
                     self.rules.insert("relative-object-gap");
                     self.group(subject);
                     self.words(manner, Place::Manner);
@@ -176,7 +225,7 @@ impl Walk {
         }
     }
 
-    fn predicate(&mut self, p: &Predicate) {
+    fn predicate(&mut self, p: &Predicate, subject: Option<Argument<'_>>) {
         match p {
             Predicate::Comparison(c) => {
                 self.rules.insert("predicate-comparison");
@@ -185,7 +234,7 @@ impl Walk {
             }
             Predicate::AbleTo { vp } => {
                 self.rules.insert("predicate-able-to");
-                self.vp(vp);
+                self.vp(vp, subject);
             }
             Predicate::Pp { np, .. } => {
                 self.rules.insert("predicate-prepositional");
@@ -194,12 +243,16 @@ impl Walk {
             // `is a part of a qualified name`, `is a verb phrase or a nested
             // action list`: the predicate names classes; `of`, `or` and
             // `and` build those names and join them.
-            Predicate::Words { words } if words.first().is_some_and(|w| crate::syntax::words::is_article(w)) => {
+            Predicate::Words { nominal: Some(group), .. } => {
+                self.rules.insert("predicate-nominal");
+                self.group(group);
+            }
+            Predicate::Words { words, .. } if words.first().is_some_and(|w| crate::syntax::words::is_article(w)) => {
                 self.rules.insert("predicate-nominal");
                 let content: Vec<String> = words.iter().filter(|w| !crate::syntax::words::builds_nominal(w)).cloned().collect();
                 self.words(&content, Place::Predicate);
             }
-            Predicate::Words { words } => {
+            Predicate::Words { words, .. } => {
                 self.rules.insert("predicate-words");
                 // `is not closed`: a leading `not` or `never` denies the
                 // predicate, as the key reads it (a negation mark).
@@ -300,12 +353,17 @@ impl Walk {
         match &c.body {
             ClauseBody::Copular { predicate, agent, roles, .. } => {
                 self.rules.insert("clause-copular");
-                self.predicate(predicate);
+                let subject = Some(Argument::Group(&c.subject));
+                if agent.is_some() || roles.iter().any(|role| matches!(role, RolePp::Agent(_))) {
+                    self.passive(subject, predicate, agent.as_ref(), roles);
+                }
+                self.predicate(predicate, subject);
                 agent.iter().for_each(|g| self.group(g));
                 self.roles(roles);
             }
             ClauseBody::Verbal { verb, manner, object, roles, content, negation, .. } => {
                 self.verb(verb);
+                self.call(Call { verb, actor: Some(Argument::Group(&c.subject)), object: object.as_ref().map(Argument::Group), roles, content: content.is_some(), passive: false });
                 self.rules.insert(if negation.is_some() { "clause-verbal-denied" } else { "clause-verbal" });
                 self.words(manner, Place::Manner);
                 object.iter().for_each(|g| self.group(g));
@@ -325,8 +383,15 @@ impl Walk {
         g.items.iter().for_each(|c| self.clause(c));
     }
 
-    fn vp(&mut self, v: &Vp) {
+    fn vp(&mut self, v: &Vp, subject: Option<Argument<'_>>) {
         self.verb(&v.verb);
+        if v.verb.eq_ignore_ascii_case("be") {
+            if let Some(predicate) = &v.complement {
+                self.passive(subject, predicate, None, &v.roles);
+            }
+        } else {
+            self.call(Call { verb: &v.verb, actor: subject, object: v.object.as_ref().map(Argument::Group), roles: &v.roles, content: v.content.is_some(), passive: false });
+        }
         self.rules.insert(if v.verb.eq_ignore_ascii_case("be") { "action-passive-or-state" } else { "action" });
         self.words(&v.manner, Place::Manner);
         for word in &v.manner {
@@ -342,7 +407,7 @@ impl Walk {
         }
         v.object.iter().for_each(|g| self.group(g));
         self.roles(&v.roles);
-        v.complement.iter().for_each(|p| self.predicate(p));
+        v.complement.iter().for_each(|p| self.predicate(p, subject));
         if let Some(c) = &v.content {
             use crate::syntax::words::{content_class, ContentClass};
             self.rules.insert(match content_class(&crate::reading::model::base_verb(&v.verb.to_lowercase())) {
@@ -390,7 +455,7 @@ impl Walk {
         }
     }
 
-    fn vps(&mut self, vp: &VpGroup) {
+    fn vps(&mut self, vp: &VpGroup, subject: &NpGroup) {
         match vp {
             VpGroup::Single(_) => {}
             VpGroup::Alternatives { .. } => {
@@ -401,7 +466,7 @@ impl Walk {
             }
             VpGroup::Composite(c) => self.node(&c.root),
         }
-        vp.items().iter().for_each(|v| self.vp(v));
+        vp.items().iter().for_each(|v| self.vp(v, Some(Argument::Group(subject))));
     }
 
     fn core(&mut self, core: &Core) {
@@ -423,7 +488,11 @@ impl Walk {
                     self.rules.insert("subject-counted-descriptive");
                 }
                 self.group(subject);
-                self.predicate(predicate);
+                let subject = Some(Argument::Group(subject));
+                if agent.is_some() || roles.iter().any(|role| matches!(role, RolePp::Agent(_))) {
+                    self.passive(subject, predicate, agent.as_ref(), roles);
+                }
+                self.predicate(predicate, subject);
                 agent.iter().for_each(|g| self.group(g));
                 self.roles(roles);
             }
@@ -438,7 +507,7 @@ impl Walk {
                 });
                 self.group(subject);
                 self.normative = true;
-                self.vps(vp);
+                self.vps(vp, subject);
                 self.normative = false;
             }
             Core::Relation { subject, vp } => {
@@ -447,7 +516,7 @@ impl Walk {
                     self.rules.insert("subject-counted-descriptive");
                 }
                 self.group(subject);
-                self.vps(vp);
+                self.vps(vp, subject);
             }
             Core::Existence { subject } => {
                 self.rules.insert("existence");
@@ -510,7 +579,11 @@ impl Walk {
             }
             Some(Purpose::InOrderTo(v)) => {
                 self.rules.insert("purpose");
-                self.vp(v);
+                let subject = match &s.core {
+                    Core::Description { subject, .. } | Core::Deontic { subject, .. } | Core::Relation { subject, .. } => Some(Argument::Group(subject)),
+                    _ => None,
+                };
+                self.vp(v, subject);
             }
             None => {}
         }
@@ -534,11 +607,11 @@ fn counted_subject(subject: &NpGroup) -> bool {
 /// The ledger of patterns (`spec/patterns/ledger.toml`) lists each of them
 /// with the work that gives it a meaning.
 pub(crate) const UNRESOLVED: &[(&str, &str)] = &[
-    ("role-rate", "`per <unit>` states a rate, and no reading rule relates the count to the unit of time: `3 per second` and `5 per minute` would be read as two counts of one activation; no form of this edition states a rate, so state a count with a deadline for one activation, as in `at most 3 times` and `within 1 second`"),
+    ("role-rate", "`per <unit>` states a rate, and no reading rule relates the count to the unit of time: `3 per second` and `5 per minute` would be read as two counts of one activation; no form of the language states a rate, so state a count with a deadline for one activation, as in `at most 3 times` and `within 1 second`"),
     ("role-exclusion", "`except`, `excluding` and `without` exclude a part of what the action is about, and no reading rule reads the exclusion: the action would be required of the excluded part as well; state the excluded part in a statement of its own, as in `The API shall not send the header.`"),
     ("role-by", "`by <noun>` after an active verb is read neither as a deadline nor as a means: write a deadline with `within 5 seconds` or `before <clause>`, and a means with `using <noun>`"),
-    ("predicate-able-to", "`is able to` states a capability, and no reading rule relates it to the action or to a permission: write a permission with `may`, or define the capability as a term with `A … means …`"),
-    ("content-of-noun", "a noun with `that <clause>` names a thing by what the clause says, and no reading rule relates the thing to the clause: define the phrase as a term with `A … means …`, or state the clause in a statement of its own"),
+    ("predicate-able-to", "`is able to` states a capability, and no reading rule relates it to the action or to a permission: use `may` when the requirement is permission; capability itself is unsupported"),
+    ("content-of-noun", "a noun with `that <clause>` names a thing by what the clause says, and no reading rule relates the thing to the clause: state the clause separately if it is an independent requirement; a name cannot preserve the content relation"),
     ("frame-before", "`Before <clause>,` at the head of a statement is read as an event of its own that nothing relates to the clause, so the statement would require nothing: write the order after the verb, as in `shall stop before the door opens`"),
     ("frame-counted-event", "a counted subject of the event of a frame (`After 3 failed retries,`, `When 3 users join,`) is read as the name of one event, so the count is related to no occurrence and to no number: name the event that the count reaches in a statement of its own, or state the count as a state, as in `While the number of failed retries is at least 3,`"),
     ("condition-only-if-denied", "`shall not … only when` and `shall not … exactly when` confine a prohibition to a condition, and no reading rule says what holds of the action where the condition fails: state the prohibition under its condition, as in `While the door is open, the API shall not stop.`, and what holds elsewhere in a statement of its own"),
@@ -563,18 +636,23 @@ pub(crate) fn is_emphasis(concession: &str) -> bool {
 
 /// The names of the reading rules that read a sentence.
 pub fn rules(sentence: &Sentence) -> Vec<&'static str> {
-    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false };
+    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false, calls: None };
     walk.sentence(sentence);
     walk.rules.into_iter().collect()
 }
 
 /// The words of the open places of a sentence.
 pub(super) fn open_words(sentence: &Sentence) -> Vec<Open> {
-    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false };
+    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false, calls: None };
     walk.sentence(sentence);
     walk.open.sort();
     walk.open.dedup();
     walk.open
+}
+
+pub(super) fn calls(sentence: &Sentence, visit: &mut dyn FnMut(Call<'_>)) {
+    let mut walk = Walk { open: Vec::new(), rules: BTreeSet::new(), normative: false, calls: Some(visit) };
+    walk.sentence(sentence);
 }
 
 /// The entry that a reading example compares: the contract and the temporal

@@ -10,7 +10,7 @@ const TERMS: &str = "primitive checker\nprimitive statement\nprimitive parser\np
 
 fn package(body: &str) -> Fixture {
     let indented: String = format!("{TERMS}{body}").lines().map(|line| if line.is_empty() { "\n".to_string() } else { format!("    {line}\n") }).collect();
-    Fixture::raw(&[("trion.toml", "[package]\nname = \"p\"\nentry = \"a.trion\"\n"), ("a.trion", &format!("package p edition \"1\"\n\nnamespace p.x:\n{indented}"))])
+    Fixture::raw(&[("trion.toml", "[package]\nname = \"p\"\nentry = \"a.trion\"\n"), ("a.trion", &format!("package p\n\nnamespace p.x:\n{indented}"))])
 }
 
 fn check(body: &str) -> (i32, Value) {
@@ -75,7 +75,8 @@ fn a_definition_and_a_verb_place_are_checked_too() {
 fn the_error_names_the_part_and_a_form_that_is_read() {
     let message = rejected("[A] The room is consistent in an item.\n[B] The room is not consistent.\n", "in");
     assert!(message.contains("is a preposition inside a predicate (`consistent in an item`)"), "{message}");
-    assert!(message.contains("write the phrase as a role after the verb, or define the whole phrase as a term"), "{message}");
+    assert!(message.contains("write the phrase as a role after the verb where the role has the intended meaning"), "{message}");
+    assert!(!message.contains("define the whole phrase"), "{message}");
     let message = rejected("[A] The checker shall keep several statements.\n[B] The checker shall not keep a statement.\n", "several");
     assert!(message.contains("`at most 3 requests`"), "{message}");
 }

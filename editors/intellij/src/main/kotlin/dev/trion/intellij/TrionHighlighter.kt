@@ -98,8 +98,8 @@ class TrionColorSettingsPage : ColorSettingsPage {
     )
 
     override fun getDemoText(): String = """
-        // The rooms of a chat service, edition 0.1.0.
-        package chat edition "0.1.0"
+        // The rooms of a chat service.
+        package chat
         include "rooms/members.trion"
 
         namespace chat.room:

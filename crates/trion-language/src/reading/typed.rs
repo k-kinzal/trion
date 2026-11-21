@@ -16,7 +16,7 @@
 //! (`ground`), and a reference evaluator outside this crate evaluates the
 //! meaning on a concrete behaviour without them.
 //!
-//! The rules of this version (`VERSION`):
+//! The reading rules:
 //!
 //! - A noun whose type is declared is a variable. Its identity within the
 //!   statement is its noun with its ordinal (`message`, `second message`).
@@ -24,7 +24,7 @@
 //!   One kind is not: `a` or `an` that first names an individual in what
 //!   an obligation requires is chosen by the response, and the statement
 //!   holds when some individual meets it. Under `should` and `may`, and
-//!   with `the`, no rule of this version reads which individual a response
+//!   with `the`, no rule reads which individual a response
 //!   introduces: the statement is outside the fragment.
 //! - `the R of the T` restricts the variable of R to the individuals that
 //!   stand in the relation R to the individual of T.
@@ -33,6 +33,7 @@
 //! - A noun whose type is not declared names one thing, as before.
 
 use crate::reading::lexicon::Lexicon;
+pub use super::nominal::Nominal;
 use crate::syntax::ast::*;
 use crate::syntax::words::{base_verb, classify, Closed, WordClass};
 use serde::Serialize;
@@ -41,8 +42,6 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The meaning rules that a result names (`spec/semantics`). Which of the
 /// two readings applies to a package is decided by its declarations
 /// (`spec/semantics/readings.md`).
-pub const VERSION: &str = "0.1.0";
-
 /// The declared types of a set, and which nouns name individuals of one carrier.
 #[derive(Debug, Clone, Default)]
 pub struct Types {
@@ -142,9 +141,17 @@ pub enum Condition {
     Related(Relation),
     /// The individual is of the kind.
     Kind { kind: String, subject: Term, denied: bool },
+    /// A Boolean classification of one individual.
+    Membership { predicate: Nominal<String>, subject: Term, denied: bool },
     /// A comparison of a quantity: its terms are bound, and the reference
-    /// evaluator of this version does not evaluate it.
+    /// evaluator does not evaluate it.
     Compares { text: String },
+}
+
+impl Condition {
+    pub(super) fn of_domain(&self) -> bool {
+        matches!(self, Self::Related(_) | Self::Kind { .. } | Self::Membership { .. })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -195,8 +202,10 @@ pub enum Response {
     Related(Relation),
     /// The individual is of the kind.
     Kind { kind: String, subject: Term, denied: bool },
+    /// A Boolean classification of one individual.
+    Membership { predicate: Nominal<String>, subject: Term, denied: bool },
     /// A bound on a quantity: its terms are bound, and the reference
-    /// evaluator of this version does not evaluate it.
+    /// evaluator does not evaluate it.
     Bound { text: String },
 }
 
@@ -248,7 +257,6 @@ pub struct Step {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Meaning {
     pub statement: String,
-    pub version: &'static str,
     pub source: String,
     pub variables: Vec<Variable>,
     /// The restrictions of the variables: `the author of the message`.
@@ -295,6 +303,7 @@ impl Meaning {
             Condition::Holds { subject, value, denied } => format!("{} is {}`{value}`", self.shown(subject), not(*denied)),
             Condition::Related(relation) => format!("{} is {}a {} of {}", self.shown(&relation.member), not(relation.denied), relation.relation, self.shown(&relation.owner)),
             Condition::Kind { kind, subject, denied } => format!("{} is {}a {kind}", self.shown(subject), not(*denied)),
+            Condition::Membership { predicate, subject, denied } => format!("{} satisfies {}{predicate}", self.shown(subject), not(*denied)),
             Condition::Compares { text } => text.clone(),
         }
     }
@@ -360,6 +369,7 @@ impl Meaning {
                 Response::Values { subject, values } => format!("{} is in exactly one of the states {} at each moment", self.shown(subject), values.iter().map(|v| format!("`{v}`")).collect::<Vec<_>>().join(", ")),
                 Response::Related(relation) => format!("{} is {}a {} of {}", self.shown(&relation.member), if relation.denied { "not " } else { "" }, relation.relation, self.shown(&relation.owner)),
                 Response::Kind { kind, subject, denied } => format!("{} is {}a {kind}", self.shown(subject), if *denied { "not " } else { "" }),
+                Response::Membership { predicate, subject, denied } => format!("{} satisfies {}{predicate}", self.shown(subject), if *denied { "not " } else { "" }),
                 Response::Bound { text } => text.clone(),
             })
             .collect();
@@ -389,11 +399,11 @@ pub enum Reading {
     Untyped,
     Typed(Box<Meaning>),
     /// The statement names a declared type in a construct that no rule of
-    /// this version reads over individuals.
+    /// the compiler reads over individuals.
     Outside { construct: String, why: String },
 }
 
-/// The rules of this version, each with what it reads.
+/// The reading rules, each with what it reads.
 pub const RULES: &[(&str, &str)] = &[
     ("variable", "a noun of a declared type is a variable; its identity is its noun with its ordinal"),
     ("variable-again", "a noun that the statement named before is the same variable"),
@@ -504,6 +514,7 @@ fn value_words(words: &[String]) -> (String, bool) {
 pub(super) enum Said {
     Related { relation: String, owner: Np, denied: bool },
     Kind { kind: String, denied: bool },
+    Membership { predicate: Nominal<String>, denied: bool },
     Value { value: String, denied: bool },
 }
 
@@ -538,6 +549,29 @@ pub(super) fn said(words: &[String], roles: &[RolePp], lex: &Lexicon) -> Option<
         }
         _ => None,
     }
+}
+
+pub(super) fn said_predicate(predicate: &Predicate, roles: &[RolePp], lex: &Lexicon) -> Option<Said> {
+    let Predicate::Words { words, nominal } = predicate else { return None };
+    if let Some(group) = nominal.as_ref() {
+        if !roles.is_empty() {
+            return None;
+        }
+        let denied = words.first().is_some_and(|word| word.eq_ignore_ascii_case("not"));
+        if let NpGroup::Single(np) = group {
+            if let Some(owner) = &np.of {
+                if np.relative.is_none() && np.of_also.is_empty() && matches!(np.det, Some(Det::A | Det::An | Det::The)) {
+                    return Some(Said::Related { relation: super::nominal::name(np, lex), owner: *owner.clone(), denied });
+                }
+                return None;
+            }
+        }
+        return match super::nominal::classes(group, lex)? {
+            Nominal::Atom(kind) => Some(Said::Kind { kind, denied }),
+            predicate => Some(Said::Membership { predicate, denied }),
+        };
+    }
+    said(words, roles, lex)
 }
 
 fn role_marker(role: &RolePp) -> Option<(String, &NpGroup)> {
@@ -739,7 +773,9 @@ impl Reader<'_> {
         };
         let mut read = Vec::new();
         self.roles(roles, &mut read)?;
-        Ok(Pattern { actor, verb: base_verb(&verb.to_lowercase()), particle: particle.as_ref().map(|p| p.to_lowercase()), object, roles: read })
+        let lemma = base_verb(&verb.to_lowercase());
+        let verb = self.lex.predicate_identity(&lemma).unwrap_or(lemma);
+        Ok(Pattern { actor, verb, particle: particle.as_ref().map(|p| p.to_lowercase()), object, roles: read })
     }
 
     fn clause(&mut self, clause: &Clause) -> Result<Condition, Outside> {
@@ -747,6 +783,12 @@ impl Reader<'_> {
         let subject = self.single(&clause.subject)?;
         match &clause.body {
             ClauseBody::Verbal { verb, particle, object, roles, content, negation, manner } => {
+                if base_verb(verb) == "exist"
+                    && particle.is_none() && object.is_none() && roles.is_empty()
+                    && content.is_none() && manner.is_empty()
+                {
+                    return outside(text, "this existence condition needs a population rule over individuals. State a population requirement separately or bind an individual in the condition that uses it");
+                }
                 if content.is_some() {
                     let before = self.typed;
                     let object_typed = self.typed_inside_clause(clause);
@@ -772,7 +814,7 @@ impl Reader<'_> {
                     return Ok(Condition::Compares { text });
                 }
                 match predicate {
-                    Predicate::Words { words } => match said(words, roles, self.lex) {
+                    Predicate::Words { .. } => match said_predicate(predicate, roles, self.lex) {
                         Some(Said::Related { relation, owner, denied }) => {
                             let owner_noun = head_noun(&owner, self.lex);
                             let owner = self.term(&owner)?;
@@ -790,12 +832,16 @@ impl Reader<'_> {
                             self.step("condition-kind", text, format!("{}{kind}({})", if denied { "not " } else { "" }, self.show(&subject)));
                             Ok(Condition::Kind { kind, subject, denied })
                         }
+                        Some(Said::Membership { predicate, denied }) if matches!(subject, Term::Variable(_)) => {
+                            self.step("condition-kind", text, format!("{}{predicate}({})", if denied { "not " } else { "" }, self.show(&subject)));
+                            Ok(Condition::Membership { predicate, subject, denied })
+                        }
                         Some(Said::Value { value, denied }) => {
                             self.step("condition-holds", text, format!("{} is {}{value}", self.show(&subject), if denied { "not " } else { "" }));
                             Ok(Condition::Holds { subject, value, denied })
                         }
-                        None if self.typed => outside(text, "this predicate with its roles is not read over individuals"),
-                        None => Ok(Condition::Compares { text }),
+                        _ if self.typed => outside(text, "this predicate with its roles is not read over individuals"),
+                        _ => Ok(Condition::Compares { text }),
                     },
                     Predicate::Comparison(_) => {
                         self.step("condition-compares", text.clone(), text.clone());
@@ -826,7 +872,7 @@ impl Reader<'_> {
             conditions.push(self.clause(clause)?);
         }
         let any = group.conj == Some(Conj::Or);
-        if any && self.typed && conditions.iter().any(|c| matches!(c, Condition::Related(_) | Condition::Kind { .. })) {
+        if any && self.typed && conditions.iter().any(Condition::of_domain) {
             return outside(group.render(), "an alternative between a relation and another condition is not read over individuals: write one statement for each");
         }
         self.step(rule, group.render(), format!("{} condition(s), {}", conditions.len(), if any { "one of them" } else { "all of them" }));
@@ -904,7 +950,7 @@ impl Reader<'_> {
 
     fn described(&mut self, subject: Term, predicate: &Predicate, roles: &[RolePp], text: String) -> Result<Response, Outside> {
         match predicate {
-            Predicate::Words { words } => match said(words, roles, self.lex) {
+            Predicate::Words { .. } => match said_predicate(predicate, roles, self.lex) {
                 Some(Said::Related { relation, owner, denied }) => {
                     let owner_noun = head_noun(&owner, self.lex);
                     let owner = self.term(&owner)?;
@@ -919,11 +965,15 @@ impl Reader<'_> {
                     self.step("response-kind", text, format!("{}{kind}({})", if denied { "not " } else { "" }, self.show(&subject)));
                     Ok(Response::Kind { kind, subject, denied })
                 }
+                Some(Said::Membership { predicate, denied }) if matches!(subject, Term::Variable(_)) => {
+                    self.step("response-kind", text, format!("{}{predicate}({})", if denied { "not " } else { "" }, self.show(&subject)));
+                    Ok(Response::Membership { predicate, subject, denied })
+                }
                 Some(Said::Value { value, denied }) => {
                     self.step("response-state", text, format!("{} is {}{value}", self.show(&subject), if denied { "not " } else { "" }));
                     Ok(Response::State { subject, value, denied })
                 }
-                None => outside(text, "this predicate with its roles is not read over individuals"),
+                _ => outside(text, "this predicate with its roles is not read over individuals"),
             },
             Predicate::Enumeration { values, conj: Conj::Or, .. } => {
                 let values: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
@@ -1133,10 +1183,10 @@ pub(super) fn plain(sentence: &Sentence, types: &Types, lex: &Lexicon) -> Option
 
 fn meaning(reader: &mut Reader, statement: &str, sentence: &Sentence) -> Result<Meaning, Outside> {
     if sentence.necessary.is_some() || sentence.iff.is_some() {
-        return outside("only when / exactly when", "a necessary condition is not read over individuals in this version");
+        return outside("only when / exactly when", "a necessary condition is not read over individuals");
     }
     if sentence.concession.is_some() {
-        return outside("even when", "a concession is not read over individuals in this version: state the obligation without it");
+        return outside("even when", "a concession is not read over individuals: state the obligation without it");
     }
     let mut frames = Vec::new();
     for frame in &sentence.frames.scopes {
@@ -1207,6 +1257,7 @@ fn meaning(reader: &mut Reader, statement: &str, sentence: &Sentence) -> Result<
                     Response::State { subject, value, denied } => Response::State { subject, value, denied: !denied },
                     Response::Related(relation) => Response::Related(Relation { denied: !relation.denied, ..relation }),
                     Response::Kind { kind, subject, denied } => Response::Kind { kind, subject, denied: !denied },
+                    Response::Membership { predicate, subject, denied } => Response::Membership { predicate, subject, denied: !denied },
                     _ => return outside("never", "`never` before this predicate is not read over individuals"),
                 };
             }
@@ -1220,7 +1271,7 @@ fn meaning(reader: &mut Reader, statement: &str, sentence: &Sentence) -> Result<
                 Core::Conjoined { .. } => "conjoined clauses",
                 _ => "passive description",
             };
-            return outside(construct, "this form names a declared type and is neither a statement about the domain nor a statement that a rule of this version reads over individuals");
+            return outside(construct, "this form names a declared type and is neither a statement about the domain nor a statement that a rule reads over individuals");
         }
     };
     let _ = reserved;
@@ -1228,11 +1279,10 @@ fn meaning(reader: &mut Reader, statement: &str, sentence: &Sentence) -> Result<
         return outside("a share", "a share bounds how many activations a required action answers: it stands with `shall` and one action");
     }
     if reader.share.is_some() && reader.variables.iter().any(|v| v.site == Site::Chosen) {
-        return outside("a share", "a share of activations whose response chooses an individual is not read in this version: name the individual in a condition");
+        return outside("a share", "a share of activations whose response chooses an individual is not read: name the individual in a condition");
     }
     Ok(Meaning {
         statement: statement.to_string(),
-        version: VERSION,
         source: sentence.source.clone(),
         variables: std::mem::take(&mut reader.variables),
         restrictions: std::mem::take(&mut reader.restrictions),
@@ -1276,12 +1326,14 @@ pub enum DomainFact {
     Counted { kind: String, relation: String, target: String, count: Count },
     /// `Each A is a B.`; `No A is a B.`; a definition makes both the same.
     Kind { narrow: String, wide: String, both: bool, denied: bool },
+    /// A Boolean classification of each or some member of a bounded type.
+    Membership { narrow: String, predicate: Nominal<String>, each: bool, denied: bool },
     /// `The R1 of a T means the U that the T <verb>s.`
     Same { first: String, second: String, owner: String },
     /// `A T means a G that <verb>s <count> U.`
     Defined { narrow: String, wide: String, relation: String, target: String, count: Count },
     /// A total or a part of a quantity, or a condition on an individual:
-    /// the reference evaluator of this version does not evaluate it.
+    /// the reference evaluator does not evaluate it.
     Unevaluated,
 }
 

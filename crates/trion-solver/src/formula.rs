@@ -30,8 +30,16 @@ impl Atom {
             Atom::Role { subject, .. } => vec![subject],
             Atom::Lin { terms, .. } => terms.iter().map(|(attr, _)| attr.as_str()).collect(),
             Atom::Before { first, second } => vec![first, second],
+            Atom::Rel { name, args } if Self::representative_relation(name) => {
+                args.first().map(|subject| vec![subject.as_str()]).unwrap_or_default()
+            }
             Atom::Rel { name, .. } => vec![name],
         }
+    }
+
+    /// Whether a relation belongs to its representative subject.
+    pub fn representative_relation(name: &str) -> bool {
+        name == "representative exists" || name.starts_with("class ") || name.starts_with("relation ")
     }
 
     /// `first − second cmp n`: a relation between two quantities, or between

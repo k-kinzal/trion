@@ -1,8 +1,11 @@
 // The gRPC specification set. Reuse it with `use grpc` and `bind TERM as grpc.service.`
 
-package grpc edition "2026-11-09"
+package grpc
 
 namespace grpc:
     role service:
         activate: The $subject shall use gRPC communication.
         form METHOD-NAME: The $subject $operation shall $action. where $operation matches /^\/[A-Za-z_][A-Za-z0-9_.]*\/[A-Za-z_][A-Za-z0-9_]*$/ when $operation matches /^(\/|[A-Z]+ \/)/
+
+// `refer grpc` exposes
+// `grpc.service` for explicit binding. `use grpc` includes automatic activation.

@@ -5,12 +5,11 @@ mod process;
 use serde::{Deserialize, Serialize};
 use trion_boolean::{BackendSettings, Contract, Preparation, Reply, Request, Response, EXACT};
 use trion_core::{Problem, Question};
-use trion_reference::{check_witness, scan, Scan, VERSION as CHECKER};
+use trion_reference::{check_witness, scan, Scan, ID as CHECKER};
 
 pub use process::run_worker;
 
-const RECORD: &str = "analysis-json/1";
-const RUNNER: &str = "process-runner/1";
+const RUNNER: &str = "process-runner";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -135,7 +134,6 @@ impl Outcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Saved {
-    version: String,
     runner: String,
     checker: String,
     adapter: String,
@@ -170,15 +168,14 @@ impl Record {
     pub fn replay(problem: &Problem, saved: &[u8]) -> Result<Self, String> {
         let data: Saved = serde_json::from_slice(saved).map_err(|error| error.to_string())?;
         let translation = EXACT.prepare(problem, data.settings.backend);
-        if data.version != RECORD
-            || data.runner != RUNNER
+        if data.runner != RUNNER
             || data.checker != CHECKER
             || data.adapter != EXACT.id
             || &data.problem != problem
             || data.translation != translation
         {
             return Err(
-                "saved analysis differs in version, subject, settings, or translation".into(),
+                "saved analysis differs in subject, settings, or translation".into(),
             );
         }
         let rebuilt = analyze(problem, &EXACT, data.settings, |_| data.observation.clone());
@@ -213,7 +210,6 @@ pub fn analyze(
         ),
     };
     Record(Saved {
-        version: RECORD.into(),
         runner: RUNNER.into(),
         checker: CHECKER.into(),
         adapter: contract.id.into(),

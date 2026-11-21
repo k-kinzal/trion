@@ -65,7 +65,7 @@ fn a_second_trigger_is_rejected() {
 #[test]
 fn unsupported_syntax_is_rejected() {
     for spec in ["The API shall not stop.", "The API may stop.", "The API should stop.", "The API must stop.", "The API shall stop, unless the door is open.", "A room means a shared channel."] {
-        assert_eq!(ears_codes_of_the_analysis(&format!("use ears\n{spec}\n")), ["syntax-not-allowed"], "{spec}");
+        assert_eq!(ears_codes_of_the_analysis(&format!("use ears\nterm shared channel: class\n{spec}\n")), ["syntax-not-allowed"], "{spec}");
     }
 }
 
@@ -103,20 +103,22 @@ fn only_a_closed_domain_can_be_extended() {
 }
 
 #[test]
-fn a_term_resolves_to_its_namespace_definition() {
+fn a_term_resolves_to_its_introducing_description() {
     let vocab = {
         let manifest = manifest();
         Fixture::new(&[("trion.toml", &manifest), ("a.trion", "use ears\nThe API shall read an EARS pattern.\n")]).inspect(&["vocab", "--json"]).json()
     };
     let entry = &vocab["ears::EARS pattern"];
-    assert!(entry["defined_at"]["text"].as_str().unwrap().contains("one fixed form"), "{vocab}");
+    assert!(entry["introduced_at"]["text"].as_str().unwrap().contains("has exactly one form"), "{vocab}");
     assert_eq!(entry["occurrences"], 2);
 }
 
 #[test]
-fn every_pattern_has_a_definition() {
+fn every_pattern_has_a_description() {
     let text = std::fs::read_to_string(repo_root().join("stdlib/ears/trion.trion")).unwrap();
     for pattern in ["Ubiquitous", "State-driven", "Event-driven", "Optional-feature", "Unwanted-behaviour", "Complex"] {
-        assert!(text.contains(&format!(" {pattern} requirement means ")), "{pattern}");
+        assert!(text.lines().any(|line| {
+            line.contains(&format!(" {pattern} requirement has "))
+        }), "{pattern}");
     }
 }

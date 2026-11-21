@@ -84,7 +84,8 @@ fn argument(source: &str, open: usize) -> &str {
 /// `match` or of a branch of the `if` that is the argument.
 fn rule_names() -> BTreeSet<String> {
     let source = fs::read_to_string(root().join("crates/trion-language/src/reading/rules.rs")).unwrap();
-    let start = source.find("impl Walk {").expect("the walk of the account");
+    let walk_impl = regex::Regex::new(r"(?m)^impl Walk(?:<[^>]*>)? \{").unwrap();
+    let start = walk_impl.find(&source).expect("the walk of the account").start();
     let end = start + source[start..].find("\n}\n").expect("the end of the walk");
     let walk = &source[start..end];
     let result = regex::Regex::new(r#"(?:\A|=>|\{)\s*"([a-z]+(?:-[a-z]+)*)""#).unwrap();
@@ -148,7 +149,7 @@ fn every_pattern_is_classified() {
         assert!(meaning != "unresolved" || !list(&entry, "open").is_empty(), "{id}: an unresolved pattern states its open question");
         list(&entry, "evidence");
         for claim in list(&entry, "claims") {
-            assert!(CLAIMS.contains(&claim), "{id}: `{claim}` is no claim of the first practical edition");
+            assert!(CLAIMS.contains(&claim), "{id}: `{claim}` is no claim of the language");
         }
         for example in list(&entry, "acceptance") {
             // A01-A23 of the plan; a case that is split in two carries a letter, as `A03b` does.

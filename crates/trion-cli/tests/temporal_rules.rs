@@ -219,7 +219,7 @@ fn guards_are_judged_from_invariants_definitions_and_the_path_never_from_the_flo
 }
 
 #[test]
-fn each_ears_pattern_gets_the_scope_and_timing_of_this_edition() {
+fn each_ears_pattern_gets_the_scope_and_timing() {
     let text = "[UBIQUITOUS] The valve shall be closed.\n[STATE] While the door is open, the alarm shall sound.\n[EVENT] When the bell rings, the API shall stop.\n[OPTION] Where the device includes a cache, the device shall flush the cache.\n[UNWANTED] If the pump fails, then the API shall raise an alarm.\n[COMPLEX] While the door is open, when the bell rings, the API shall wait.\n";
     let kind = |id: &str| shape(text, id)["activation"]["kind"].as_str().unwrap().to_string();
     assert_eq!(kind("UBIQUITOUS"), "always");

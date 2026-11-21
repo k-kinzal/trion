@@ -224,8 +224,8 @@ fn a_citation_inside_a_composition_belongs_to_its_statement() {
 
 #[test]
 fn the_flat_form_needs_neither_colon_nor_indentation() {
-    let flat = "package chat edition \"1\"\n\nnamespace chat.room\n\nsection \"Room types\"\n\n[ROOM-KINDS] The room type is private or public.\n\nsection \"Room member\"\n\n[MEMBER] Each room has at least one member.\n\nnamespace chat.message\n\n[TEXT] Each message has one text.\n";
-    let block = "package chat edition \"1\"\n\nnamespace chat.room:\n    section \"Room types\":\n        [ROOM-KINDS] The room type is private or public.\n    section \"Room member\":\n        [MEMBER] Each room has at least one member.\n\nnamespace chat.message:\n    [TEXT] Each message has one text.\n";
+    let flat = "package chat\n\nnamespace chat.room\n\nsection \"Room types\"\n\n[ROOM-KINDS] The room type is private or public.\n\nsection \"Room member\"\n\n[MEMBER] Each room has at least one member.\n\nnamespace chat.message\n\n[TEXT] Each message has one text.\n";
+    let block = "package chat\n\nnamespace chat.room:\n    section \"Room types\":\n        [ROOM-KINDS] The room type is private or public.\n    section \"Room member\":\n        [MEMBER] Each room has at least one member.\n\nnamespace chat.message:\n    [TEXT] Each message has one text.\n";
     let manifest = "[package]\nname = \"chat\"\nentry = \"chat.trion\"\n";
     let outline = |text: &str| {
         let f = Fixture::raw(&[("trion.toml", manifest), ("chat.trion", text)]);
@@ -296,7 +296,7 @@ fn a_prohibition_reaches_every_alternative_subject_and_a_relation_keeps_its_role
 #[test]
 fn one_namespace_holds_declarations_of_two_files() {
     let manifest = "[package]\nname = \"p\"\nentry = \"p.trion\"\n";
-    let entry = "package p edition \"1\"\n\ninclude \"words.trion\"\n\nnamespace p.x:\n    primitive parser\n    [A]\n    The parser shall keep each response.\n    [B]\n    The parser shall not keep a message.\n";
+    let entry = "package p\n\ninclude \"words.trion\"\n\nnamespace p.x:\n    primitive parser\n    [A]\n    The parser shall keep each response.\n    [B]\n    The parser shall not keep a message.\n";
     let words = "namespace p.x:\n    primitive message\n    A response means a message.\n";
     let report = Fixture::raw(&[("trion.toml", manifest), ("p.trion", entry), ("words.trion", words)]).verify(&["--json"]).json();
     // The definition of the second file gives the term of the first file its

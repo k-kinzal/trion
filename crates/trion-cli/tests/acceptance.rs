@@ -1,4 +1,4 @@
-//! The acceptance cases of the practical edition: for each case,
+//! The acceptance cases of the language: for each case,
 //! `fixtures/acceptance/<ID>-<name>` holds a package and `CASE.toml` with
 //! what the package means, why, and what a verification of it must say.
 //!

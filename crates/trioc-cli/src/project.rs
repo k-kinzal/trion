@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 use trion_language::document::{Document, SourceDecl};
 use trion_language::{parse_document, Diagnostic, Package, ParsedFile, SpecRef, SpecSet, VocabularyMode};
 
+pub use crate::project_application::{AppliedSpecification, ResolvedSpecification};
+
 pub const MANIFEST: &str = "trion.toml";
 /// The entry file of a package that does not name one.
 pub const DEFAULT_ENTRY: &str = "trion.trion";
@@ -84,6 +86,9 @@ pub struct Project {
     pub sources: Vec<LoadedSource>,
     /// The path of each file, by the label that diagnostics use.
     pub files: BTreeMap<String, PathBuf>,
+    pub references: Vec<ResolvedSpecification>,
+    pub applications: Vec<AppliedSpecification>,
+    input_digest: String,
 }
 
 /// A source declaration with the directory of the file that declares it.
@@ -210,7 +215,7 @@ fn first_component(name: &str) -> &str {
 
 /// Follows `use` declarations and loads only the dependencies they reach.
 #[allow(clippy::too_many_arguments)]
-fn collect_dependencies(owner: &Manifest, root: &Path, dir: &Path, files: &[LoadedFile], seen: &mut HashSet<PathBuf>, names: &mut BTreeMap<String, String>, out: &mut Vec<RawPackage>, diags: &mut Vec<Diagnostic>, overlay: &Overlay) -> Result<(), String> {
+fn collect_dependencies(owner: &Manifest, root: &Path, dir: &Path, files: &[LoadedFile], seen: &mut HashSet<PathBuf>, names: &mut BTreeMap<String, BTreeMap<String, String>>, out: &mut Vec<RawPackage>, diags: &mut Vec<Diagnostic>, overlay: &Overlay) -> Result<(), String> {
     for doc in files.iter().flat_map(|f| &f.parsed.documents) {
         for import in &doc.imports {
             let name = first_component(&import.name);
@@ -224,11 +229,14 @@ fn collect_dependencies(owner: &Manifest, root: &Path, dir: &Path, files: &[Load
             };
             let dep_dir = dir.join(&dep.path);
             let canonical = dep_dir.canonicalize().map_err(|e| format!("cannot resolve the path {} of dependency `{name}`: {e}", dep_dir.display()))?;
+            let manifest = read_manifest(&dep_dir)?;
+            if names.entry(owner.package.name.clone()).or_default().insert(name.to_string(), manifest.package.name.clone()).is_some_and(|old| old != manifest.package.name) {
+                let at = SpecRef::point(&import.file, import.line, &import.name);
+                diags.push(Diagnostic::error("NAME_COLLISION", format!("dependency alias `{name}` resolves to different packages"), vec![at]));
+            }
             if !seen.insert(canonical) {
                 continue;
             }
-            let manifest = read_manifest(&dep_dir)?;
-            names.insert(name.to_string(), manifest.package.name.clone());
             let dep_files = load_package_files(&dep_dir, &manifest, root, overlay, diags);
             collect_dependencies(&manifest, root, &dep_dir, &dep_files, seen, names, out, diags, overlay)?;
             out.push(RawPackage { name: manifest.package.name.clone(), is_root: false, dir: dep_dir, files: dep_files });
@@ -319,8 +327,18 @@ pub fn load_with(path: &Path, overlay: &Overlay) -> Result<Project, String> {
 
     let mut packages = Vec::new();
     let mut sources = Vec::new();
+    let mut manifests = vec![root.join(MANIFEST)];
+    let mut package_names_seen = HashSet::new();
     let mut files = BTreeMap::new();
+    let no_dependencies = BTreeMap::new();
     for pkg in raw {
+        let package_names = names.get(&pkg.name).unwrap_or(&no_dependencies);
+        if !pkg.is_root {
+            manifests.push(pkg.dir.join(MANIFEST));
+        }
+        if !package_names_seen.insert(pkg.name.clone()) {
+            diagnostics.push(Diagnostic::error("NAME_COLLISION", format!("package `{}` is loaded from more than one dependency path", pkg.name), vec![]));
+        }
         let mut documents = Vec::new();
         for file in pkg.files {
             files.insert(file.label.clone(), file.path.clone());
@@ -330,16 +348,25 @@ pub fn load_with(path: &Path, overlay: &Overlay) -> Result<Project, String> {
                 // A use of an unknown package is reported once, as unresolved-import.
                 doc.imports.retain(|i| {
                     let first = first_component(&i.name);
-                    first == pkg.name || names.contains_key(first)
+                    first == pkg.name || package_names.contains_key(first)
                 });
-                normalize_document(&mut doc, &pkg.name, pkg.is_root, &names, require_prefix, &mut diagnostics);
+                normalize_document(&mut doc, &pkg.name, pkg.is_root, package_names, require_prefix, &mut diagnostics);
                 sources.extend(doc.sources.iter().filter(|s| s.path.is_some()).map(|decl| LoadedSource { decl: decl.clone(), dir: file_dir.clone() }));
                 documents.push(doc);
             }
         }
         packages.push(Package { name: pkg.name, is_root: pkg.is_root, documents });
     }
-    Ok(Project { root, manifest, set: SpecSet { packages, vocabulary_mode: mode }, diagnostics, sources, files })
+    let mut set = SpecSet { packages, vocabulary_mode: mode };
+    let mut inputs = BTreeMap::new();
+    for path in manifests.into_iter().chain(files.values().cloned()) {
+        if let Some(content) = overlay.get(&path).cloned().or_else(|| fs::read_to_string(&path).ok()) {
+            inputs.insert(path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().into_owned(), content);
+        }
+    }
+    let input_digest = crate::digest::hex(serde_json::to_vec(&inputs).expect("serializable project inputs"));
+    let (references, applications) = crate::project_application::expand(&mut set, &mut diagnostics);
+    Ok(Project { root, manifest, set, diagnostics, sources, files, references, applications, input_digest })
 }
 
 impl Project {
@@ -352,9 +379,8 @@ impl Project {
         self.set.packages.iter().filter(|p| p.is_root).flat_map(|p| &p.documents).flat_map(|d| &d.specs)
     }
 
-    /// The revision of the package: the digest of its specification files.
-    /// It is the identity that a revision reference names.
-    pub fn revision(&self) -> String {
-        crate::digest::hash_files(self.files.values().cloned())
+    /// Identifies the package texts and manifests used in this conversion.
+    pub fn input_digest(&self) -> &str {
+        &self.input_digest
     }
 }

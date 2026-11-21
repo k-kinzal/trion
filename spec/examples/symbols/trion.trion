@@ -1,0 +1,24 @@
+package telemetry
+
+namespace telemetry:
+    refer wire
+
+    system collector1, collector2, station
+    environment network
+
+    [STATION] There is a station.
+    [CLASS] The station is a telemetry service that is also a monitoring service.
+    [MEMBER] The station is a member of the network.
+    [QUEUE] The station has exactly one queue.
+    [STORE] The station shall store a report.
+
+    A monitored service means a telemetry service that is a monitoring service.
+    A monitored endpoint means a monitored service.
+
+    [START] While the station is a monitored endpoint, the station shall log a summary.
+
+    [FIRST] There is a collector1.
+    [SECOND] There is a collector2.
+    [RECEIPT] There is a receipt.
+    apply wire as north with endpoint = collector1, reply = receipt
+    apply wire as south with endpoint = collector2, reply = receipt

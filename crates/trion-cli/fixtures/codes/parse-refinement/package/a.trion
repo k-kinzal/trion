@@ -1,4 +1,4 @@
-package p edition "1"
+package p
 
 namespace p.x:
     [A]

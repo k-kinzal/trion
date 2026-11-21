@@ -61,6 +61,12 @@ pub(crate) fn seen(formula: &Formula, response: &dyn Fn(&str) -> bool) -> Formul
         Atom::Num { attr, unit, cmp, n } => Atom::Num { attr: mark(attr), unit, cmp, n },
         Atom::Lin { terms, unit, cmp, n } => Atom::Lin { terms: terms.into_iter().map(|(attr, coefficient)| (mark(attr), coefficient)).collect(), unit, cmp, n },
         Atom::Before { first, second } => Atom::Before { first: mark(first), second: mark(second) },
+        Atom::Rel { name, mut args } if Atom::representative_relation(&name) => {
+            if let Some(subject) = args.first_mut() {
+                *subject = mark(std::mem::take(subject));
+            }
+            Atom::Rel { name, args }
+        }
         Atom::Rel { name, args } => Atom::Rel { name: mark(name), args },
     })
 }

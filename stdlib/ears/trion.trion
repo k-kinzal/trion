@@ -1,8 +1,9 @@
 // The Easy Approach to Requirements Syntax, as a specification set. Importing
 // this package requires the sentences of the importing namespace to be EARS,
 // unless the namespace declares a form as an extension.
+// A reference exposes the sentence classification for an explicit binding.
 
-package ears edition "2026-11-09"
+package ears
 
 namespace ears:
     source EARS:
@@ -64,38 +65,38 @@ The simple building blocks of the EARS patterns described above can be combined 
         cite EARS#Q1
         cite EARS#Q2
 
-    [EARS-PATTERN] An EARS pattern means one fixed form of a requirement.
+    [EARS-PATTERN] An EARS pattern has exactly one form.
         cite EARS#Q3
         cite EARS#Q4
 
     [EARS-RULESET] A requirement shall have one system name and at least one system response.
         cite EARS#Q5
 
-    [EARS-UBIQUITOUS] A Ubiquitous requirement means a requirement without an EARS keyword.
+    [EARS-UBIQUITOUS] No Ubiquitous requirement has an EARS keyword.
         cite EARS#Q6
         cite EARS#Q7
         cite EARS#Q8
 
-    [EARS-STATE] A State-driven requirement means a requirement under the keyword `While`.
+    [EARS-STATE] A State-driven requirement has the keyword `While`.
         cite EARS#Q9
         cite EARS#Q10
         cite EARS#Q11
 
-    [EARS-EVENT] An Event-driven requirement means a requirement under the keyword `When`.
+    [EARS-EVENT] An Event-driven requirement has the keyword `When`.
         cite EARS#Q12
         cite EARS#Q13
 
-    [EARS-OPTIONAL] An Optional-feature requirement means a requirement under the keyword `Where`.
+    [EARS-OPTIONAL] An Optional-feature requirement has the keyword `Where`.
         cite EARS#Q14
         cite EARS#Q15
         cite EARS#Q16
 
-    [EARS-UNWANTED] An Unwanted-behaviour requirement means a requirement under the keywords `If` and `Then`.
+    [EARS-UNWANTED] An Unwanted-behaviour requirement has the keywords `If` and `Then`.
         cite EARS#Q17
         cite EARS#Q18
         cite EARS#Q19
 
-    [EARS-COMPLEX] A Complex requirement means a requirement under more than one EARS keyword.
+    [EARS-COMPLEX] A Complex requirement has more than one EARS keyword.
         cite EARS#Q20
         cite EARS#Q21
         cite EARS#Q22

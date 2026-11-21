@@ -1,4 +1,4 @@
-//! Rules of the language draft (edition 0.1.0-draft.1), observed through the
+//! Rules of the language draft, observed through the
 //! `trion` command. Rules the implementation does not yet satisfy are not
 //! tested here; they are listed for follow-up instead.
 
@@ -356,7 +356,7 @@ fn one_package_combines_every_authoring_construct() {
     // Both files belong to one specification: a rule in one conflicts with a
     // rule in the other. The trigger is the environment's, so the rules apply.
     f.write("more.trion", "namespace p:\n    [N] The API shall not answer the call.\n");
-    f.write("trion.trion", "package p edition \"test\"\ninclude \"rules.trion\"\ninclude \"flows.trion\"\ninclude \"more.trion\"\n");
+    f.write("trion.trion", "package p\ninclude \"rules.trion\"\ninclude \"flows.trion\"\ninclude \"more.trion\"\n");
     assert!(report_codes(&f.verify(&["--json"]).json()).contains(&"contradiction".to_string()));
 }
 
@@ -557,7 +557,7 @@ fn an_unsupported_or_unresolved_construct_prevents_success() {
     // converted and nothing is proved: the check is not counted as proved.
     assert_eq!(report["conforms"], false, "{report}");
     assert!(report["proof"].is_null(), "{report}");
-    // A relation that this edition does not decide, and a check without its
+    // A relation that the language does not decide, and a check without its
     // `using` field, are no equivalence that was proved.
     for block in ["check OTHER:\n    relation implies\n    left [A]\n    right [A]\n    using definitions\n", "check BARE:\n    relation equivalent\n    left [A]\n    right [A]\n"] {
         let report = b_check(&format!("{fine}{block}"));
@@ -798,7 +798,7 @@ fn a_namespace_holds_declarations_statements_and_blocks() {
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("a.trion", body), ("lib.trion", lib)]);
     let codes = analysis_codes(&f.verify(&["--json"]).json());
     assert!(codes.is_empty(), "{codes:?}");
-    for file_level in ["package q edition \"1\"", "include \"other.trion\""] {
+    for file_level in ["package q", "include \"other.trion\""] {
         assert_eq!(c_codes_of_the_analysis(&format!("namespace main:\n    {file_level}\n    [A] The API shall stop.\n")), ["parse-placement"], "{file_level}");
     }
 }
@@ -1226,7 +1226,7 @@ fn d_package(files: &[(&str, &str)]) -> Fixture {
 #[test]
 fn an_included_file_inherits_nothing_from_the_file_before_it() {
     let f = d_package(&[
-        ("trion.trion", "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n"),
+        ("trion.trion", "package p\ninclude \"a.trion\"\ninclude \"b.trion\"\n"),
         ("a.trion", "namespace p:\n    When the API receives a call C:\n        [A] the API shall log C.\n"),
         ("b.trion", "namespace p:\n    [B] The API shall log C.\n    [D] The API shall stop.\n"),
     ]);
@@ -1240,7 +1240,7 @@ fn an_included_file_inherits_nothing_from_the_file_before_it() {
 #[test]
 fn a_declaration_in_a_later_file_is_visible_to_an_earlier_one() {
     let f = d_package(&[
-        ("trion.trion", "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n"),
+        ("trion.trion", "package p\ninclude \"a.trion\"\ninclude \"b.trion\"\n"),
         ("a.trion", "namespace p:\n    ref [B]\n    [A] The API shall open a room.\n    check SAME:\n        relation equivalent\n        left [B]\n        right [C]\n        using definitions\n"),
         ("b.trion", "namespace p:\n    primitive API\n    A room means a shared channel.\n    [B] The API shall stop.\n    [C] The API shall stop.\n"),
     ]);
@@ -1258,7 +1258,7 @@ fn a_declaration_in_a_later_file_is_visible_to_an_earlier_one() {
 fn moving_a_statement_to_another_file_keeps_its_meaning() {
     // The trigger is the environment's: one that the system controls and that
     // nothing requires leaves both statements vacuous.
-    let entry = "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n";
+    let entry = "package p\ninclude \"a.trion\"\ninclude \"b.trion\"\n";
     let together = d_package(&[
         ("trion.trion", entry),
         ("a.trion", "namespace p.api:\n    When a client sends a call C:\n        [A] the API shall log C.\n    [B] When a client sends a call, the API shall not log the call.\n"),
@@ -1281,14 +1281,14 @@ fn moving_a_statement_to_another_file_keeps_its_meaning() {
 fn a_use_declaration_loads_nothing() {
     let app = "namespace p.app:\n    use p.extra\n    [A] The API shall stop.\n";
     let extra = "namespace p.extra:\n    [B] The API shall not stop.\n";
-    let only_app = d_package(&[("trion.trion", "package p edition \"test\"\ninclude \"a.trion\"\n"), ("a.trion", app), ("extra.trion", extra)]);
+    let only_app = d_package(&[("trion.trion", "package p\ninclude \"a.trion\"\n"), ("a.trion", app), ("extra.trion", extra)]);
     let r = only_app.verify(&[]);
     assert!(r.stdout.contains("error[namespace-unknown]: the namespace `p.extra` does not exist"), "{}", r.stdout);
     // Only the included file is read: the statement of `extra.trion` is in no model.
     let model = only_app.inspect(&["model"]).stdout;
     assert!(model.contains("A\n  assume:") && !model.contains("B\n  assume:"), "{model}");
     // With the file included, the same constraints are checked whether or not a block uses it.
-    let entry = "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"extra.trion\"\n";
+    let entry = "package p\ninclude \"a.trion\"\ninclude \"extra.trion\"\n";
     let using = d_package(&[("trion.trion", entry), ("a.trion", app), ("extra.trion", extra)]);
     let plain = d_package(&[("trion.trion", entry), ("a.trion", &app.replace("    use p.extra\n", "")), ("extra.trion", extra)]);
     assert_eq!(using.inspect(&["model"]).stdout, plain.inspect(&["model"]).stdout);
@@ -1296,7 +1296,7 @@ fn a_use_declaration_loads_nothing() {
 
 #[test]
 fn two_definitions_of_one_name_collide() {
-    let entry = "package p edition \"test\"\ninclude \"a.trion\"\ninclude \"b.trion\"\n";
+    let entry = "package p\ninclude \"a.trion\"\ninclude \"b.trion\"\n";
     let first = "namespace p:\n    A room means a shared channel.\n    [A] The API shall open a room.\n";
     let colliding = d_package(&[("trion.trion", entry), ("a.trion", first), ("b.trion", "namespace p:\n    A room means a private channel.\n")]);
     let report = colliding.verify(&["--json"]).json();
@@ -1455,7 +1455,7 @@ example E:
     kind syntax
     form fragment
     input """
-package q edition "x"
+package q
 include "missing.trion"
 namespace q:
     source R:
@@ -1499,7 +1499,7 @@ fn a_source_has_one_quoted_title_and_one_quoted_locator() {
 
 #[test]
 fn include_order_is_the_reading_order() {
-    let entry = "package p edition \"1\"\n\ninclude \"z.trion\"\ninclude \"a.trion\"\n";
+    let entry = "package p\n\ninclude \"z.trion\"\ninclude \"a.trion\"\n";
     let f = Fixture::new(&[
         ("trion.toml", MANIFEST),
         ("trion.trion", entry),

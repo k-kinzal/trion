@@ -1,4 +1,4 @@
-package trion edition "0.2.0-draft.1"
+package trion
 
 include "obligations.trion"
 include "grammar.trion"
@@ -19,22 +19,39 @@ namespace trion:
     use formal
     use software
 
-    primitive person, problem, readability, rigor, system, source
+    primitive person, problem, readability, rigor, system, source, assume-guarantee contract theory
+
+    source CONTRACTS:
+        title "Contracts for Systems Design"
+        locator "https://hal.inria.fr/hal-00757488"
+        revision "INRIA RR-8147"
+        kind citation
 
     system trion processor, trion command, trioc command, language server, trion language, language rule, metatheoretic proof, proof obligation, specification consistency proof obligation, citation, section, missing case that trion processor report, trusted base member
     environment person, external proof checker
 
     section "What trion is":
-        The trion language means a formal specification language that is a controlled natural language.
-        A statement means a sentence of the trion language.
-        A specification means a set of statements.
-        An author means a person or a program that writes a specification.
-        A reader means a person who reads a specification.
+        There is a trion language.
+        There is a trion processor.
+        [TRION-FORMAL-LANGUAGE]
+        The trion language is a formal specification language.
+        [TRION-CONTROLLED-LANGUAGE]
+        The trion language is a controlled natural language.
+        Each statement is a sentence.
+        Each statement is a sentence of the trion language.
+        [SPEC-SET] Each specification is a formal::set.
+        [SPEC-MEMBER] Each member of a specification is a statement.
+        An author is a person or a software::program.
+        While an author exists, the author writes a specification.
+        A reader is a person.
+        While a reader exists, the reader reads a specification.
 
         Each statement has exactly one formal meaning.
         The trion language has a strict syntax and a formal semantics.
-        The trion processor means the program that reads a specification and converts that specification.
-        The theory of contracts means the theory of assume-guarantee contracts.
+        [TRION-PROGRAM]
+        The trion processor is a software::program.
+        [TRION-READ]
+        The trion processor shall read each specification.
 
         A specification has consistency, compatibility, correctness, and completeness.
 
@@ -42,7 +59,8 @@ namespace trion:
         The trion processor shall convert each specification into the proof obligations of the consistency, the compatibility, the correctness, and the completeness of the specification.
 
         [TRION-THEORY]
-        The trion processor shall follow the theory of contracts.
+        The trion processor shall follow the assume-guarantee contract theory.
+            cite CONTRACTS
 
     section "A specification is a document":
         Each specification describes a system.

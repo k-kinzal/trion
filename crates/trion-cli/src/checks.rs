@@ -94,7 +94,7 @@ pub(crate) const FAULTS: [&str; 6] = ["reading-binds-another", "reading-drops-ne
 ///
 /// - `record-binds-another`: a response of the record names another variable;
 /// - `record-changes-unit`: a deadline of the record is a thousand times longer;
-/// - `record-names-no-rule`: a step of the record names a rule that the version does not hold;
+/// - `record-names-no-rule`: a step of the record names an unknown reading rule;
 /// - `record-drops-instance`: an instance of a statement is missing.
 pub(crate) const RECORD_FAULTS: [&str; 4] = ["record-binds-another", "record-changes-unit", "record-names-no-rule", "record-drops-instance"];
 

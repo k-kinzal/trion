@@ -71,7 +71,7 @@ fn within_is_a_deadline_or_the_place_of_a_declared_term() {
 
 #[test]
 fn this_without_an_antecedent_is_unresolved() {
-    let found = rejected("[A]\nThe checker shall accept this edition.\n");
+    let found = rejected("[A]\nThe checker shall accept the language.\n");
     assert!(found.iter().any(|m| m.contains("UNRESOLVED_REFERENCE") || m.contains("no single earlier subject")), "{found:?}");
     consistent("[A]\nWhen a request arrives, the checker shall accept this request.\n\n[B]\nThe checker shall accept the request.\n");
 }

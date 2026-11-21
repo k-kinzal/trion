@@ -1,4 +1,4 @@
-# The pattern ledger of trion: syntax x meaning, first edition (work item W01).
+# The pattern ledger of trion: syntax x meaning, work item W01.
 #
 # One [[pattern]] table for each surface pattern that the parser accepts or
 # deliberately rejects. The ledger records what the implementation does; it
@@ -524,32 +524,23 @@ acceptance = ["A06"]
 id = "definition"
 group = "vocabulary"
 surface = [
-    "A session means a sequence of requests.",
-    "A guest means a user that has no account.",
+    "A ready endpoint means a service that is a subscriber.",
     "A notice means a report or a summary.",
 ]
 parser = "crates/trion-language/src/syntax/parse.rs:parse_definition"
 parse = "accepted"
 meaning = "rule"
-lowering = "crates/trion-language/src/reading/meaning.rs:definition; crates/trion-language/src/reading/meaning.rs:apply; crates/trion-language/src/reading/instances.rs:of_core"
+lowering = "crates/trion-language/src/reading/nominal.rs:property"
 evidence = [
-    "crates/trion-verification/tests/contradiction.rs::a_definition_guarantees_nothing",
-    "crates/trion-cli/tests/reading_nodes.rs::a_definition_includes_its_term_in_the_kind_that_it_names",
-    "crates/trion-cli/tests/reading_nodes.rs::the_clause_of_a_kind_is_a_property_of_each_member",
-    "crates/trion-cli/tests/reading_nodes.rs::each_alternative_kind_is_a_kind_of_the_term",
-    "crates/trion-cli/tests/limitations.rs::a_definition_carries_a_conflict_to_the_defined_term",
-    "crates/trion-cli/tests/limitations.rs::a_defined_state_means_what_its_definition_says",
-    "crates/trion-cli/tests/individual_readings.rs::a_defined_state_holds_exactly_when_its_differences_hold",
-    "crates/trion-verification/tests/vocabulary_rules.rs::a_cyclic_definition_is_rejected",
+    "crates/trion-cli/tests/symbols.rs::abbreviations_expand_both_ways_without_adding_assumptions",
+    "crates/trion-cli/tests/symbols.rs::definitions_cannot_supply_unknown_or_ill_typed_meanings",
 ]
-claims = ["background_sat", "situation_total", "property_entails", "scenario_satisfiable"]
+claims = ["contract_sat", "property_entails"]
 open = [
-    "W03: genus-and-difference definitions are an inclusion plus the property of the clause; whether the definition is an equivalence depends on its shape (instances.rs Form::Defined is two-way, a plain genus is one-way)",
-    "W03: a definition with two kinds joined by `and`, a participle after the noun, or a clause as definiens is rejected by the reading (reading_nodes.rs::a_definition_without_a_reading_is_rejected)",
-    "W03: only `Where` may frame a definition; expansion direction and identity across namespaces are decided by the lexicon",
-    "W03: a definition by a positive action does not unfold under `shall be` against a prohibition: `A secure API means an API that encrypts the message.`, `The API shall be secure.` and `The API shall not encrypt the message.` verify with no conflict, while the mirror image (`... that encrypts no messages.` with `The API shall encrypt messages.`) is a contradiction (fixture A03b, open)",
+    "A definition supplies a fresh class abbreviation over existing classes. A contract refers to the expansion on its subject.",
+    "A definition body that needs ownership, content or a change of quantification requires additional rules.",
 ]
-acceptance = ["A03b", "A14"]
+acceptance = ["A14"]
 
 [[pattern]]
 id = "relation"
@@ -611,7 +602,7 @@ meaning = "rule"
 lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
 evidence = [
     "crates/trion-cli/tests/temporal_rules.rs::a_feature_scope_selects_configurations_and_triggers_nothing",
-    "crates/trion-cli/tests/temporal_rules.rs::each_ears_pattern_gets_the_scope_and_timing_of_this_edition",
+    "crates/trion-cli/tests/temporal_rules.rs::each_ears_pattern_gets_the_scope_and_timing",
 ]
 claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
 open = [
@@ -681,7 +672,7 @@ parse = "accepted"
 meaning = "rule"
 lowering = "crates/trion-language/src/reading/model.rs:frame_formula; crates/trion-language/src/reading/temporal.rs:obligation"
 evidence = [
-    "crates/trion-cli/tests/temporal_rules.rs::each_ears_pattern_gets_the_scope_and_timing_of_this_edition",
+    "crates/trion-cli/tests/temporal_rules.rs::each_ears_pattern_gets_the_scope_and_timing",
     "crates/trion-verification/tests/contradiction.rs::does_not_is_the_complement",
 ]
 claims = ["contract_sat", "situation_total", "property_entails", "scenario_satisfiable"]
@@ -2617,7 +2608,7 @@ acceptance = ["A08", "A09", "A10"]
 [[pattern]]
 id = "doc-package"
 group = "packages"
-surface = ["package trion edition \"1\""]
+surface = ["package trion"]
 parser = "crates/trion-language/src/document.rs:package"
 parse = "accepted"
 meaning = "nonnormative"
@@ -2628,7 +2619,6 @@ evidence = [
 ]
 claims = []
 open = [
-    "W13: the edition string is stored and not tied to a semantic version of the reading rules",
 ]
 acceptance = ["A18"]
 
@@ -2702,7 +2692,7 @@ claims = [
     "scenario_satisfiable",
 ]
 open = [
-    "W13: a `use` of a dependency carries no version of the dependency's meaning",
+    "W13: a `use` of a dependency includes its contracts",
 ]
 acceptance = ["A18"]
 
@@ -2856,10 +2846,12 @@ lowering = "crates/trion-language/src/reading/model.rs:compile; crates/trion-lan
 evidence = [
     "crates/trion-verification/tests/vocabulary_rules.rs::an_uninterpreted_predicate_has_a_signature_an_identity_and_no_axioms",
     "crates/trion-cli/tests/temporal_rules.rs::an_untriggered_requirement_applies_to_each_invocation_of_its_action",
+    "crates/trion-cli/tests/symbols.rs::predicate_signatures_are_checked_in_responses_conditions_and_relative_clauses",
+    "crates/trion-cli/tests/symbols.rs::different_namespaces_own_distinct_declared_actions_with_the_same_spelling",
 ]
 claims = ["contract_sat", "situation_total", "property_entails"]
 open = [
-    "W03: the declaration adds no axiom; its one semantic effect is that an untriggered obligation with that verb gets 'each invocation' as activation and as deadline origin; no test shows the signature constraining the arguments of an action",
+    "W03: the declaration adds no axiom. An untriggered obligation with the verb gets 'each invocation' as activation and deadline origin. The signature additionally checks calls against the ordered signature and preserves a declared predicate's canonical identity.",
 ]
 acceptance = ["A06"]
 
@@ -3097,7 +3089,7 @@ acceptance = ["A20", "A23"]
 id = "doc-propositional-check"
 group = "blocks"
 surface = [
-    "check CARD-ACCESS:\n    grammar \"propositional-cnl/1\"\n    input \"proposition P. assume P. entails P.\"",
+    "check CARD-ACCESS:\n    input \"proposition P. assume P. entails P.\"",
 ]
 parser = "crates/trion-language/src/document.rs:propositional_check"
 parse = "accepted"
@@ -3105,7 +3097,7 @@ meaning = "rule"
 lowering = "crates/trion-verification/src/analysis/references.rs:propositional_question"
 evidence = [
     "crates/trion-cli/tests/analysis_cli.rs::propositional_checks_are_decided_from_the_mmt_form",
-    "crates/trion-cli/tests/analysis_cli.rs::a_propositional_check_rejects_input_outside_its_pinned_grammar",
+    "crates/trion-cli/tests/analysis_cli.rs::a_propositional_check_rejects_unsupported_and_undeclared_input",
 ]
 claims = ["property_entails"]
 open = []
@@ -3183,7 +3175,7 @@ acceptance = ["A18"]
 [[pattern]]
 id = "doc-unsourced"
 group = "sources"
-surface = ["unsourced \"design decision of this edition\""]
+surface = ["unsourced \"design decision\""]
 parser = "crates/trion-language/src/document.rs:annotation"
 parse = "accepted"
 meaning = "nonnormative"
@@ -3295,7 +3287,7 @@ acceptance = []
 [[pattern]]
 id = "doc-bind"
 group = "extensions"
-surface = ["bind checkout as grpc.operation"]
+surface = ["bind checkout as grpc.operation", "bind API as patterns.syntax."]
 parser = "crates/trion-language/src/document.rs:statement"
 parse = "accepted"
 meaning = "rule"
@@ -3304,6 +3296,7 @@ evidence = [
     "crates/trion-verification/tests/forms.rs::an_explicit_binding_applies_the_role",
     "crates/trion-verification/tests/forms.rs::an_alias_reaches_a_bound_term",
     "crates/trion-cli/tests/project.rs::a_namespace_role_binds_like_a_package_role",
+    "crates/trion-cli/tests/symbols.rs::an_ears_reference_can_apply_its_form_to_one_subject",
 ]
 claims = []
 open = [
@@ -3362,7 +3355,7 @@ evidence = [
 ]
 claims = []
 open = [
-    "`may not` is neither a prohibition nor a denial of permission in this edition; do not read it as `shall not`",
+    "`may not` is neither a prohibition nor a denial of permission; do not read it as `shall not`",
 ]
 acceptance = []
 
@@ -3751,15 +3744,15 @@ acceptance = []
 id = "rej-definition-without-reading"
 group = "vocabulary"
 surface = [
-    "A bundle means a report and a summary.",
+    "A grounded term means a term that has no definition.",
     "A closed room means the room is locked.",
 ]
-parser = "crates/trion-language/src/reading/meaning.rs:definition"
+parser = "crates/trion-language/src/syntax/parse.rs:parse_definition"
 parse = "accepted"
 meaning = "rejected"
 lowering = ""
 evidence = [
-    "crates/trion-cli/tests/reading_nodes.rs::a_definition_without_a_reading_is_rejected",
+    "crates/trion-cli/tests/symbols.rs::definitions_cannot_supply_unknown_or_ill_typed_meanings",
 ]
 claims = []
 open = []
@@ -4051,4 +4044,88 @@ open = [
     "W05: a composition of plain actions about individuals is a list of them (rule `choice-order`): `all of` requires each, `one or more of` one, and `in order` each strictly after the one before it, as `after` does. In a package without declared individuals the order is a relation between the actions that no moment of a trace decides",
     "W05: rejected over individuals: `exactly one of`, a flow, a composition within a composition and an action with an exception of its own",
 ]
+acceptance = []
+
+[[pattern]]
+id = "variant-structured-nominal"
+group = "descriptions"
+surface = ["The codec is a specification language that is also a controlled language.", "The codec is a member of the network.", "Each guest is a user that is a subscriber."]
+parser = "crates/trion-language/src/syntax/parse.rs:np_predicate"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/nominal.rs:claim"
+evidence = [
+    "crates/trion-cli/tests/symbols.rs::nominal_restriction_constrains_its_subject",
+    "crates/trion-cli/tests/symbols.rs::compound_membership_uses_the_same_individual_and_bound_as_separate_claims",
+    "crates/trion-cli/tests/symbols.rs::compound_membership_and_population_are_guarantees_of_the_declared_system_type",
+    "crates/trion-cli/tests/symbols.rs::compound_individual_condition_and_its_subclauses_have_the_same_contract",
+    "crates/trion-cli/tests/symbols.rs::a_derived_class_in_an_individual_condition_expands_without_an_independent_atom",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = ["The reader uses one nominal tree for representative constraints and Boolean classifications over bounded individuals. Static compound membership may appear in a condition. A restriction inside the predicate that adds a time condition, a quantified owner or an event needs its own rule."]
+acceptance = []
+
+[[pattern]]
+id = "variant-derived-class"
+group = "vocabulary"
+surface = ["A monitored service means a telemetry service that is a monitoring service."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_definiens"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/nominal.rs:property"
+evidence = ["crates/trion-cli/tests/symbols.rs::abbreviations_expand_both_ways_without_adding_assumptions"]
+claims = ["contract_sat", "property_entails"]
+open = ["The reader expands representative class abbreviations at their uses. Predicates with free parameters or temporal and quantifier-changing bodies need their own rules."]
+acceptance = []
+
+[[pattern]]
+id = "variant-representative-presence-condition"
+group = "conditions"
+surface = ["While a file exists, the computer keeps the file."]
+parser = "crates/trion-language/src/syntax/parse.rs:parse_clause"
+parse = "accepted"
+meaning = "rule"
+lowering = "crates/trion-language/src/reading/model.rs:clause_formula"
+evidence = ["crates/trion-cli/tests/symbols.rs::migrated_software_spells_out_the_constraints_of_every_retained_concept"]
+claims = ["contract_sat", "property_entails"]
+open = ["A representative presence condition uses the presence fact from an explicit existence statement. Population conditions over declared individuals require a separate rule."]
+acceptance = []
+
+[[pattern]]
+id = "doc-pinned-reference"
+group = "packages"
+surface = ["refer wire"]
+parser = "crates/trion-language/src/document.rs:statement"
+parse = "accepted"
+meaning = "nonnormative"
+lowering = "crates/trioc-cli/src/project_application.rs:expand"
+evidence = ["crates/trion-cli/tests/symbols.rs::reference_application_and_readback"]
+claims = []
+open = []
+acceptance = []
+
+[[pattern]]
+id = "doc-specification-application"
+group = "packages"
+surface = ["apply wire as north with endpoint = collector1, reply = receipt"]
+parser = "crates/trion-language/src/document.rs:parse_application"
+parse = "partial"
+meaning = "rule"
+lowering = "crates/trioc-cli/src/project_application.rs:expand"
+evidence = [
+    "crates/trion-cli/tests/symbols.rs::reference_application_and_readback",
+    "crates/trion-cli/tests/symbols.rs::specification_application_maps_explicit_individual_types",
+    "crates/trion-cli/tests/symbols.rs::applied_inclusion_is_rederived_with_the_mapped_carrier_and_requested_bound",
+    "crates/trion-cli/tests/symbols.rs::applying_a_specification_includes_its_use_dependencies_once",
+    "crates/trion-cli/tests/symbols.rs::an_applied_predicate_requires_a_compatible_argument_mapping",
+    "crates/trion-cli/tests/symbols.rs::an_applied_abbreviation_is_expanded_in_its_origin_and_mapped_at_its_leaves",
+    "crates/trion-cli/tests/symbols.rs::specification_application_carries_an_explicit_source_form_binding",
+    "crates/trion-cli/tests/symbols.rs::application_preserves_the_condition_that_activates_a_source_role",
+    "crates/trion-cli/tests/symbols.rs::application_maps_every_class_in_a_compound_nominal_predicate",
+    "crates/trion-cli/tests/symbols.rs::an_applied_block_narrows_its_assumption_to_its_own_statements",
+    "crates/trion-cli/tests/symbols.rs::applying_a_specification_rechecks_its_mapped_refinement",
+    "crates/trion-cli/tests/symbols.rs::nested_applications_compose_mappings_and_keep_assumptions_in_their_instance",
+]
+claims = ["contract_sat", "situation_total", "property_entails"]
+open = ["Application maps representatives, declared individual types, predicates, explicit source form bindings and representative role activations in the supported fragment. Nested mappings compose, preserving assumption scope and checked refinements. Individual role activations and legacy contract imports require additional rules."]
 acceptance = []

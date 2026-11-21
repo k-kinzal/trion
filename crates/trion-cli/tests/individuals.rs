@@ -218,7 +218,6 @@ scenario AGAIN:
     // the scenario names no instance.
     // The reading states the same binding as instances of the statement.
     let individuals = &report["individuals"];
-    assert_eq!(individuals["version"], "0.1.0");
     let instances: Vec<&str> = individuals["instances"].as_array().unwrap().iter().map(|i| i["instance"].as_str().unwrap()).collect();
     assert_eq!(instances.len(), 9, "three users and three messages: {instances:?}");
     assert!(instances.contains(&"A/user#2,message#3"), "{instances:?}");
@@ -260,7 +259,7 @@ While a room is open, when a member of the room posts a message to the room, the
     assert_eq!(r["frames"][1]["conditions"], json!([{"form": "occurs", "denied": false, "pattern": {"actor": {"variable": 1}, "verb": "post", "particle": null, "object": {"variable": 2}, "roles": [["to", {"variable": 0}]]}}]));
     assert_eq!(r["exception"], json!({"form": "related", "relation": "member", "owner_noun": "room", "owner": {"variable": 0}, "member": {"variable": 3}, "denied": true}));
     assert_eq!(r["responses"], json!([{"form": "action", "pattern": {"actor": {"constant": "system"}, "verb": "store", "particle": null, "object": {"variable": 2}, "roles": []}, "deadline": {"thousandths": 2_000_000, "unit": "ms"}, "after": [], "before": []}]));
-    // Each step names a rule of the semantic version.
+    // Each step names a reading rule.
     let rules: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["rule"].as_str().unwrap()).collect();
     for rule in ["variable", "variable-of", "variable-again", "frame-while", "frame-when", "condition-holds", "condition-occurs", "condition-related", "exception", "force", "response-deadline", "response-action", "constant"] {
         assert!(rules.contains(&rule), "{rule}: {rules:?}");
@@ -397,7 +396,7 @@ fn a_record_or_a_contract_that_differs_from_the_statement_is_refused() {
     for (fault, part) in [
         ("record-binds-another", "the responses of the record"),
         ("record-changes-unit", "the responses of the record"),
-        ("record-names-no-rule", "names no rule of the semantic version"),
+        ("record-names-no-rule", "names no rule in the checker"),
         ("record-drops-instance", "8 instances"),
         ("reading-binds-another", "the guarantee of the contract"),
         ("reading-drops-negation", "the guarantee of the contract"),
@@ -524,7 +523,7 @@ fn the_shares_of_one_population_within_two_deadlines_are_ordered() {
 
 /// The reading of a statement is shown where its author reads the result:
 /// in the text of `verify`, in its JSON, and in the document. Each view is
-/// made from the same record, and each names the domain and the semantic version.
+/// made from the same record, and each names the domain.
 #[test]
 fn the_reading_of_a_statement_is_shown_in_each_view() {
     let f = Fixture::new(&[MANIFEST, ("a.trion", FAULTED)]);
@@ -540,7 +539,6 @@ fn the_reading_of_a_statement_is_shown_in_each_view() {
     let store = report["readings"].as_array().unwrap().iter().find(|r| r["statement"] == "STORE").unwrap();
     let lines: Vec<&str> = store["lines"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
     assert_eq!(lines, expected[1..].iter().map(|l| l.trim_start()).collect::<Vec<_>>());
-    assert_eq!(store["version"], "0.1.0");
     // Three statements; three users and three messages give nine instances
     // of STORE and of MOST, and three messages three of KEEP: each record
     // and each contract is derived again and agrees.
@@ -552,7 +550,7 @@ fn the_reading_of_a_statement_is_shown_in_each_view() {
     assert!(html.contains("readings over individuals"), "the document holds no readings");
     assert!(html.contains("[STORE] When a user sends a message, the system shall store the message within 2 seconds."), "the document does not set the sentence beside its reading");
     assert!(!html.contains("scenario LATE: forbidden for the reference evaluator"));
-    assert!(html.contains("individuals: semantic version 0.1.0; domains of 3 individuals of each declared type"));
+    assert!(html.contains("individuals: domains of 3 individuals of each declared type"));
     // The text states the bound of every result, and that none holds beyond it.
     let text = f.verify(&[]).stdout;
     assert!(text.contains("within traces of 3 moments, domains of 3 individuals:") && text.contains("no result holds beyond its bound"), "{text}");
@@ -562,7 +560,7 @@ fn the_reading_of_a_statement_is_shown_in_each_view() {
     // shares without a value); a scenario is an obligation, and its result
     // is the verdict of the proof.
     // The text of the conversion shows each reading, as the JSON and the document do.
-    assert!(text.contains("individuals: semantic version 0.1.0; domains of 3 individuals of each declared type (message, user)"), "{text}");
+    assert!(text.contains("individuals: domains of 3 individuals of each declared type (message, user)"), "{text}");
     assert!(text.contains(&expected.join("\n")), "{text}");
     assert!(text.contains("reading [KEEP]:\n  about: each message\n  applies: to the behaviour as a whole\n  forbids: [the system delete the message]"), "{text}");
     assert!(text.contains("  of: at least 75.000 percent of the activations of this statement in one behaviour (`postings`)"), "{text}");

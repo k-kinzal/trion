@@ -1,5 +1,5 @@
 //! Routes by which a package was verified with a part of its meaning left
-//! out (`spec/semantics/README.md`, "Not stopped yet" of the first edition).
+//! out (`spec/semantics/README.md`, "Not stopped yet" ).
 //! Each test states what the sentence means and gives two packages that the
 //! meaning tells apart. The expectations were written from the meaning
 //! before the first run.

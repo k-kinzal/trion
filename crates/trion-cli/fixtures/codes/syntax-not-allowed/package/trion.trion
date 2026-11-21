@@ -1,4 +1,4 @@
-package p edition "test"
+package p
 include "x.trion"
 include "y.trion"
 include "z.trion"

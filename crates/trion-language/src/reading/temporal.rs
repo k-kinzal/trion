@@ -292,7 +292,7 @@ fn is_state(vp: &Vp) -> bool {
         return false;
     }
     match &vp.complement {
-        Some(Predicate::Words { words }) => !(words.len() == 1 && model::is_participle(&words[0]) && words[0] != "closed"),
+        Some(Predicate::Words { words, .. }) => !(words.len() == 1 && model::is_participle(&words[0]) && words[0] != "closed"),
         Some(_) => true,
         None => false,
     }
@@ -629,7 +629,8 @@ pub(super) fn obligation(sentence: &Sentence, otherwise: bool, statement: SpecRe
         }
         (None, _) if !states.is_empty() => Activation::Interval { conditions: states },
         (None, Some(action)) => {
-            let operation = model::base_verb(&action.verb);
+            let lemma = model::base_verb(&action.verb);
+            let operation = lex.predicate_identity(&lemma).unwrap_or(lemma);
             Activation::Invocation { boundary: format!("each invocation of {operation}"), operation }
         }
         (None, None) => Activation::Always,
@@ -1461,6 +1462,20 @@ fn contract_over(model: &Model, c: &crate::reading::model::Constraint, length: u
     // A refinement relates statements that all stand in the trace already.
     if c.kind == crate::reading::model::ConstraintKind::Refinement {
         return (Formula::True, None);
+    }
+    if c.kind == crate::reading::model::ConstraintKind::RoleActivation {
+        let own = model.constraints.iter().find(|statement| {
+            matches!(statement.kind, crate::reading::model::ConstraintKind::Spec | crate::reading::model::ConstraintKind::Permission)
+                && statement.refs.first() == c.refs.first()
+        });
+        let held = match own {
+            Some(own) => Formula::Or(activations_of(model, own, length, known).into_iter()
+                .map(|(_, condition, response)| {
+                    Formula::And(condition.into_iter().chain([response]).collect())
+                }).collect()),
+            None => unroll_axiom(&c.assume, length),
+        };
+        return (Formula::implies(held, unroll_axiom(&c.guarantee, length)), None);
     }
     // An axiom about terms holds at every moment, as the background does.
     // What a statement says of individuals stands beside its claim and holds

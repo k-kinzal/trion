@@ -46,13 +46,20 @@ impl Converted {
         self.all().any(|d| d.severity == Severity::Error)
     }
 
+    pub(crate) fn resolved_symbols(&self) -> Vec<trion_language::reading::ResolvedSymbol> {
+        self.analysis.vocabulary.values()
+            .filter_map(|entry| entry.resolved_symbol()).collect()
+    }
+
     /// The MMT form of the package.
     pub(crate) fn form(&self, project: &Project) -> Form {
         Form {
             package: project.manifest.package.name.clone(),
-            revision: project.revision(),
-            semantics: trion_language::reading::typed::VERSION.to_string(),
-            tool: env!("CARGO_PKG_VERSION").to_string(),
+            input_digest: project.input_digest().to_owned(),
+            applications: project.applications.clone(),
+            references: project.references.clone(),
+            symbols: self.resolved_symbols(),
+            definition_expansions: self.analysis.model.definition_expansions.clone(),
             system: self.control.system.iter().cloned().collect(),
             environment: self.control.environment.iter().cloned().collect(),
             contracts: self
@@ -123,7 +130,7 @@ pub fn findings(project: &Project) -> Findings {
 /// context independence, relation locality, order independence, the round
 /// trip, and the behaviours next to each scenario.
 pub(crate) fn convert(project: &Project, bounds: Bounds, properties: bool) -> Converted {
-    let options = Options { bounds, subject_revision: Some(project.revision()) };
+    let options = Options { bounds, subject_revision: Some(project.input_digest().to_owned()) };
     let analysis = analyze(&project.set, &options);
     let sources = sources::check(project);
     let mut diagnostics: Vec<Diagnostic> = project.diagnostics.iter().chain(&analysis.diagnostics).cloned().collect();

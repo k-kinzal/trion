@@ -136,6 +136,7 @@ impl Bound<'_> {
             Condition::Holds { subject, value, denied } => self.world.holds(moment, &self.name(subject), value) != *denied,
             Condition::Related(relation) => self.related(relation),
             Condition::Kind { kind, subject, denied } => self.world.is(kind, &self.name(subject)) != *denied,
+            Condition::Membership { predicate, subject, denied } => predicate.holds(&|kind| self.world.is(kind, &self.name(subject))) != *denied,
             Condition::Compares { text } => return Err(format!("the comparison `{text}`")),
         })
     }
@@ -306,6 +307,11 @@ impl Bound<'_> {
             }
             (Force::Description, Response::Related(relation)) => (!self.related(relation)).then(|| format!("{}`{}`({}, {})", if relation.denied { "" } else { "not " }, relation.relation, self.name(&relation.owner), self.name(&relation.member))),
             (Force::Description, Response::Kind { kind, subject, denied }) => (self.world.is(kind, &self.name(subject)) == *denied).then(|| format!("`{}` is {}a `{kind}`", self.name(subject), if *denied { "" } else { "not " })),
+            (Force::Description, Response::Membership { predicate, subject, denied }) => {
+                let subject = self.name(subject);
+                (predicate.holds(&|kind| self.world.is(kind, &subject)) == *denied)
+                    .then(|| format!("`{subject}` must {}satisfy `{predicate}`", if *denied { "not " } else { "" }))
+            }
             (_, Response::Bound { text }) => return Err(format!("the bound `{text}`")),
             (force, other) => return Err(format!("a response of the form {other:?} under the force {force:?}")),
         })
@@ -417,6 +423,14 @@ fn domain(statement: &DomainStatement, world: &World) -> Result<Option<String>, 
                 (false, false) => (a && !b).then(|| format!("`{x}` is a `{narrow}` and no `{wide}`")),
             }
         }),
+        DomainFact::Membership { narrow, predicate, each, denied } => {
+            let holds = |subject| predicate.holds(&|class| world.is(class, subject)) != *denied;
+            if *each {
+                of_kind(narrow).into_iter().find(|subject| !holds(subject)).map(|subject| format!("the classification of `{subject}` fails"))
+            } else {
+                (!of_kind(narrow).into_iter().any(holds)).then(|| format!("no `{narrow}` meets the classification"))
+            }
+        }
         DomainFact::Same { first, second, .. } => {
             let one_way = |a: &str, b: &str| world.relations.iter().filter(|(r, _, _)| r == a).find(|(_, owner, member)| !world.related(b, owner, member)).map(|(_, owner, member)| format!("`{member}` is the `{a}` of `{owner}` and not its `{b}`"));
             one_way(first, second).or_else(|| one_way(second, first))

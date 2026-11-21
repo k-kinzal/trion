@@ -1,20 +1,10 @@
-//! Versioned CNL input and provenance for propositional analysis.
+//! CNL input and provenance for propositional analysis.
 
 mod parse;
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use trion_core::{sha256, Expr, Problem, Question};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Grammar {
-    #[serde(rename = "propositional-cnl/1")]
-    V1,
-    #[serde(rename = "propositional-cnl/2")]
-    V2,
-}
-
-pub const DEFAULT_GRAMMAR: Grammar = Grammar::V1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,7 +57,6 @@ pub struct Mapping {
 #[serde(deny_unknown_fields)]
 struct Saved {
     status: Status,
-    grammar: Grammar,
     source: String,
     source_id: String,
     problem: Problem,
@@ -80,10 +69,6 @@ pub struct Accepted(Saved);
 impl Accepted {
     pub fn problem(&self) -> &Problem {
         &self.0.problem
-    }
-
-    pub fn grammar(&self) -> Grammar {
-        self.0.grammar
     }
 
     pub fn mappings(&self) -> &[Mapping] {
@@ -125,23 +110,22 @@ impl Accepted {
 impl<'de> Deserialize<'de> for Accepted {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let saved = Saved::deserialize(deserializer)?;
-        let rebuilt = formalize(&saved.source, saved.grammar).map_err(|error| {
+        let rebuilt = formalize(&saved.source).map_err(|error| {
             serde::de::Error::custom(format!("saved input is no longer accepted: {error:?}"))
         })?;
         if rebuilt.0 != saved {
             return Err(serde::de::Error::custom(
-                "saved input differs from the versioned Core or provenance",
+                "saved input differs from the Core or provenance",
             ));
         }
         Ok(rebuilt)
     }
 }
 
-pub fn formalize(source: &str, grammar: Grammar) -> Result<Accepted, Rejected> {
-    let (problem, mappings) = parse::document(source, grammar)?;
+pub fn formalize(source: &str) -> Result<Accepted, Rejected> {
+    let (problem, mappings) = parse::document(source)?;
     Ok(Accepted(Saved {
         status: Status::Accepted,
-        grammar,
         source: source.into(),
         source_id: sha256(source),
         problem,
@@ -149,24 +133,7 @@ pub fn formalize(source: &str, grammar: Grammar) -> Result<Accepted, Rejected> {
     }))
 }
 
-pub fn formalize_version(source: &str, version: Option<&str>) -> Result<Accepted, Rejected> {
-    let grammar = match version {
-        None => DEFAULT_GRAMMAR,
-        Some("propositional-cnl/1") => Grammar::V1,
-        Some("propositional-cnl/2") => Grammar::V2,
-        Some(version) => {
-            return Err(Rejected::Unsupported(Diagnostic {
-                rule: "CNL-VERSION".into(),
-                span: Span { start: 0, end: 0 },
-                reason: format!("unavailable grammar version {version:?}"),
-                suggestion: Some("select propositional-cnl/1 or propositional-cnl/2".into()),
-            }));
-        }
-    };
-    formalize(source, grammar)
-}
-
-pub fn formalize_bytes(source: &[u8], version: Option<&str>) -> Result<Accepted, Rejected> {
+pub fn formalize_bytes(source: &[u8]) -> Result<Accepted, Rejected> {
     let text = std::str::from_utf8(source).map_err(|error| {
         let start = error.valid_up_to();
         let end = start + error.error_len().unwrap_or(source.len() - start);
@@ -177,7 +144,7 @@ pub fn formalize_bytes(source: &[u8], version: Option<&str>) -> Result<Accepted,
             suggestion: Some("save the source as UTF-8".into()),
         })
     })?;
-    formalize_version(text, version)
+    formalize(text)
 }
 
 fn print_expr(out: &mut String, expr: &Expr, names: &[String]) {

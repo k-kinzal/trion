@@ -1,21 +1,32 @@
-package software edition "2026-11-12"
+package software
 
 namespace software:
-    primitive text, person
+    environment computer, person, editor, language server
 
     section "Programs":
-
-        A program means a text that a computer runs.
-        A command means a program that a person runs by name.
-        A subcommand means a command that is a part of a command.
-        An option means a word of a command line that changes the behavior of a command.
-        An exit status means the number that a command returns.
-        An editor means a program that shows a text to a person.
-        A language server means a program that serves an editor.
+        [PROGRAM-TYPE] A program is a text.
+        [PROGRAM-RUN] While a program exists, the computer runs the program.
+        [COMMAND-TYPE] A command is a program.
+        [COMMAND-RUN] While a command exists, the person runs the command by name.
+        [SUBCOMMAND-TYPE] A subcommand is a command.
+        [SUBCOMMAND-PART] The subcommand is a part of the command.
+        [OPTION-TYPE] An option is a word.
+        [OPTION-PART] The option is a member of the command line.
+        [OPTION-EFFECT] While an option exists, the option changes the behavior of the command.
+        [STATUS-TYPE] An exit status is a number.
+        [STATUS-RETURN] While an exit status exists, the command returns the exit status.
+        [EDITOR-TYPE] An editor is a program.
+        [EDITOR-DISPLAY] While an editor exists, the editor shows a text to the person.
+        [SERVER-TYPE] A language server is a program.
+        [SERVER-EDITOR] While a language server exists, the language server serves an editor.
 
     section "Files":
-
-        A file means a named text that a computer keeps.
-        A directory means a named set of files.
-        A path means the name that locates a file or a directory.
-        A digest means the SHA-256 value of a file.
+        [FILE-TYPE] A file is a text.
+        [FILE-NAME] A file has a name.
+        [FILE-KEEP] While a file exists, the computer keeps the file.
+        [DIRECTORY-TYPE] A directory is a set.
+        [DIRECTORY-NAME] A directory has a name.
+        [DIRECTORY-CONTENTS] Each member of the directory is a file.
+        [PATH-TYPE] A path is a name.
+        [PATH-LOCATES] While a path exists, the path locates the file or the directory.
+        [DIGEST-VALUE] The digest is a SHA-256 value of the file.

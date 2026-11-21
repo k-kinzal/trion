@@ -11,12 +11,11 @@
 
 use crate::document::SpecSet;
 use crate::diagnostic::{Diagnostic, SpecRef};
-use crate::document::Spec;
 use crate::reading::model::{ConstraintKind, Model};
 use crate::reading::lexicon::Lexicon;
 use trion_solver::{Atom, Formula};
 use crate::syntax::ast::Core;
-use crate::reading::vocabulary::{occurrences, VocabEntry};
+use crate::reading::vocabulary::{VocabEntry};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -123,10 +122,8 @@ fn signatures(formula: &Formula, out: &mut BTreeSet<String>) {
     });
 }
 
-/// Finds the opaque readings and the ungrounded statements of a model.
+/// Finds unsupported readings and inexpressible properties.
 pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, VocabEntry>, lex: &Lexicon) -> Silence {
-    let statements = model.constraints.iter().filter(|c| matches!(c.kind, ConstraintKind::Spec | ConstraintKind::Permission));
-
     // Unread parts: what the keys of a statement could not hold, and each
     // closed-class word in an open place of a node that reached no key.
     let mut opaque: Vec<Diagnostic> = Vec::new();
@@ -180,90 +177,7 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
         }
     }
 
-    // Ungrounded statements.
-    let mut own: BTreeMap<String, (SpecRef, BTreeSet<String>)> = BTreeMap::new();
-    for constraint in statements {
-        let Some(at) = constraint.refs.first() else { continue };
-        let entry = own.entry(at.id.clone()).or_insert_with(|| (at.clone(), BTreeSet::new()));
-        signatures(&constraint.assume, &mut entry.1);
-        signatures(&constraint.guarantee, &mut entry.1);
-    }
-    let mut held_by: BTreeMap<&String, BTreeSet<&String>> = BTreeMap::new();
-    for (id, (_, signs)) in &own {
-        for sign in signs {
-            held_by.entry(sign).or_default().insert(id);
-        }
-    }
-    // An axiom relates a statement to another one when it holds atoms of both.
-    let mut related: BTreeSet<&String> = BTreeSet::new();
-    // What a definition, an inclusion, an exclusion or a refinement says is an axiom too.
-    // The statement that states an axiom is one of those it relates: a
-    // definition that speaks about the atoms of a statement constrains it.
-    let stated = model.constraints.iter().filter(|c| c.kind.is_axiom()).map(|c| (&c.guarantee, c.kind == ConstraintKind::Refinement, c.refs.first().map(|r| &r.id)));
-    // Related by something other than a refinement.
-    let mut related_closely: BTreeSet<&String> = BTreeSet::new();
-    // Axioms chain: `service ↔ API` in one namespace and `the service of
-    // another ↔ API` relate the statements about both services, though no
-    // one axiom holds atoms of both. The atoms that the axioms join stand in
-    // one class.
-    let axioms: Vec<(BTreeSet<String>, bool, Option<&String>)> = model
-        .background
-        .iter()
-        .map(|f| (f, false, None))
-        .chain(stated)
-        .map(|(axiom, refinement, owner)| {
-            let mut signs = BTreeSet::new();
-            signatures(axiom, &mut signs);
-            (signs, refinement, owner)
-        })
-        .collect();
-    let mut class: BTreeMap<String, String> = BTreeMap::new();
-    fn root(class: &mut BTreeMap<String, String>, sign: &str) -> String {
-        let mut at = sign.to_string();
-        while let Some(next) = class.get(&at).filter(|next| **next != at) {
-            at = next.clone();
-        }
-        at
-    }
-    for (signs, _, _) in axioms.iter().filter(|(_, refinement, _)| !refinement) {
-        let mut signs = signs.iter();
-        let Some(first) = signs.next() else { continue };
-        let first = root(&mut class, first);
-        for sign in signs {
-            let other = root(&mut class, sign);
-            if other != first {
-                class.insert(other, first.clone());
-            }
-        }
-    }
-    // The statements that hold an atom of each class.
-    let mut in_class: BTreeMap<String, BTreeSet<&String>> = BTreeMap::new();
-    for (id, (_, signs)) in &own {
-        for sign in signs {
-            in_class.entry(root(&mut class, sign)).or_default().insert(id);
-        }
-    }
-    for (signs, refinement, owner) in &axioms {
-        let mut touched: BTreeSet<&String> = signs.iter().filter_map(|s| held_by.get(s)).flatten().copied().collect();
-        if !refinement {
-            for sign in signs {
-                touched.extend(in_class.get(&root(&mut class, sign)).into_iter().flatten().copied());
-            }
-        }
-        if let Some(owner) = owner.filter(|_| !touched.is_empty()) {
-            touched.insert(owner);
-        }
-        if touched.len() > 1 {
-            if !refinement {
-                related_closely.extend(touched.iter().copied());
-            }
-            related.extend(touched);
-        }
-    }
-    let mut refinement_only: Vec<SpecRef> = Vec::new();
     let documents = || set.packages.iter().flat_map(|p| &p.documents);
-    // A check states a relation that a proof must establish.
-    let checked: BTreeSet<&String> = documents().flat_map(|d| &d.checks).flat_map(|c| c.left.iter().chain(&c.right)).collect();
     // A primitive is named as it is written, in the namespace that declares it.
     let primitives: BTreeSet<String> = documents()
         .flat_map(|d| {
@@ -276,64 +190,6 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
         })
         .collect();
     let local = |term: &str| term.rsplit("::").next().unwrap_or(term).to_string();
-    // A statement without normative force describes the terms that it relates.
-    let mut described: BTreeSet<String> = BTreeSet::new();
-    for doc in documents() {
-        let scoped = lex.in_document(doc);
-        for spec in doc.specs.iter().filter(|spec| describes(&spec.sentence.core)) {
-            for (term, kind) in occurrences(&spec.sentence, &scoped).into_iter().filter(|(_, kind)| *kind != "action") {
-                // A value is named without its namespace, and the term that it names is described with it.
-                if kind == "value" {
-                    described.insert(scoped.resolve(&term));
-                }
-                described.insert(term);
-            }
-        }
-    }
-    // A modified phrase is a kind of its head, and is grounded with it.
-    let heads: BTreeSet<Vec<String>> = crate::reading::meaning::grounded_heads(set, lex).into_keys().collect();
-    let through_head = |term: &str| {
-        let words: Vec<String> = local(term).split_whitespace().map(str::to_string).collect();
-        words.len() > 1 && crate::reading::meaning::head_of(&words, &heads).is_some()
-    };
-    // A value is named without its namespace: the definition of the term that it names grounds it.
-    let defined_locals: BTreeSet<String> = vocabulary.iter().filter(|(_, e)| e.defined_at.is_some() || e.signature.is_some()).map(|(term, _)| local(term).to_lowercase()).collect();
-    let plain_term = |term: &str| described.contains(term) || primitives.contains(term) || primitives.contains(&local(term)) || vocabulary.get(term).is_some_and(|e| e.defined_at.is_some() || e.signature.is_some()) || (!term.contains("::") && defined_locals.contains(&term.to_lowercase())) || through_head(term);
-    // A restricted phrase is a kind of the phrase that its clause restricts.
-    let restricted_head = |term: &str| -> Option<String> {
-        let padded = format!(" {} ", local(term).to_lowercase());
-        let at = model.read_clauses.iter().filter_map(|clause| padded.find(&format!(" {clause} ")).or_else(|| padded.find(&format!(" {} ", clause.split_whitespace().take(2).collect::<Vec<_>>().join(" "))))).min()?;
-        let head = padded[..at].trim().to_string();
-        (!head.is_empty()).then_some(head)
-    };
-    // `trion language vocabulary::statement`: the owner of an `of` phrase stands before the qualified head.
-    let owned_head = |term: &str| -> Option<String> {
-        let at = term.split_whitespace().position(|w| w.contains("::"))?;
-        (at > 0).then(|| term.split_whitespace().skip(at).collect::<Vec<_>>().join(" "))
-    };
-    // `noun of the specification` is named `specification noun`: a phrase is a kind of the head that ends it.
-    let through_tail = |term: &str| {
-        let (namespace, name) = term.rsplit_once("::").map_or((None, term), |(namespace, name)| (Some(namespace), name));
-        let words: Vec<&str> = name.split_whitespace().collect();
-        // `former statement` is no statement: a modifier that denies its head names no kind of it.
-        let denied = words.iter().any(|word| crate::syntax::words::is_privative(&word.to_lowercase()) || word.starts_with("non-"));
-        !denied && (1..words.len()).any(|at| {
-            let tail = words[at..].join(" ");
-            plain_term(&tail) || namespace.is_some_and(|namespace| plain_term(&format!("{namespace}::{tail}")))
-        })
-    };
-    let grounded_term = |term: &str| {
-        plain_term(term)
-            || through_tail(term)
-            // `one or more statements` names the term `statement`.
-            || term.strip_suffix('s').is_some_and(|single| !single.ends_with('s') && (plain_term(single) || defined_locals.contains(&local(single).to_lowercase())))
-            || owned_head(term).is_some_and(|head| plain_term(&head))
-            || restricted_head(term).is_some_and(|head| {
-                let scoped = term.rsplit_once("::").map(|(namespace, _)| format!("{namespace}::{head}"));
-                plain_term(&head) || scoped.is_some_and(|name| plain_term(&name))
-            })
-    };
-
     // Properties beyond one model of a conjunction: one report for each statement and kind.
     let mut inexpressible = Vec::new();
     let mut told: BTreeSet<(String, &'static str)> = BTreeSet::new();
@@ -369,78 +225,12 @@ pub fn silence(set: &SpecSet, model: &Model, vocabulary: &BTreeMap<String, Vocab
         constraint.guarantee.atoms(true, &mut visit);
     }
 
-    // Where a term is defined in a namespace that the statement does not use.
-    let mut defined_in: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (term, entry) in vocabulary.iter().filter(|(_, e)| e.defined_at.is_some()) {
-        if let Some((namespace, name)) = term.rsplit_once("::") {
-            defined_in.entry(name.to_lowercase()).or_default().insert(namespace.to_string());
-        }
-        let _ = entry;
-    }
-    // A namespace of the root package is written with the package name before it.
-    let root = set.packages.iter().find(|p| p.is_root).map(|p| p.name.clone()).unwrap_or_default();
-    let foreign: Vec<&str> = set.packages.iter().filter(|p| !p.is_root).map(|p| p.name.as_str()).collect();
-    let written = |namespace: &str| {
-        let own = |package: &str| namespace == package || namespace.starts_with(&format!("{package}."));
-        if root.is_empty() || own(&root) || foreign.iter().any(|package| own(package)) { namespace.to_string() } else { format!("{root}.{namespace}") }
-    };
-    let closed_values: BTreeSet<String> = model.closed_domains.values().flatten().flat_map(|value| [value.clone(), local(value)]).collect();
-    let mut ungrounded = Vec::new();
-    for doc in documents() {
-        let scoped = lex.in_document(doc);
-        let reachable: BTreeSet<&str> = std::iter::once(doc.namespace.as_str()).chain(doc.imports.iter().map(|i| i.namespace.as_str())).collect();
-        let elsewhere = |term: &str| -> Option<String> {
-            let name = local(term).to_lowercase();
-            let owners: Vec<&String> = defined_in.get(&name)?.iter().filter(|ns| !reachable.contains(ns.as_str())).collect();
-            match owners.as_slice() {
-                [] => None,
-                [one] => Some(format!("`{name}` is defined in the namespace `{one}`, which this namespace does not use: `use {}` gives it that meaning", written(one))),
-                many => Some(format!("`{name}` is defined in the namespaces {}: a `use` of more than one of them makes the term ambiguous, so write the namespace, as in `{}::{name}`", many.iter().map(|ns| format!("`{ns}`")).collect::<Vec<_>>().join(" and "), many[0])),
-            }
-        };
-        for spec in &doc.specs {
-            // A definition says what its term is, and a statement without normative
-            // force says which situations can occur: neither is a statement that
-            // could constrain nothing.
-            if matches!(spec.sentence.core, Core::Definition { .. }) || describes(&spec.sentence.core) {
-                continue;
-            }
-            let id = spec.display_id();
-            let Some((at, signs)) = own.get(&id) else { continue };
-            let shares = signs.iter().any(|s| held_by.get(s).is_some_and(|ids| ids.len() > 1));
-            if shares || related_closely.contains(&id) || checked.contains(&id) || is_part_checked(spec, &checked) {
-                continue;
-            }
-            if related.contains(&id) {
-                let listed = |term: &str, kind: &str| kind == "value" && (closed_values.contains(term) || closed_values.contains(&local(term)));
-                if occurrences(&spec.sentence, &scoped).into_iter().any(|(term, kind)| kind != "action" && !listed(&term, kind) && !grounded_term(&term)) {
-                    refinement_only.push(at.clone());
-                }
-                continue;
-            }
-            // The listed values of a closed domain are what the domain is: an enumeration grounds them.
-            let listed = |term: &str, kind: &str| kind == "value" && (closed_values.contains(term) || closed_values.contains(&local(term)));
-            let mut loose: Vec<String> = occurrences(&spec.sentence, &scoped).into_iter().filter(|(term, kind)| *kind != "action" && !listed(term, kind)).map(|(term, _)| term).filter(|term| !grounded_term(term)).collect();
-            loose.sort();
-            loose.dedup();
-            if loose.is_empty() {
-                continue;
-            }
-            let terms = loose.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", ");
-            let hints: Vec<String> = loose.iter().filter_map(|t| elsewhere(t)).collect();
-            let hint = if hints.is_empty() { String::new() } else { format!("; {}", hints.join("; ")) };
-            ungrounded.push(Diagnostic::error("ungrounded", format!("this statement excludes no interpretation of the other statements: no other statement, axiom or check shares an atom with it, and {terms} {} neither a definition nor a primitive declaration nor a description: define each term with `A <term> means …`, describe it in a statement without a modal verb, or declare it with `primitive <term>`{hint}", if loose.len() == 1 { "has" } else { "have" }), vec![at.clone()]));
-        }
-    }
-    if std::env::var("TRION_PROFILE").is_ok() {
-        eprintln!("grounded only through `detailed by`: {} statements", refinement_only.len());
-    }
-    Silence { opaque, ungrounded, inexpressible, refinement_only }
+    Silence { opaque, inexpressible, ..Silence::default() }
 }
 
 /// Whether a sentence has no normative force and defines no term: it
 /// describes the things that it names.
-fn describes(core: &Core) -> bool {
+pub(super) fn describes(core: &Core) -> bool {
     match core {
         Core::Description { .. } | Core::Relation { .. } | Core::Existence { .. } => true,
         Core::Conjoined { items } => items.iter().all(describes),
@@ -459,12 +249,12 @@ fn advice(kind: &str) -> &'static str {
         "a temporal word" => "write the time as a role of the verb, as in `within 5 seconds`, `before the room is archived` or `until the user confirms`",
         "a word that tells two things apart" => "two things of one type are told apart by statements about individuals, as in `No two rooms have the same name.`, or by a term that a definition declares",
         "a quantifier" | "a pronoun" => "write the quantifier as the determiner of a noun phrase, as in `each request`, `no request` or `at most 3 requests`, and name the thing instead of pointing at it",
-        "a preposition" => "write the phrase as a role after the verb, or define the whole phrase as a term with `A … means …`",
+        "a preposition" => "write the phrase as a role after the verb where the role has the intended meaning",
         "a conjunction" => "state each part as its own statement, or join whole noun phrases or whole verb phrases",
         "an article" => "write one determiner before the modifiers and the head of a noun phrase, as in `the source file`",
         "an auxiliary" | "a negation" => "write the modal and the negation before the verb, as in `shall not send`",
         "a word of time, order, number or degree" => "write `eventually`, `always` or `immediately` before the verb, or a deadline after it",
-        _ => "state it with a number, as in `at most 10 MB`, or define the phrase as a term",
+        _ => "state it with a number, as in `at most 10 MB` where the number captures the intended property",
     }
 }
 
@@ -566,8 +356,4 @@ fn unvisited(set: &SpecSet, model: &Model, told: &BTreeSet<String>, lex: &Lexico
         }
     }
     out
-}
-
-fn is_part_checked(spec: &Spec, checked: &BTreeSet<&String>) -> bool {
-    spec.parts.iter().any(|part| checked.contains(part))
 }

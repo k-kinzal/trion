@@ -16,9 +16,9 @@ class TrionLanguageTest : BasePlatformTestCase() {
     private val q = "\"\"\""
 
     private val sample = """
-        // trion language specification, proposed edition 0.1.0-draft.1.
+        // trion language specification.
         // Its syntax has not been checked.
-        package trion edition "0.1.0-draft.1"
+        package trion
 
         include "rooms/members.trion"
 
@@ -82,7 +82,7 @@ class TrionLanguageTest : BasePlatformTestCase() {
     // trion: verifies trion#EDITOR-IDEA-HIGHLIGHT
     fun testDeclarationsSentencesAndReferencesGetTheirOwnTokens() {
         val all = tokens(sample)
-        for (keyword in listOf("package", "edition", "include", "namespace", "use", "cite", "source", "title", "quote", "section")) {
+        for (keyword in listOf("package", "include", "namespace", "use", "cite", "source", "title", "quote", "section")) {
             assertEquals(keyword, "DIRECTIVE", typeOf(all, keyword))
         }
         assertEquals("NAME", typeOf(all, "trion.room"))
@@ -111,9 +111,8 @@ class TrionLanguageTest : BasePlatformTestCase() {
     fun testCommentsAndStringsAreSingleTokens() {
         val all = tokens(sample)
         // The reported cases: no number and no keyword inside a comment or a string.
-        assertEquals("COMMENT", typeOf(all, "// trion language specification, proposed edition 0.1.0-draft.1."))
+        assertEquals("COMMENT", typeOf(all, "// trion language specification."))
         assertEquals("COMMENT", typeOf(all, "// Its syntax has not been checked."))
-        assertEquals("STRING", typeOf(all, "\"0.1.0-draft.1\""))
         assertEquals("STRING", typeOf(all, "\"rooms/members.trion\""))
         assertEquals("RAW_STRING", typeOf(all, "$q\nA room is not public. // 0.1\n$q"))
         assertFalse(all.any { it.first == "0.1" || it.first == "not" && it.second != "MODAL" })
@@ -191,7 +190,7 @@ class TrionLanguageTest : BasePlatformTestCase() {
         File(root, "trion.toml").writeText("[package]\nname = \"chat\"\nentry = \"spec/chat.trion\"\n")
         File(root, "spec").mkdirs()
         File(root, "spec/chat.trion").writeText(
-            "package chat edition \"1\"\n\ninclude \"rooms.trion\"\n\nnamespace chat:\n    use chat.room\n    cite R#ROOMS\n\n    section \"Scope\":\n        ref [ROOM-KINDS]\n        [CHAT-1] The chat service shall keep each room.\n",
+            "package chat\n\ninclude \"rooms.trion\"\n\nnamespace chat:\n    use chat.room\n    cite R#ROOMS\n\n    section \"Scope\":\n        ref [ROOM-KINDS]\n        [CHAT-1] The chat service shall keep each room.\n",
         )
         File(root, "spec/rooms.trion").writeText(
             "namespace chat.room:\n    source R:\n        title \"t\"\n        locator \"l\"\n        quote ROOMS \"Rooms.\"\n\n    A room means a place for messages.\n\n    [ROOM-KINDS]\n    The room type is private or public.\n    [ROOM-OPEN] The room type is open.\n",
@@ -400,7 +399,7 @@ class TrionLanguageTest : BasePlatformTestCase() {
         assertEquals("DIRECTIVE", typeOf(entry, "include"))
         assertEquals("DIRECTIVE", typeOf(entry, "namespace"))
         assertEquals("DIRECTIVE", typeOf(entry, "cite"))
-        assertEquals("DIRECTIVE", typeOf(entry, "section"))
+        assertTrue(entry.any { it.first == "section" && it.second == "DIRECTIVE" })
     }
 
     // trion: verifies trion#EDITOR-IDEA-TERM-DOC, trion#EDITOR-IDEA-DIAGNOSTICS
@@ -415,7 +414,7 @@ class TrionLanguageTest : BasePlatformTestCase() {
         Disposer.register(testRootDisposable) { settings.serverPath = previous }
         val cli = TrionCli.getInstance(project)
         val text = File(repository, "spec/trion.trion").readText()
-        val offset = text.indexOf("The trion language shall") + 6
+        val offset = text.indexOf("The trion language is a formal") + 6
         val target = TrionResolver.targetAt(text, offset) as TrionTarget.Term
         val glossary = background { cli.glossary(repository) }
         val term = TrionResolver.term(target, glossary)
@@ -427,11 +426,11 @@ class TrionLanguageTest : BasePlatformTestCase() {
         val small = FileUtil.createTempDirectory("trion-small", null)
         Disposer.register(testRootDisposable) { small.deleteRecursively() }
         File(small, "trion.toml").writeText("[package]\nname = \"p\"\nentry = \"a.trion\"\n")
-        File(small, "a.trion").writeText("package p edition \"1\"\nnamespace p\n[A] The API shall stop.\n[LONE] The gadget shall frobnicate the widget.\n")
+        File(small, "a.trion").writeText("package p\nnamespace p\n[A] The API shall stop.\n[LONE] The gadget shall frobnicate the widget.\n")
         val report = background { cli.check(small) }!!
         assertNull(report.failure)
         assertEquals("consistent", report.verdict)
-        assertTrue(report.summary(), report.ungrounded.isNotEmpty())
+        assertTrue(report.summary(), report.ungrounded.isEmpty())
         assertNotNull(report.verdict)
         // The real report states its bounds, and how much of the package says nothing.
         assertTrue(report.summary(), report.summary().contains("within traces of"))

@@ -94,7 +94,7 @@ fn kind_of(text: &str) -> Kind {
     let sentence = text.ends_with('.');
     if text.starts_with("//") {
         Kind::Comment
-    } else if word("package") && text.contains(" edition ") {
+    } else if word("package") && !sentence {
         Kind::Package
     } else if text.starts_with("include \"") {
         Kind::Include
@@ -322,7 +322,7 @@ impl Shared<'_> {
                 (None, Some(place)) => ("defined", format!("declared at {place}")),
                 _ => ("derived", format!("derived term ({}); first used at {}", entry.kinds.join(", "), entry.first_use.as_deref().unwrap_or("an unknown place"))),
             };
-            let definition = entry.defined_at.as_ref().and_then(|place| self.anchors.get(place));
+            let definition = entry.defined_at.as_ref().or(entry.introduced_at.as_ref()).and_then(|place| self.anchors.get(place));
             let href = definition.cloned().unwrap_or_else(|| format!("g-{}", slug(key)));
             out.push_str(&esc(&text[at..start]));
             out.push_str(&format!("<a class=\"term {class}\" href=\"#{}\" title=\"{}\">{}</a>", esc(&href), esc(&title), esc(&text[start..end])));
@@ -784,7 +784,7 @@ h3{font-size:1.2rem;margin:1.8rem 0 .5rem}h4,h5,h6{font-size:1.05rem;margin:1.4r
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 code,pre{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 pre{background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:.6rem .8rem;overflow-x:auto;white-space:pre-wrap}
-.edition,.path,.comment,.meta,.nsname,.ref{color:var(--muted);font-size:.85rem}
+.path,.comment,.meta,.nsname,.ref{color:var(--muted);font-size:.85rem}
 .status{border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:6px;padding:.6rem .9rem;margin:1rem 0;background:var(--soft)}
 .status ul{margin:.3rem 0;padding-left:1.2rem}
 nav.toc{border:1px solid var(--line);border-radius:6px;padding:.6rem .9rem;margin:1rem 0}
@@ -907,13 +907,6 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
         toc.push_str("</li>\n");
     }
 
-    // The package line of the entry file names the edition.
-    let entry = project.root.join(project.manifest.package.entry.as_deref().unwrap_or("trion.trion"));
-    let edition = fs::read_to_string(entry).ok().and_then(|text| {
-        let line = text.lines().find(|l| l.starts_with("package ") && l.contains(" edition "))?;
-        Some(line.split_once(" edition ")?.1.trim().trim_matches('"').to_string())
-    });
-
     // The package conforms to the language: what is left to say of it is a
     // warning. Nothing in the document is proved: the proof obligations are
     // listed with the bound that each is about.
@@ -931,7 +924,7 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
         status.push_str(&format!("<li>declared, not checked: {}</li>\n", esc(declared)));
     }
     if let Some(individuals) = &analysis.model.individuals {
-        status.push_str(&format!("<li>individuals: semantic version {}; domains of {} individuals of each declared type</li>\n", esc(individuals.version), individuals.scope));
+        status.push_str(&format!("<li>individuals: domains of {} individuals of each declared type</li>\n", individuals.scope));
         status.push_str("<li><details><summary>readings over individuals</summary><dl>\n");
         for meaning in &individuals.meanings {
             status.push_str(&format!("<dt>[{}] {}</dt><dd>{}</dd>\n", esc(&meaning.statement), esc(&meaning.source), meaning.lines().iter().map(|line| esc(line)).collect::<Vec<_>>().join("<br>")));
@@ -1003,12 +996,23 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
             terms.push_str(&esc(definition));
             terms.push(' ');
         }
-        let place = entry.defined_at.as_ref().or(entry.declared_at.as_ref()).or(entry.first_use.as_ref());
+        let place = entry.defined_at.as_ref().or(entry.declared_at.as_ref()).or(entry.introduced_at.as_ref()).or(entry.first_use.as_ref());
         if let Some(place) = place {
             let word = if entry.defined_at.is_some() { "defined at" } else if entry.declared_at.is_some() { "declared at" } else { "first used at" };
             match shared.anchors.get(place) {
                 Some(anchor) => terms.push_str(&format!("{word} <a href=\"#{}\"><code>{}</code></a>; ", esc(anchor), esc(place))),
                 None => terms.push_str(&format!("{word} <code>{}</code>; ", esc(place))),
+            }
+        }
+        if !entry.targets.is_empty() {
+            terms.push_str(&format!("resolves through <code>{}</code>; ", esc(&entry.targets.join(", "))));
+        }
+        for constraint in &entry.constraints {
+            let place = format!("{}:{}", constraint.file, constraint.line);
+            let sentence = esc(&constraint.text);
+            match shared.anchors.get(&place) {
+                Some(anchor) => terms.push_str(&format!("<a href=\"#{}\">{sentence}</a> ", esc(anchor))),
+                None => terms.push_str(&format!("<code>{}</code> {sentence} ", esc(&place))),
             }
         }
         if !entry.namespace.is_empty() {
@@ -1035,9 +1039,8 @@ pub(crate) fn render(project: &Project, converted: &Converted, only: Option<&str
         _ => name.clone(),
     };
     Ok(format!(
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{}</title>\n<style>{STYLE}</style>\n</head>\n<body>\n<main>\n<header><h1>{}</h1>\n<div class=\"edition\">{}</div></header>\n{status}<nav class=\"toc\"><strong>Contents</strong><ul>\n{toc}<li><a href=\"#glossary\">Glossary</a></li></ul></nav>\n{body}{views}{terms}</main>\n</body>\n</html>\n",
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{}</title>\n<style>{STYLE}</style>\n</head>\n<body>\n<main>\n<header><h1>{}</h1></header>\n{status}<nav class=\"toc\"><strong>Contents</strong><ul>\n{toc}<li><a href=\"#glossary\">Glossary</a></li></ul></nav>\n{body}{views}{terms}</main>\n</body>\n</html>\n",
         esc(&title),
         esc(&title),
-        edition.map_or(String::new(), |e| format!("edition {}", esc(&e))),
     ))
 }

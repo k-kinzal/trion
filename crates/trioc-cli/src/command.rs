@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "trioc", version, about = "Prove MMT obligations and check formal analyses")]
+#[command(name = "trioc", about = "Prove MMT obligations and check formal analyses")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

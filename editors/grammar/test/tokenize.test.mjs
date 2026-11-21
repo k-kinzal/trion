@@ -151,12 +151,10 @@ test('a raw string spans lines verbatim until three quotes', () => {
 });
 
 // trion: verifies trion#EDITOR-GRAMMAR-PARSER
-test('file directives scope the package, its edition and includes', () => {
+test('file directives scope the package and includes', () => {
   expectAll([
     ['package', 'package', 'keyword.other.directive.package'],
     ['package', 'chat', 'entity.name.namespace.package'],
-    ['package', 'edition', 'keyword.other.directive.edition'],
-    ['package', '2026-11-09', 'string.quoted.double'],
     ['include', 'include', 'keyword.other.directive.include'],
     ['include', 'parts/more.trion', 'string.quoted.double'],
   ]);

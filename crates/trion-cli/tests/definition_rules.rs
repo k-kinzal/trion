@@ -18,7 +18,7 @@ fn definition(file: &str, term: &str) -> String {
 
 fn package(body: &str) -> Fixture {
     let indented: String = body.lines().map(|line| if line.is_empty() { "\n".to_string() } else { format!("    {line}\n") }).collect();
-    Fixture::raw(&[("trion.toml", "[package]\nname = \"p\"\nentry = \"a.trion\"\n"), ("a.trion", &format!("package p edition \"1\"\n\nnamespace p.x:\n{indented}"))])
+    Fixture::raw(&[("trion.toml", "[package]\nname = \"p\"\nentry = \"a.trion\"\n"), ("a.trion", &format!("package p\n\nnamespace p.x:\n{indented}"))])
 }
 
 fn codes(body: &str) -> (i32, Vec<String>) {

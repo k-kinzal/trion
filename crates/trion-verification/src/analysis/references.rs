@@ -225,7 +225,12 @@ impl ProofObligations {
     pub fn decide(&self, inst: &Instance, obligation: &ProofObligation) -> Decision {
         let mut asked = Vec::new();
         let mut found = Vec::new();
-        let (verdict, reason) = decide_question(inst, &obligation.question, &self.owners, &mut asked, &mut found);
+        let (verdict, mut reason) = decide_question(inst, &obligation.question, &self.owners, &mut asked, &mut found);
+        if verdict == ObligationVerdict::Refuted && obligation.property == "correctness" {
+            if let Some(explanation) = refinement_counterexample(&asked) {
+                reason = Some(explanation);
+            }
+        }
         let formulas = inst.formulas();
         let counterexamples = found
             .into_iter()
@@ -238,6 +243,38 @@ impl ProofObligations {
             .collect();
         Decision { verdict, reason, asked, counterexamples }
     }
+}
+
+/// A refuted refinement has either an excluded environment or a behaviour
+/// that keeps the details and violates their reference.
+fn refinement_counterexample(asked: &[Asked]) -> Option<String> {
+    let failure = asked.last()?;
+    let witness = failure.answer.witness()?;
+    match asked.len() {
+        1 => return Some("there is an environment accepted by the reference that its details exclude within the stated bound".into()),
+        2 => {}
+        _ => return None,
+    }
+    let mut reason = "there is a behaviour that keeps the details and violates the reference within the stated bound".to_string();
+    let Some(Formula::And(comparison)) = failure.formulas.last() else { return Some(reason) };
+    let [details, Formula::Not(reference)] = comparison.as_slice() else { return Some(reason) };
+    let facts = witness.atoms();
+    let mut action = None;
+    details.atoms(true, &mut |atom, positive| {
+        if action.is_none() && positive && matches!(atom, Atom::Act { .. }) && facts.get(atom) == Some(&true) {
+            action = Some(atom.to_string());
+        }
+    });
+    let mut state = None;
+    reference.atoms(true, &mut |atom, positive| {
+        if state.is_none() && matches!(atom, Atom::Val { .. }) && facts.get(atom) == Some(&!positive) {
+            state = Some(if positive { format!("¬{atom}") } else { atom.to_string() });
+        }
+    });
+    if let (Some(action), Some(state)) = (action, state) {
+        reason.push_str(&format!(". The counterexample includes `{action}` and `{state}`. If the action must establish the state required by the reference, state that relation explicitly"));
+    }
+    Some(reason)
 }
 
 fn ask(inst: &Instance, name: &str, query: &[usize], asked: &mut Vec<Asked>) -> Status {
@@ -401,7 +438,10 @@ impl<'a> Unrolled<'a> {
         let assumed: Vec<bool> = (0..count).map(|i| matches!(model.constraints[i].kind, ConstraintKind::Spec | ConstraintKind::Permission) && !described[i] && super::environment::of_environment(&model.constraints[i], &actors)).collect();
         let normative: Vec<bool> = (0..count).map(|i| matches!(model.constraints[i].kind, ConstraintKind::Spec | ConstraintKind::Permission) && !soft[i] && !described[i] && !assumed[i]).collect();
         let description = |i: usize| model.constraints[i].kind == ConstraintKind::Spec && described[i];
-        let system: Vec<bool> = (0..count).map(|i| description(i) && situated.about_system(&model.constraints[i].formula())).collect();
+        let system: Vec<bool> = (0..count).map(|i| {
+            let constraint = &model.constraints[i];
+            description(i) && situated.describes_system(model, constraint)
+        }).collect();
         let environment: Vec<bool> = (0..count).map(|i| (description(i) && !system[i]) || assumed[i]).collect();
         let base: Vec<usize> = trace.background.iter().map(|f| inst.add(f)).collect();
         let group: Vec<usize> = trace.groups.iter().map(|(f, _)| inst.add(f)).collect();
@@ -409,7 +449,7 @@ impl<'a> Unrolled<'a> {
         // The roles of the system are the system's: a bound role and the
         // form that it requires speak about what the system is, which no
         // behaviour of the environment chooses.
-        let is_normative = |i: usize| normative[i] || matches!(model.constraints[i].kind, ConstraintKind::Binding | ConstraintKind::Form);
+        let is_normative = |i: usize| normative[i] || model.constraints[i].kind.is_form();
         let responsibility = situations::Responsibility::of(model, &situated.events, &situated.given, &situated.system, &is_normative).following(model, &inst.formulas(), &situated.events, &actors);
         let mut read = model.clone();
         for i in (0..count).filter(|&i| normative[i]) {
@@ -423,11 +463,26 @@ impl<'a> Unrolled<'a> {
         // (AGENTS.md, rule 3 of responsibility; `formal/Trion/Merging.lean`).
         let blocks: BTreeMap<(String, usize), (String, Vec<usize>)> = set.packages.iter().flat_map(|p| &p.documents).flat_map(|d| &d.specs).map(|spec| ((spec.file.clone(), spec.line), (spec.file.clone(), spec.scope_lines.clone()))).collect();
         let block_of = |i: usize| model.constraints[i].refs.first().and_then(|r| blocks.get(&(r.file.clone(), r.line))).cloned();
-        let narrowed: Vec<bool> = (0..count).map(|i| environment[i] && block_of(i).is_some_and(|(_, lines)| !lines.is_empty())).collect();
+        let application: Vec<Vec<&SpecRef>> = model.constraints.iter().map(|constraint| {
+            constraint.refs.first().and_then(|at| authored.owner(at)).map_or_else(Vec::new, |(_, doc)| {
+                doc.application_ancestors.iter().chain(doc.application_scope.iter()).collect()
+            })
+        }).collect();
+        let narrowed: Vec<bool> = (0..count).map(|i| environment[i] && (!application[i].is_empty() || block_of(i).is_some_and(|(_, lines)| !lines.is_empty()))).collect();
         let scoped: Vec<Vec<usize>> = (0..count)
             .map(|j| {
-                let Some((file, lines)) = block_of(j) else { return Vec::new() };
-                (0..count).filter(|&i| i != j && narrowed[i]).filter(|&i| block_of(i).is_some_and(|(f, l)| f == file && lines.starts_with(&l))).collect()
+                (0..count).filter(|&i| i != j && narrowed[i]).filter(|&i| {
+                    if !application[j].starts_with(&application[i]) {
+                        return false;
+                    }
+                    let Some((file, lines)) = block_of(i).filter(|(_, lines)| !lines.is_empty()) else {
+                        return true;
+                    };
+                    if application[i] != application[j] {
+                        return false;
+                    }
+                    block_of(j).is_some_and(|(scope_file, scope_lines)| scope_file == file && scope_lines.starts_with(&lines))
+                }).collect()
             })
             .collect();
         let reference = vec![false; count];
@@ -561,7 +616,7 @@ impl<'a> Unrolled<'a> {
         // What the environment may do, and the laws of the terms and of time.
         // The form that a bound role requires is required of the system: it is
         // a conclusion, and no premise.
-        let shaped = |i: usize| matches!(kinds[i].kind, ConstraintKind::Binding | ConstraintKind::Form);
+        let shaped = |i: usize| kinds[i].kind.is_form();
         let standing: Vec<usize> = self.background.iter().copied().chain((0..count).filter(|&i| !kinds[i].kind.is_axiom() && !shaped(i) && !self.normative[i] && !self.soft[i] && !self.system[i] && !self.narrowed[i] && (!self.reference[i] || among(i)) && (self.environment[i] || kinds[i].kind != ConstraintKind::Spec)).map(|i| self.group[i])).collect();
         // The situations that can occur: the standing formulas for some
         // state of the system, each term of the response a copy of its own.

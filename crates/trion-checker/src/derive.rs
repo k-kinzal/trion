@@ -11,8 +11,7 @@
 //!
 //! What a refusal covers:
 //!
-//! - the version and the rules: a record of another semantic version, or a
-//!   step that names no rule of the version;
+//! - the rules: a step that names no reading rule;
 //! - the binding: a variable with another noun, carrier or place of
 //!   introduction, a restriction or a condition that is missing, added,
 //!   denied or bound to another variable;
@@ -34,15 +33,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use trion_language::document::{SpecSet, Spec};
-use trion_language::reading::typed::{Bounding, Choice, Condition, Force, Frame, FrameKind, Meaning, Pattern, Quantity, Relation, Response, Share, Site, Term, Variable};
+use trion_language::reading::typed::{Bounding, Choice, Condition, DomainFact, Force, Frame, FrameKind, Meaning, Nominal, Pattern, Quantity, Relation, Response, Share, Site, Term, Variable};
 use trion_language::reading::{np_key, Fact, Lexicon, Model};
 use trion_language::syntax::ast::*;
 use trion_solver::{Atom, Cmp, Formula};
 
 /// The meaning rules that this checker implements.
-pub const VERSION: &str = "0.1.0";
-
-/// The rules of the version, by name.
+/// The reading rules, by name.
 pub const RULES: [&str; 35] = [
     "variable", "variable-some", "variable-any", "variable-again", "variable-other", "variable-that", "variable-no", "variable-count", "choice-order", "variable-of", "constant", "attribute", "frame-where", "frame-while", "frame-when", "frame-if", "condition-occurs", "condition-holds", "condition-related", "condition-kind", "condition-compares", "exception", "force", "response-action", "response-deadline", "response-after", "response-before", "response-state", "response-values", "response-related", "response-kind", "response-bound", "response-share", "choice-either", "choice-each",
 ];
@@ -220,11 +217,23 @@ impl Second<'_> {
             };
             named.push((marker, self.one(group)?));
         }
-        Ok(Pattern { actor, verb: singular(verb), particle: particle.as_ref().map(|p| p.to_lowercase()), object, roles: named })
+        let lemma = singular(verb);
+        let verb = self.lex.predicate_identity(&lemma).unwrap_or(lemma);
+        Ok(Pattern { actor, verb, particle: particle.as_ref().map(|p| p.to_lowercase()), object, roles: named })
     }
 
     /// What `[not] a R [of the T]`, `[not] the R of the T` or `[not] <value>` says.
-    fn predicate(&mut self, subject: Term, words: &[String], roles: &[RolePp]) -> Read<Said> {
+    fn predicate(&mut self, subject: Term, predicate: &Predicate, roles: &[RolePp]) -> Read<Said> {
+        let Predicate::Words { words, nominal } = predicate else { return Err("a non-nominal predicate".into()) };
+        if let Some(group) = nominal.as_ref().filter(|_| roles.is_empty()) {
+            if !matches!(group, NpGroup::Single(np) if np.of.is_some()) {
+                let denied = words.first().is_some_and(|word| word.eq_ignore_ascii_case("not"));
+                return Ok(match classification(group, self.lex, &mut BTreeSet::new())? {
+                    Nominal::Atom(kind) => Said::Kind { kind, subject, denied },
+                    predicate => Said::Membership { predicate, subject, denied },
+                });
+            }
+        }
         let lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
         let (denied, rest) = match lower.split_first() {
             Some((first, rest)) if first == "not" => (true, rest),
@@ -276,9 +285,10 @@ impl Second<'_> {
         let subject = self.one(&clause.subject)?;
         match &clause.body {
             ClauseBody::Verbal { verb, particle, object, roles, negation, .. } => Ok(Condition::Occurs { pattern: self.pattern(subject, verb, particle, object, roles)?, denied: negation.is_some() }),
-            ClauseBody::Copular { predicate: Predicate::Words { words }, agent: None, roles, .. } => Ok(match self.predicate(subject, words, roles)? {
+            ClauseBody::Copular { predicate: predicate @ Predicate::Words { .. }, agent: None, roles, .. } => Ok(match self.predicate(subject, predicate, roles)? {
                 Said::Related(relation) => Condition::Related(relation),
                 Said::Kind { kind, subject, denied } => Condition::Kind { kind, subject, denied },
+                Said::Membership { predicate, subject, denied } => Condition::Membership { predicate, subject, denied },
                 Said::Value { subject, value, denied } => Condition::Holds { subject, value, denied },
             }),
             ClauseBody::Copular { predicate: Predicate::Comparison(_), agent: None, .. } => Ok(Condition::Compares { text: clause.render() }),
@@ -327,7 +337,60 @@ impl Second<'_> {
 enum Said {
     Related(Relation),
     Kind { kind: String, subject: Term, denied: bool },
+    Membership { predicate: Nominal<String>, subject: Term, denied: bool },
     Value { subject: Term, value: String, denied: bool },
+}
+
+fn classification(group: &NpGroup, lex: &Lexicon, open: &mut BTreeSet<String>) -> Read<Nominal<String>> {
+    fn relative(clause: &Relative, lex: &Lexicon, open: &mut BTreeSet<String>) -> Read<Nominal<String>> {
+        let RelativeBody::Copular {
+            predicate: Predicate::Words { words, nominal: Some(group) },
+            agent: None, roles, ..
+        } = &clause.body else { return Err("a non-classifying relative clause".into()) };
+        if !matches!(clause.marker, RelMarker::That | RelMarker::Who) || !roles.is_empty() {
+            return Err("a relative clause with a role outside the classification".into());
+        }
+        let mut read = classification(group, lex, open)?;
+        if words.first().is_some_and(|word| word.eq_ignore_ascii_case("not")) {
+            read = Nominal::Not(Box::new(read));
+        }
+        if let Some(next) = &clause.and {
+            return Ok(Nominal::And(vec![read, relative(next, lex, open)?]));
+        }
+        Ok(read)
+    }
+    let mut parts = Vec::new();
+    let nouns = match group {
+        NpGroup::Single(noun) => std::slice::from_ref(noun),
+        NpGroup::Coordinated { items, .. } => items.as_slice(),
+    };
+    for np in nouns {
+        if !matches!(np.det, None | Some(Det::A | Det::An)) || np.of.is_some() || !np.of_also.is_empty() {
+            return Err("a quantified or owned classification".into());
+        }
+        let mut noun = np.clone();
+        noun.relative = None;
+        let name = np_key(&noun, lex);
+        let mut body = Nominal::Atom(name.clone());
+        if let Some((definition, origin)) = lex.class_body(&name) {
+            if !open.insert(name.clone()) {
+                return Err(format!("a circular definition of `{name}`"));
+            }
+            body = classification(definition, &origin, open)?;
+            open.remove(&name);
+        }
+        if let Some(clause) = &np.relative {
+            body = Nominal::And(vec![body, relative(clause, lex, open)?]);
+        }
+        parts.push(body);
+    }
+    Ok(if parts.len() == 1 {
+        parts.remove(0)
+    } else if matches!(group, NpGroup::Coordinated { conj: Conj::Or, .. }) {
+        Nominal::Or(parts)
+    } else {
+        Nominal::And(parts)
+    })
 }
 
 /// A time in thousandths of a millisecond.
@@ -445,7 +508,7 @@ fn unfolded(sentence: &Sentence, reader: &Second) -> Read<Sentence> {
                 if let (true, NpGroup::Single(np)) = (n > 1, &clause.subject) {
                     one.subject = NpGroup::Single(one_of(np, at));
                     // What is said of several is said of each: `are members of the room`.
-                    if let ClauseBody::Copular { copula, predicate: Predicate::Words { words }, roles, .. } = &mut one.body {
+                    if let ClauseBody::Copular { copula, predicate: Predicate::Words { words, .. }, roles, .. } = &mut one.body {
                         *copula = ClauseCopula::Is;
                         let owner_follows = matches!(roles.as_slice(), [RolePp::Other { preposition, .. }] if preposition.to_lowercase() == "of");
                         let from = usize::from(words.first().is_some_and(|w| w.to_lowercase() == "not"));
@@ -710,9 +773,10 @@ fn second(statement: &str, sentence: &Sentence, carriers: &BTreeMap<String, Stri
             reader.site = Site::Condition;
             let never = *adverb == Some(DescriptionAdverb::Never);
             let response = match predicate {
-                Predicate::Words { words } => match reader.predicate(subject, words, roles)? {
+                Predicate::Words { .. } => match reader.predicate(subject, predicate, roles)? {
                     Said::Related(relation) => Response::Related(Relation { denied: relation.denied != never, ..relation }),
                     Said::Kind { kind, subject, denied } => Response::Kind { kind, subject, denied: denied != never },
+                    Said::Membership { predicate, subject, denied } => Response::Membership { predicate, subject, denied: denied != never },
                     Said::Value { subject, value, denied } => Response::State { subject, value, denied: denied != never },
                 },
                 Predicate::Enumeration { values, conj: Conj::Or, .. } if !never => Response::Values { subject, values: values.iter().map(|v| v.to_lowercase()).collect() },
@@ -729,7 +793,7 @@ fn second(statement: &str, sentence: &Sentence, carriers: &BTreeMap<String, Stri
     if reader.share.is_some() && reader.variables.iter().any(|v| v.site == Site::Chosen) {
         return Err("a share of activations whose response chooses an individual".to_string());
     }
-    Ok(Meaning { statement: statement.to_string(), version: VERSION, source: sentence.source.clone(), variables: reader.variables, restrictions: reader.restrictions, frames, exception, force, choice, responses, share: reader.share, steps: Vec::new() })
+    Ok(Meaning { statement: statement.to_string(), source: sentence.source.clone(), variables: reader.variables, restrictions: reader.restrictions, frames, exception, force, choice, responses, share: reader.share, steps: Vec::new() })
 }
 
 /// The heads of the noun phrases of a sentence, read from its tree as data.
@@ -805,13 +869,49 @@ fn kind_of(atom: &Atom) -> u8 {
 /// The contract that the meaning of one instance requires, as literals.
 struct Expected {
     assume: BTreeSet<(Atom, bool)>,
+    assume_membership: Vec<Formula>,
     /// What makes the individuals that the response chooses ones that it may choose.
     eligible: BTreeSet<(Atom, bool)>,
     guarantee: BTreeSet<(Atom, bool)>,
+    guarantee_membership: Vec<Formula>,
     /// The bound of each deadline: the key of its action and its thousandths.
     deadlines: Vec<(String, i64)>,
     /// The atoms of which one holds: the listed states of an enumeration.
     one_of: Vec<BTreeSet<Atom>>,
+}
+
+impl Expected {
+    fn assumption(&self) -> Formula {
+        Formula::And(self.assume.iter().map(stated_literal).chain(self.assume_membership.iter().cloned()).collect())
+    }
+
+    fn guarantee(&self) -> Formula {
+        let listed = self.one_of.iter().map(|items| Formula::Or(items.iter().cloned().map(Formula::atom).collect()));
+        Formula::And(
+            self.guarantee.union(&self.eligible).map(stated_literal)
+                .chain(self.guarantee_membership.iter().cloned())
+                .chain(listed)
+                .collect()
+        )
+    }
+}
+
+fn stated_literal((atom, positive): &(Atom, bool)) -> Formula {
+    let atom = Formula::atom(atom.clone());
+    if *positive { atom } else { Formula::not(atom) }
+}
+
+fn equivalent(left: &Formula, right: Formula) -> Option<bool> {
+    use trion_solver::Status;
+    let difference = Formula::Or(vec![
+        Formula::And(vec![left.clone(), Formula::not(right.clone())]),
+        Formula::And(vec![right, Formula::not(left.clone())]),
+    ]);
+    match trion_solver::decide(&[difference]).status {
+        Status::Unsatisfiable => Some(true),
+        Status::Satisfiable => Some(false),
+        Status::Unknown => None,
+    }
 }
 
 struct Instance<'a> {
@@ -821,6 +921,15 @@ struct Instance<'a> {
 }
 
 impl Instance<'_> {
+    fn classification(&self, predicate: &Nominal<String>, subject: &Term) -> Read<Formula> {
+        let members = |items: &[Nominal<String>]| items.iter().map(|item| self.classification(item, subject)).collect::<Read<Vec<_>>>();
+        match predicate {
+            Nominal::Atom(kind) => self.kind(kind, subject).map(Formula::atom).ok_or("a class without an individual".into()),
+            Nominal::Not(inner) => self.classification(inner, subject).map(Formula::not),
+            Nominal::And(items) => members(items).map(Formula::And),
+            Nominal::Or(items) => members(items).map(Formula::Or),
+        }
+    }
     fn name(&self, term: &Term) -> String {
         match term {
             Term::Variable(id) => self.names[*id as usize].clone(),
@@ -862,7 +971,8 @@ impl Instance<'_> {
             let related = (self.related(relation).ok_or("a restriction without individuals")?, true);
             if chosen(&relation.owner) || chosen(&relation.member) { eligible.insert(related) } else { assume.insert(related) };
         }
-        let conditional = |condition: &Condition, flip: bool, assume: &mut BTreeSet<(Atom, bool)>| -> Read<()> {
+        let mut assume_membership = Vec::new();
+        let mut conditional = |condition: &Condition, flip: bool, assume: &mut BTreeSet<(Atom, bool)>| -> Read<()> {
             match condition {
                 Condition::Occurs { pattern, denied } => {
                     let fact = self.occurs(pattern);
@@ -880,6 +990,10 @@ impl Instance<'_> {
                 Condition::Kind { kind, subject, denied } => {
                     assume.insert((self.kind(kind, subject).ok_or("a kind without an individual")?, *denied == flip));
                 }
+                Condition::Membership { predicate, subject, denied } => {
+                    let formula = self.classification(predicate, subject)?;
+                    assume_membership.push(if *denied != flip { Formula::not(formula) } else { formula });
+                }
                 Condition::Compares { .. } => return Err("a comparison, which this check does not derive".to_string()),
             }
             Ok(())
@@ -896,6 +1010,7 @@ impl Instance<'_> {
             conditional(exception, true, &mut assume)?;
         }
         let mut guarantee = BTreeSet::new();
+        let mut guarantee_membership = Vec::new();
         let mut deadlines = Vec::new();
         let mut one_of: Vec<BTreeSet<Atom>> = Vec::new();
         if meaning.choice == Choice::Either && meaning.responses.len() > 1 {
@@ -961,10 +1076,14 @@ impl Instance<'_> {
                 Response::Kind { kind, subject, denied } => {
                     guarantee.insert((self.kind(kind, subject).ok_or("a kind without an individual")?, !denied));
                 }
+                Response::Membership { predicate, subject, denied } => {
+                    let formula = self.classification(predicate, subject)?;
+                    guarantee_membership.push(if *denied { Formula::not(formula) } else { formula });
+                }
                 Response::Bound { .. } => return Err("a bound, which this check does not derive".to_string()),
             }
         }
-        Ok(Expected { assume, eligible, guarantee, deadlines, one_of })
+        Ok(Expected { assume, assume_membership, eligible, guarantee, guarantee_membership, deadlines, one_of })
     }
 }
 
@@ -993,10 +1112,6 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
     let mut out = Checked::default();
     let Some(individuals) = &model.individuals else { return out };
     let refuse = |subject: &str, what: String, out: &mut Checked| out.refusals.push(Refusal { subject: subject.to_string(), what });
-    if individuals.version != VERSION {
-        refuse("the reading", format!("the records are of the semantic version {} and this checker implements {VERSION}", individuals.version), &mut out);
-        return out;
-    }
     let carriers: BTreeMap<String, String> = individuals.types.iter().cloned().collect();
     let recorded: BTreeMap<&str, &Meaning> = individuals.meanings.iter().map(|m| (m.statement.as_str(), m)).collect();
     let outside: BTreeSet<&str> = individuals.outside.iter().map(|o| o.statement.id.as_str()).collect();
@@ -1007,6 +1122,9 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
         for doc in &pkg.documents {
             let scoped = lex.in_document(doc);
             for spec in &doc.specs {
+                if matches!(spec.sentence.core, Core::Definition { .. }) {
+                    continue;
+                }
                 let id = if pkg.is_root { spec.display_id() } else { format!("{}::{}", pkg.name, spec.display_id()) };
                 statements.push((id, spec, scoped.clone()));
             }
@@ -1015,21 +1133,61 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
     // The nouns that the package declares: the types of its individuals,
     // its primitive terms and its measures.
     let mut nouns: BTreeSet<String> = BTreeSet::new();
+    let mut known = BTreeSet::new();
+    let mut declared = BTreeSet::new();
     for doc in set.packages.iter().flat_map(|p| &p.documents) {
-        for declared in doc.individuals.iter().chain(&doc.primitives).chain(&doc.measures) {
-            nouns.insert(declared.name.to_lowercase());
+        let scoped = lex.in_document(doc);
+        for name in doc.individuals.iter().chain(&doc.primitives).chain(&doc.measures) {
+            let spelling = name.name.to_lowercase();
+            known.insert(scoped.resolve(&scoped.canon(&spelling)));
+            nouns.insert(spelling);
+        }
+        for name in &doc.individuals {
+            let spelling = name.name.to_lowercase();
+            declared.insert(scoped.resolve(&scoped.canon(&spelling)));
         }
     }
     // The type of each noun, from the declarations and the text of the
     // statements `Each A is a B.`: the nouns that such statements join are
     // of one type, named by the first of its declared nouns.
-    let declared: BTreeSet<String> = set.packages.iter().flat_map(|p| &p.documents).flat_map(|d| &d.individuals).map(|decl| decl.name.to_lowercase()).collect();
+    let classes: BTreeMap<&str, &DomainFact> = individuals.domain.iter().filter_map(|record| {
+        matches!(record.fact, DomainFact::Kind { .. } | DomainFact::Membership { .. })
+            .then_some((record.statement.as_str(), &record.fact))
+    }).collect();
+    let mut read_classes = BTreeMap::new();
     let mut joined: Vec<(String, String)> = Vec::new();
-    for (_, spec, _) in &statements {
-        joined.extend(crate::surface::kind(&spec.sentence.source, &nouns));
+    let mut unchecked_kinds = BTreeSet::new();
+    for (id, spec, scoped) in &statements {
+        let resolve = |name: &str| scoped.resolve(&scoped.canon(name));
+        let Some(expected) = classes.get(id.as_str()) else { continue };
+        let read = match crate::surface::membership(&spec.sentence.source, &nouns) {
+            Some(DomainFact::Membership { narrow, predicate, each, denied }) => {
+                let narrow = resolve(&narrow);
+                let predicate = predicate.map(&|name| resolve(&name));
+                predicate.atoms(&mut |name| joined.push((narrow.clone(), name.clone())));
+                Some(match (each, predicate) {
+                    (true, Nominal::Atom(wide)) => DomainFact::Kind { narrow, wide, both: false, denied },
+                    (each, predicate) => DomainFact::Membership { narrow, predicate, each, denied },
+                })
+            }
+            _ => {
+                match expected {
+                    DomainFact::Membership { narrow, predicate, .. } => {
+                        unchecked_kinds.insert(narrow.clone());
+                        predicate.atoms(&mut |name| { unchecked_kinds.insert(name.clone()); });
+                    }
+                    DomainFact::Kind { narrow, wide, .. } => {
+                        unchecked_kinds.extend([narrow.clone(), wide.clone()]);
+                    }
+                    _ => {}
+                }
+                None
+            }
+        };
+        read_classes.insert(id.as_str(), read);
     }
     for (noun, carrier) in &individuals.types {
-        if !nouns.contains(noun) {
+        if !known.contains(noun) {
             out.not_read.push((format!("the noun `{noun}`"), "a name that no declaration of the package states in these words: its resolution is not derived again".to_string()));
             continue;
         }
@@ -1042,7 +1200,7 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
             reached.extend(more);
         }
         let first = reached.iter().copied().filter(|name| declared.contains(*name)).min();
-        if first != Some(carrier.as_str()) {
+        if first != Some(carrier.as_str()) && !unchecked_kinds.contains(noun) && !unchecked_kinds.contains(carrier) {
             refuse(noun, format!("the reading takes `{noun}` for a noun of the type `{carrier}`, and the declarations with the statements of the form `Each A is a B.` give {}", first.map_or("no declared type".to_string(), |name| format!("`{name}`"))), &mut out);
         }
     }
@@ -1055,7 +1213,17 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
         // The tree of a statement about individuals against its text.
         if typed && (recorded.contains_key(id.as_str()) || domain.contains(id.as_str())) {
             out.of_texts += 1;
-            match crate::surface::check(&spec.sentence.source, &spec.sentence, &nouns) {
+            let read = if let Some(read) = read_classes.get(id.as_str()) {
+                let record = classes[id.as_str()];
+                match read {
+                    Some(read) if read == record => crate::surface::Read::Agrees,
+                    Some(read) => crate::surface::Read::Differs { text: format!("{read:?}"), tree: format!("{record:?}") },
+                    None => crate::surface::Read::NotRead("the second reading could not resolve every class in the membership expression".to_string()),
+                }
+            } else {
+                crate::surface::check(&spec.sentence.source, &spec.sentence, &nouns)
+            };
+            match read {
                 crate::surface::Read::Agrees => out.texts += 1,
                 crate::surface::Read::Differs { text, tree } => refuse(id, format!("the tree of the statement differs from its text: read from the text it is `{text}`, and the tree says `{tree}`"), &mut out),
                 crate::surface::Read::NotRead(why) => out.not_read.push((id.clone(), why)),
@@ -1067,19 +1235,16 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
             Some(record) => {
                 seen.insert(id.as_str());
                 let mut found = Vec::new();
-                if record.version != VERSION {
-                    found.push(format!("the record is of the semantic version {}", record.version));
-                }
                 for step in &record.steps {
                     if !RULES.contains(&step.rule) {
-                        found.push(format!("the step `{}` names no rule of the semantic version {VERSION}", step.rule));
+                        found.push(format!("the step `{}` names no rule in the checker", step.rule));
                     }
                 }
                 if record.steps.iter().filter(|s| s.rule == "variable" || s.rule == "variable-some" || s.rule == "variable-any").count() != record.variables.len() || record.steps.iter().filter(|s| s.rule == "variable-some").count() != record.variables.iter().filter(|v| v.site == Site::Chosen).count() {
                     found.push("the steps do not introduce each variable once".to_string());
                 }
                 match second(id, &spec.sentence, &carriers, scoped) {
-                    Err(why) => found.push(format!("the statement holds {why}, which no rule of the version reads over individuals, and the reading holds a record of it")),
+                    Err(why) => found.push(format!("the statement holds {why}, which no rule reads over individuals, and the reading holds a record of it")),
                     Ok(derived) => {
                         differs("variables", &record.variables, &derived.variables, &mut found);
                         differs("restrictions", &record.restrictions, &derived.restrictions, &mut found);
@@ -1209,6 +1374,28 @@ pub fn check(set: &SpecSet, model: &Model, lex: &Lexicon) -> Checked {
                 refuse(&instance.instance, format!("{} contracts stand for the instance", contracts.len()), &mut out);
                 continue;
             };
+            if let Some(expected) = choices.first().filter(|expected| {
+                !expected.assume_membership.is_empty() || !expected.guarantee_membership.is_empty()
+            }) {
+                if choices.iter().any(|choice| !choice.deadlines.is_empty()) {
+                    out.not_derived.push((instance.instance.clone(), "a Boolean classification with a numeric deadline".into()));
+                    continue;
+                }
+                let guarantee = if chosen.is_empty() {
+                    expected.guarantee()
+                } else {
+                    Formula::Or(choices.iter().map(Expected::guarantee).collect())
+                };
+                let checks = [equivalent(&contract.assume, expected.assumption()), equivalent(&contract.guarantee, guarantee)];
+                if checks.contains(&Some(false)) {
+                    refuse(&instance.instance, "the compiled condition and response are not equivalent to the independently read Boolean classification contract".into(), &mut out);
+                } else if checks.contains(&None) {
+                    out.not_derived.push((instance.instance.clone(), "the comparison of Boolean classification formulas reached its decision bound".into()));
+                } else {
+                    out.contracts += 1;
+                }
+                continue;
+            }
             let mut assume = BTreeSet::new();
             if !literals(&contract.assume, true, &mut assume) {
                 out.not_derived.push((instance.instance.clone(), "a condition that is no conjunction of literals".to_string()));

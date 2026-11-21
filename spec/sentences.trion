@@ -78,7 +78,7 @@ namespace trion:
             | Num | `Num(quantity, unit, comparison, bound)` | The value of the quantity in the given unit compares to the bound as specified. | predicate-comparison |
             | Lin | `Lin(terms, unit, comparison, bound)` | The sum of the quantities multiplied by their integer coefficients compares to the bound as specified. | relation |
             | Before | `Before(firstAction, secondAction)` | The first action completes before the second starts. | composition-sequence |
-            | Rel | `Rel(relationName, individuals)` | The named predicate holds of the supplied individuals in their stated order. | definition |
+            | Rel | `Rel(relationName, individuals)` | The named predicate holds of the supplied individuals in their stated order. | description, existence |
             | Role | `Role(term, role)` | The term is bound to a named role in the specification. | doc-bind |
 
         table "Formula constructors":
@@ -88,7 +88,7 @@ namespace trion:
             | Not | `Not(formula)` | Holds exactly when its formula does not hold. | obligation, prohibition |
             | And | `And(formulas)` | Holds exactly when all the formulas hold, including the empty conjunction. | obligation |
             | Or | `Or(formulas)` | Holds exactly when at least one formula holds. The empty disjunction is false. | actions-either |
-            | Implies | `Implies(condition, response)` | Holds exactly when the condition is false or the response holds. | frame-if, condition-if-and-only-if |
+            | Implies | `Implies(condition, response)` | Holds exactly when the condition is false or the response holds. | frame-if, condition-if-and-only-if, noun-phrase-none |
 
     section "A normative sentence and its contract":
         The modal verb of a normative sentence is "shall", "must", "should", or "may".

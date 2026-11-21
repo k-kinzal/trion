@@ -4,6 +4,7 @@ use super::{ledger, root, rule_names, text};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use trion_language::document::{Document, Table, TableCell};
+use trion_language::syntax::ast::Core;
 use trion_language::{
     parse_document, reading, rules, Lexicon, Package, Severity, SpecRef, SpecSet, VocabularyMode,
 };
@@ -257,6 +258,11 @@ fn published_sentence_readings_introduce_only_mapped_constructors() {
                     &reference,
                     &Lexicon::default(),
                 );
+                if matches!(&sentence.core, Core::Definition { .. }) {
+                    assert_eq!(reading.condition, Formula::True);
+                    assert!(reading.claim.is_none());
+                    continue;
+                }
                 let mut actual = BTreeSet::new();
                 constructors(&reading.condition, &mut actual);
                 if let Some(claim) = &reading.claim {
@@ -298,7 +304,7 @@ fn every_formal_constructor_is_produced_by_a_declared_source_rule() {
             "[WITNESS] The API shall perform the following actions in order:\n    stop;\n    log the stop;",
             &["Before"],
         ),
-        ("definition", "individuals user\n[WITNESS] A guest means a user.", &["Rel"]),
+        ("description", "[WITNESS] The API is a service.", &["Rel"]),
         ("doc-bind", "role interface:\n    activate: The $subject shall stop.\nbind API as example.interface.", &["Role"]),
         ("actions-either", "[WITNESS] The API shall either stop or restart.", &["Or"]),
         ("condition-if-and-only-if", "[WITNESS] The API shall start exactly when the bell rings.", &["Implies"]),

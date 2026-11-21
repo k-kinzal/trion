@@ -149,36 +149,7 @@ struct Stated {
     atom: Option<Atom>,
 }
 
-fn article(word: &str) -> bool {
-    crate::syntax::words::is_article(word)
-}
 
-/// The term that a predicate nominal names: `a user`, `a kind of user`.
-fn nominal(words: &[String], bare: bool, lex: &Lexicon) -> Option<Vec<String>> {
-    let (first, rest) = words.split_first()?;
-    // `No controlled natural language is English.` names its second concept without an article.
-    let rest = if ["a", "an"].contains(&first.to_lowercase().as_str()) {
-        rest
-    } else if bare {
-        words
-    } else {
-        return None;
-    };
-    if rest.is_empty() {
-        return None;
-    }
-    let rest = match rest {
-        [kind, of, tail @ ..] if ["kind", "sort", "type"].contains(&kind.to_lowercase().as_str()) && of.eq_ignore_ascii_case("of") && !tail.is_empty() => tail,
-        other => other,
-    };
-    // A term is a plain noun phrase: `a document in the trion language` describes, it does not classify.
-    use crate::syntax::words::{classify, Closed, WordClass};
-    if rest.iter().any(|w| matches!(classify(w), WordClass::Closed(Closed::Preposition | Closed::Conjunction | Closed::Pronoun | Closed::Negation))) {
-        return None;
-    }
-    let rest: Vec<&str> = rest.iter().map(String::as_str).filter(|w| !article(w)).collect();
-    Some(local(&lex.canon(&rest.join(" "))))
-}
 
 fn plain(np: &Np) -> bool {
     np.of.is_none() && np.relative.is_none()
@@ -255,216 +226,7 @@ fn relative_property(class: &Np, holder: &str, relative: &Relative, lex: &Lexico
     }
 }
 
-/// The preposition and the noun phrases of a role that says where, with what
-/// or about what a thing is. A role of time or of measure is none.
-fn role_predicate(role: &RolePp) -> Option<(String, NpGroup)> {
-    match role {
-        RolePp::Other { preposition, np } | RolePp::Location { preposition, np } => Some((preposition.to_lowercase(), np.clone())),
-        RolePp::Topic(np) => Some(("about".to_string(), np.clone())),
-        RolePp::Recipient(np) => Some(("to".to_string(), np.clone())),
-        RolePp::Source(np) => Some(("from".to_string(), np.clone())),
-        RolePp::Goal(np) => Some(("into".to_string(), np.clone())),
-        RolePp::Agent(np) => Some(("by".to_string(), np.clone())),
-        _ => None,
-    }
-}
 
-/// The reading of a definition: the term is a kind of its genus, and each
-/// difference is a property of the members of the term. A definiens that
-/// has no such reading is reported as unread.
-fn definition(term: &Np, definiens: &Definiens, lex: &Lexicon) -> Vec<(Relation, Option<Atom>)> {
-    let mut out: Vec<(Relation, Option<Atom>)> = Vec::new();
-    if term.relative.is_some() {
-        crate::reading::key::unread_node("that", "a relative clause", "in the defined term of a definition");
-        return out;
-    }
-    let term_words = local(&np_key(term, lex));
-    let includes = |narrow: &[String], wide: &[String], both_ways: bool, attr: String| (Relation::Includes { narrow: narrow.to_vec(), wide: wide.to_vec(), both_ways }, Some(Atom::Dom { attr, value: wide.join(" ") }));
-    match definiens {
-        Definiens::Clause(_) => {
-            crate::reading::key::unread_node("means", "a clause", "after `means`, where the kind of the term is expected: name a kind and state what its members do in a relative clause");
-        }
-        // `a diagram of the steps and the choices`: a definition names one kind, so the list belongs to its `of`.
-        Definiens::Np { np: NpGroup::Coordinated { conj: Conj::And, items, .. }, roles } if items[0].of.as_ref().is_some_and(|of| of.relative.is_none()) && items[0].of_also.is_empty() && items[0].relative.is_none() => {
-            let mut genus = items[0].clone();
-            genus.of_also = items[1..].to_vec();
-            genus.of_conj = Some(Conj::And);
-            return definition(term, &Definiens::Np { np: NpGroup::Single(genus), roles: roles.clone() }, lex);
-        }
-        Definiens::Np { np: NpGroup::Coordinated { conj: Conj::And, .. }, .. } => {
-            crate::reading::key::unread_node("and", "a conjunction", "between two kinds in a definition, where one kind is expected: name the kind, as in `a pair of A and B` or `a collection of A and of B`");
-        }
-        Definiens::Np { np: NpGroup::Coordinated { conj: Conj::Or, items, .. }, roles } => {
-            if !roles.is_empty() {
-                crate::reading::key::unread_node(&roles[0].render(), "a role", "after the alternative kinds of a definition");
-                return out;
-            }
-            // `A statement means a definition, a description or an obligation.`:
-            // each kind is a kind of the term, and each member of the term is of one of the kinds.
-            let mut kinds = Vec::new();
-            for item in items {
-                let mut kind = item.clone();
-                kind.relative = None;
-                let words = local(&np_key(&kind, lex));
-                if words.is_empty() || words == term_words {
-                    continue;
-                }
-                out.push((Relation::Includes { narrow: words.clone(), wide: term_words.clone(), both_ways: false }, Some(Atom::Dom { attr: subject_key(&kind, lex), value: term_words.join(" ") })));
-                kinds.push(Formula::atom(Atom::Dom { attr: subject_key(term, lex), value: words.join(" ") }));
-                let holder = subject_key(&kind, lex);
-                let mut relative = item.relative.as_deref();
-                while let Some(clause) = relative {
-                    match relative_property(&kind, &holder, clause, lex) {
-                        Some(formula) => out.push((Relation::Property { holder: holder.clone(), state: None, formula }, None)),
-                        None => crate::reading::key::unread_node(&crate::reading::key::text(&crate::reading::key::relative_parts(clause, lex)), "a relative clause", "that has no reading in a definition"),
-                    }
-                    relative = clause.and.as_deref();
-                }
-            }
-            if kinds.len() > 1 {
-                let exists = Formula::atom(Atom::Event { key: format!("exists {}", subject_key(term, lex)) });
-                out.push((Relation::Property { holder: subject_key(term, lex), state: None, formula: Formula::implies(exists, Formula::Or(kinds)) }, None));
-            }
-        }
-        Definiens::Np { np: NpGroup::Single(genus), roles } => {
-            let mut genus_plain = genus.clone();
-            genus_plain.relative = None;
-            let mut genus_head = genus_plain.clone();
-            genus_head.of = None;
-            genus_head.of_also = Vec::new();
-            genus_head.of_conj = None;
-            let genus_words = local(&np_key(&genus_head, lex));
-            let owned_words = genus.of.is_some().then(|| local(&np_key(&genus_plain, lex)));
-            // `a specification assembled from files`: a participle after the noun is a clause without its marker.
-            let head = genus.head.to_lowercase();
-            let participle = head.len() > 4 && head.ends_with("ed") && !head.ends_with("eed") && !genus.modifiers.is_empty() && (!roles.is_empty() || genus.of.is_some()) && !lex.declares(&genus_words);
-            if participle {
-                crate::reading::key::unread_node(&genus.head, "a participle", "after the noun of a definition, where a relative clause is expected: write `that is ...` or `that ...`");
-                return out;
-            }
-            // `An archived room means a room that …`: a state of the genus.
-            let state = ((genus.relative.is_some() || !roles.is_empty()) && genus.of.is_none() && !term.modifiers.is_empty() && term.head.eq_ignore_ascii_case(&genus.head) && genus.modifiers.is_empty()).then(|| crate::reading::key::collect(|| crate::reading::key::text(&crate::reading::key::word_parts(&term.modifiers, crate::reading::key::Place::Modifier, lex))).0);
-            let (class, holder) = if state.is_some() { (genus_head.clone(), subject_key(&genus_head, lex)) } else { (term.clone(), subject_key(term, lex)) };
-            let mut differences: Vec<Formula> = Vec::new();
-            let mut relative = genus.relative.as_deref();
-            while let Some(clause) = relative {
-                let property = match &clause.body {
-                    RelativeBody::Verbal { verb, particle, object, negation, .. } => {
-                        let (keys, denied) = difference(&holder, verb, particle, object, negation.is_some(), lex);
-                        let acts: Vec<Formula> = keys.into_iter().map(|key| Formula::atom(Atom::Act { key })).collect();
-                        // What every member does is said of the members that exist, as a relation is.
-                        let exists = Formula::atom(Atom::Event { key: format!("exists {holder}") });
-                        Some(if denied {
-                            Formula::And(acts.into_iter().map(Formula::not).collect())
-                        } else if state.is_some() {
-                            Formula::Or(acts)
-                        } else {
-                            Formula::implies(exists, Formula::Or(acts))
-                        })
-                    }
-                    // `the assumption that each trace gives a model`: the clause is the content of the genus, a part of its name.
-                    RelativeBody::Content { .. } if clause.marker == RelMarker::That => {
-                        relative = clause.and.as_deref();
-                        continue;
-                    }
-                    _ => relative_property(&class, &holder, clause, lex),
-                };
-                match property {
-                    Some(formula) => differences.push(formula),
-                    None => crate::reading::key::unread_node(&crate::reading::key::text(&crate::reading::key::relative_parts(clause, lex)), "a relative clause", "that has no reading in a definition"),
-                }
-                relative = clause.and.as_deref();
-            }
-            for role in roles {
-                let property = match role {
-                    RolePp::Other { preposition, np } if preposition.eq_ignore_ascii_case("without") => {
-                        let (keys, _) = difference(&holder, "have", &None, &Some(np.clone()), true, lex);
-                        Some(Formula::And(keys.into_iter().map(|key| Formula::not(Formula::atom(Atom::Act { key }))).collect()))
-                    }
-                    RolePp::Other { preposition, np } if preposition.eq_ignore_ascii_case("with") => {
-                        let (keys, denied) = difference(&holder, "have", &None, &Some(np.clone()), false, lex);
-                        let acts: Vec<Formula> = keys.into_iter().map(|key| Formula::atom(Atom::Act { key })).collect();
-                        let exists = Formula::atom(Atom::Event { key: format!("exists {holder}") });
-                        Some(if denied {
-                            Formula::And(acts.into_iter().map(Formula::not).collect())
-                        } else if state.is_some() {
-                            Formula::Or(acts)
-                        } else {
-                            Formula::implies(exists, Formula::Or(acts))
-                        })
-                    }
-                    other => role_predicate(other).map(|(preposition, np)| {
-                        let described = Clause { subject: NpGroup::Single(class.clone()), body: ClauseBody::Copular { copula: ClauseCopula::Is, predicate: Predicate::Pp { preposition, np }, agent: None, roles: Vec::new() } };
-                        crate::reading::model::clause_formula(&described, lex)
-                    }),
-                };
-                match property {
-                    Some(formula) => differences.push(formula),
-                    None => crate::reading::key::unread_node(&role.render(), "a role", "that has no reading after the genus of a definition"),
-                }
-            }
-            if state.is_none() && term_words != genus_words {
-                let alone = differences.is_empty() && roles.is_empty() && genus.relative.is_none();
-                let attr = subject_key(term, lex);
-                match &owned_words {
-                    // `a collection of declarations`: the term is such a collection, and such a collection is a collection.
-                    Some(owned) if *owned != term_words => {
-                        out.push(includes(&term_words, owned, alone, attr.clone()));
-                        out.push(includes(&term_words, &genus_words, false, attr));
-                    }
-                    _ => out.push(includes(&term_words, &genus_words, alone, attr)),
-                }
-            }
-            // `An archived room means a room that accepts no messages.` states an
-            // equivalence. In the definition of a state, what the holder does is
-            // a disposition of the holder: the room is disposed to accept
-            // messages or it is not, at each moment, whether or not a message
-            // arrives. An action completes only where its holder is disposed to
-            // it. Read so, the state holds exactly when the differences hold,
-            // and a holder that is idle is in no state for that reason.
-            if let Some(value) = &state {
-                let keys = std::cell::RefCell::new(Vec::<String>::new());
-                let disposed = |key: &str| Atom::Event { key: format!("disposed to {key}") };
-                let differences: Vec<Formula> = differences
-                    .into_iter()
-                    .map(|formula| {
-                        formula.map_atoms(&|atom| match atom {
-                            Atom::Act { key } => {
-                                keys.borrow_mut().push(key.clone());
-                                disposed(&key)
-                            }
-                            other => other,
-                        })
-                    })
-                    .collect();
-                let mut keys = keys.into_inner();
-                keys.sort();
-                keys.dedup();
-                for key in keys {
-                    out.push((Relation::Property { holder: holder.clone(), state: None, formula: Formula::implies(Formula::atom(Atom::Act { key: key.clone() }), Formula::atom(disposed(&key))) }, None));
-                    // A holder that is forbidden an action is not one that does
-                    // it: `a secure API means an API that encrypts the message`
-                    // and `the API shall not encrypt the message` leave no
-                    // secure API. Without this, a definition by an action that
-                    // is done kept its word from being reported and nothing
-                    // followed from it against a prohibition (acceptance case A03b).
-                    out.push((Relation::Property { holder: holder.clone(), state: None, formula: Formula::implies(Formula::atom(Atom::Forbid { key: key.clone() }), Formula::not(Formula::atom(disposed(&key)))) }, None));
-                }
-                if !differences.is_empty() {
-                    out.push((Relation::Converse { holder: holder.clone(), state: value.clone(), formula: Formula::And(differences.clone()) }, None));
-                }
-                for formula in differences {
-                    out.push((Relation::Property { holder: holder.clone(), state: state.clone(), formula }, None));
-                }
-                return out;
-            }
-            for formula in differences {
-                out.push((Relation::Property { holder: holder.clone(), state: state.clone(), formula }, None));
-            }
-        }
-    }
-    out
-}
 
 fn stated(spec: &Spec, origin: &SpecRef, lex: &Lexicon) -> Vec<Stated> {
     let sentence = &spec.sentence;
@@ -472,33 +234,7 @@ fn stated(spec: &Spec, origin: &SpecRef, lex: &Lexicon) -> Vec<Stated> {
     let mut out = Vec::new();
     let mut push = |relation: Relation, atom: Option<Atom>| out.push(Stated { relation, origin: origin.clone(), atom });
     match &sentence.core {
-        Core::Definition { term, definiens } => {
-            let (found, sink) = crate::reading::key::collect(|| definition(term, definiens, lex));
-            // A definition that passes says what its term is: one that yields no axiom is rejected.
-            let silent = found.is_empty() && sink.unread.is_empty();
-            crate::reading::key::forward(sink);
-            if silent {
-                crate::reading::key::unread_node(&term.render(), "a definition", "that says nothing of its term: name a kind that differs from the term, or state a difference in a relative clause");
-            }
-            for (relation, atom) in found {
-                push(relation, atom);
-            }
-        }
-        Core::Description { subject: NpGroup::Single(subject), adverb: None, predicate: Predicate::Words { words }, agent: None, .. } if unconditional && plain(subject) => {
-            let Some(other) = nominal(words, matches!(subject.det, Some(Det::No)), lex) else { return out };
-            let own = local(&np_key(subject, lex));
-            if own == other {
-                return out;
-            }
-            match subject.det {
-                Some(Det::Each | Det::Every | Det::A | Det::An) => {
-                    let atom = Atom::Dom { attr: subject_key(subject, lex), value: crate::reading::key::text(&crate::reading::key::predicate_word_parts(words, lex)) };
-                    push(Relation::Includes { narrow: own, wide: other, both_ways: false }, Some(atom));
-                }
-                Some(Det::No) => push(Relation::Excludes { first: own, second: other }, None),
-                _ => {}
-            }
-        }
+        Core::Definition { .. } => {}
         Core::Description { subject: NpGroup::Single(subject), adverb: None, predicate: Predicate::Enumeration { conj: Conj::And, values, .. }, agent: None, .. } if unconditional && matches!(subject.det, Some(Det::No)) && plain(subject) => {
             let object = local(&np_key(subject, lex));
             let verbs: Vec<String> = values.iter().map(|v| participle_base(&v.to_lowercase(), lex)).collect();
@@ -698,6 +434,8 @@ pub(super) fn declared_terms(set: &SpecSet, lex: &Lexicon) -> BTreeSet<Vec<Strin
     for doc in set.packages.iter().flat_map(|p| &p.documents) {
         out.extend(doc.vocabulary.iter().map(|d| written(&d.term)));
         out.extend(doc.primitives.iter().chain(&doc.measures).map(|d| written(&d.name)));
+        out.extend(doc.controls.iter().map(|decl| written(&decl.name)));
+        out.extend(doc.individuals.iter().map(|decl| written(&decl.name)));
         out.extend(doc.aliases.iter().flat_map(|a| [written(&a.term), written(&a.canonical)]));
         for spec in &doc.specs {
             if let Core::Definition { term, .. } = &spec.sentence.core {
@@ -1100,42 +838,17 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model) {
                 model.absorb(&origin, sink);
                 all.extend(found);
                 if !spec.details.is_empty() {
-                    refinements.push((origin, spec.details.clone()));
+                    let details = if pkg.is_root {
+                        spec.details.clone()
+                    } else {
+                        spec.details.iter().map(|id| format!("{}::{id}", pkg.name)).collect()
+                    };
+                    refinements.push((origin, details));
                 }
             }
         }
     }
-    // A modified phrase names a kind of its head: `Each cited statement is a
-    // statement.` needs no statement of its own once `statement` has a meaning.
-    let heads = grounded_heads(set, lex);
-    // What follows is found in other statements: it is no part of what the
-    // statement of its origin says alone.
     let first_derived = all.len();
-    if !heads.is_empty() {
-        let names: BTreeSet<Vec<String>> = heads.keys().cloned().collect();
-        let mut phrases: BTreeSet<Vec<String>> = BTreeSet::new();
-        for doc in set.packages.iter().flat_map(|p| &p.documents) {
-            let scoped = lex.in_document(doc);
-            for spec in doc.specs.iter().filter(|s| !matches!(s.sentence.core, Core::Definition { .. })) {
-                phrases.extend(crate::reading::vocabulary::occurrences(&spec.sentence, &scoped).into_iter().filter(|(_, kind)| *kind != "action" && *kind != "value").map(|(term, _)| local(&term)).filter(|words| words.len() > 1));
-            }
-        }
-        let stated_pairs: BTreeSet<(Vec<String>, Vec<String>)> = all.iter().filter_map(|s| match &s.relation {
-            Relation::Includes { narrow, wide, .. } => Some((narrow.iter().map(|w| fold(w)).collect(), wide.iter().map(|w| fold(w)).collect())),
-            _ => None,
-        }).collect();
-        for phrase in phrases {
-            // A phrase that is itself defined says what it is.
-            if names.contains(&phrase.iter().map(|w| fold(w)).collect::<Vec<_>>()) {
-                continue;
-            }
-            let Some(head) = head_of(&phrase, &names) else { continue };
-            if stated_pairs.contains(&(phrase.iter().map(|w| fold(w)).collect(), head.clone())) {
-                continue;
-            }
-            all.push(Stated { relation: Relation::Includes { narrow: phrase, wide: head.clone(), both_ways: false }, origin: heads[head].clone(), atom: None });
-        }
-    }
     // An object that a response introduces is one thing of its type: what
     // holds of every such thing holds of it, and nothing identifies it with
     // the object of another binding.
@@ -1467,8 +1180,16 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model) {
 
 /// Reports a refinement that names no statement, itself, or a cycle.
 pub fn check(set: &SpecSet) -> Vec<Diagnostic> {
+    set.packages.iter().flat_map(|pkg| {
+        let specs: Vec<&Spec> = pkg.documents.iter()
+            .flat_map(|doc| &doc.specs)
+            .collect();
+        check_refinement_graph(&specs)
+    }).collect()
+}
+
+fn check_refinement_graph(specs: &[&Spec]) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    let specs: Vec<&Spec> = set.packages.iter().filter(|p| p.is_root).flat_map(|p| &p.documents).flat_map(|d| &d.specs).collect();
     let known: BTreeSet<String> = specs.iter().flat_map(|s| s.id.iter().cloned().chain(s.parts.iter().cloned())).collect();
     let details: BTreeMap<String, &Spec> = specs.iter().filter(|s| !s.details.is_empty()).map(|s| (s.display_id(), *s)).collect();
     for (id, spec) in &details {

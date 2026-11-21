@@ -1,3 +1,3 @@
-package p edition "test"
+package p
 include "s.trion"
 include "a.trion"

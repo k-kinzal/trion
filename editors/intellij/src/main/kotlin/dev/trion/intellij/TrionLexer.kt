@@ -32,7 +32,7 @@ internal object TrionLines {
     private const val ID = "[A-Z][A-Z0-9-]*(?:/[a-z][a-z0-9-]*)?"
     private const val DOTTED = "[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*"
     private val shapes: Map<String, Regex> = mapOf(
-        "package" to Regex("$DOTTED\\s+edition\\s+\".*"),
+        "package" to Regex("$DOTTED\\s*(?://.*)?"),
         "include" to Regex("\".*"),
         "namespace" to Regex("$DOTTED\\s*:?"),
         "use" to Regex(DOTTED),
@@ -323,7 +323,6 @@ class TrionLexer : LexerBase() {
             val head = before.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
             return when {
                 first -> TrionTokens.DIRECTIVE
-                directive == "package" && text == "edition" -> TrionTokens.DIRECTIVE
                 directive == "ratified" && (text == "by" || text == "on") -> TrionTokens.DIRECTIVE
                 directive == "choose" && text == "after" -> TrionTokens.DIRECTIVE
                 directive == "extend" && text == "with" -> TrionTokens.DIRECTIVE

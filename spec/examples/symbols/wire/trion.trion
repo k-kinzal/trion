@@ -1,0 +1,6 @@
+package receipt-profile
+
+namespace receipt-profile:
+    system endpoint
+
+    [SEND] The endpoint shall send a reply.

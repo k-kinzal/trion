@@ -330,7 +330,7 @@ impl<'a> Stated<'a> {
                     Atom::Val { attr, value } => self.values.contains(&(base(attr), value.as_str())),
                     // The atom that joins the nouns of one relation is made by the reading.
                     // A count of activations is made by the reading too.
-                    Atom::Rel { name, .. } => name.ends_with(" between") || is_count(atom) || self.relations.contains(atom),
+                    Atom::Rel { name, .. } => Atom::representative_relation(name) || name.ends_with(" between") || is_count(atom) || self.relations.contains(atom),
                     _ => true,
                 };
                 if !known {
@@ -358,7 +358,7 @@ impl<'a> Stated<'a> {
         let about: HashSet<&str> = self.individuals.domain.iter().map(|fact| fact.statement.as_str()).collect();
         let mut model = self.model.clone();
         for constraint in &mut model.constraints {
-            if !constraint.refs.first().is_some_and(|at| about.contains(at.id.as_str())) {
+            if !constraint.refs.first().is_some_and(|at| about.contains(at.id.as_str()) && !self.model.domain_contracts.contains_key(&at.id)) {
                 continue;
             }
             match constraint.kind {

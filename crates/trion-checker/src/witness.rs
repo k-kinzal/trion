@@ -178,7 +178,7 @@ pub fn witness(model: &Model, individuals: &Individuals, length: usize) -> Witne
 /// table of the reading that the model makes true, as its fact.
 fn behaviour(individuals: &Individuals, model: &BTreeMap<Atom, bool>, length: usize, spacing: i64) -> World {
     let holds = |atom: &Atom| model.get(atom).copied().unwrap_or(false);
-    let mut world = World { moments: (0..length).map(|moment| Moment { time: spacing * moment as i64, ..Default::default() }).collect(), ..Default::default() };
+    let mut world = World { explicit_membership_carriers: individuals.explicit_membership_carriers.clone(), moments: (0..length).map(|moment| Moment { time: spacing * moment as i64, ..Default::default() }).collect(), ..Default::default() };
     for entry in &individuals.atoms {
         match &entry.fact {
             Fact::Kind { kind, subject } => {
@@ -186,8 +186,8 @@ fn behaviour(individuals: &Individuals, model: &BTreeMap<Atom, bool>, length: us
                     world.kinds.insert((kind.clone(), subject.clone()));
                     // An individual is an individual of the carrier that its name bears.
                     if let Some((noun, _)) = subject.split_once('#') {
-                        if noun == kind {
-                            world.individuals.insert(subject.clone(), kind.clone());
+                        if noun == kind || world.explicit_membership_carriers.contains(noun) {
+                            world.individuals.insert(subject.clone(), noun.to_string());
                         }
                     }
                 }

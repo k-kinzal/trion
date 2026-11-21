@@ -1,4 +1,4 @@
-//! Behaviour of the language edition 0.1.0-draft.1: blocks, composition,
+//! Behaviour of the language: blocks, composition,
 //! flows, concept diagrams, checks, conformance examples and reader views.
 
 mod common;

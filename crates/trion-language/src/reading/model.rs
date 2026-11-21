@@ -28,6 +28,9 @@ pub enum ConstraintKind {
     Permission,
     Binding,
     Form,
+    /// An applied form role enters when its activating statement applies
+    /// and its response holds.
+    RoleActivation,
     /// What a definition, an inclusion, an exclusion or a refinement says
     /// about terms. It holds at every moment and obliges nobody.
     Axiom,
@@ -43,6 +46,10 @@ pub enum ConstraintKind {
 }
 
 impl ConstraintKind {
+    pub fn is_form(self) -> bool {
+        matches!(self, Self::Binding | Self::Form | Self::RoleActivation)
+    }
+
     /// `true` for what the vocabulary and the refinements say: no obligation.
     pub fn is_axiom(self) -> bool {
         matches!(self, ConstraintKind::Axiom | ConstraintKind::Refinement | ConstraintKind::Carried)
@@ -101,6 +108,9 @@ pub struct Counted {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct Model {
     pub constraints: Vec<Constraint>,
+    /// The definitions expanded at each statement.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub definition_expansions: BTreeMap<String, Vec<SpecRef>>,
     /// The states that a feature scope selects (`Where the audit feature is
     /// included`): a configuration, which holds one value over a whole
     /// behaviour.
@@ -110,6 +120,9 @@ pub struct Model {
     /// domain reads: what their predicates and values say is a relation.
     #[serde(skip)]
     pub over_instances: std::collections::BTreeSet<String>,
+    /// Target constraints whose contract directly describes the finite domain.
+    #[serde(skip)]
+    pub domain_contracts: BTreeMap<String, BTreeSet<String>>,
     /// The instances that the statements that bound a share count.
     pub counted: Vec<Counted>,
     /// Axioms that always hold, such as the exclusivity of attribute values.
@@ -192,6 +205,14 @@ impl Model {
     /// Takes over what the keys of one statement left behind.
     pub(crate) fn absorb(&mut self, at: &SpecRef, sink: crate::reading::key::Sink) {
         self.unread.extend(sink.unread.into_iter().map(|unread| (at.clone(), unread)));
+        if !sink.definitions.is_empty() {
+            let expanded = self.definition_expansions.entry(at.id.clone()).or_default();
+            for reference in sink.definitions {
+                if !expanded.contains(&reference) {
+                    expanded.push(reference);
+                }
+            }
+        }
         for (name, parts) in sink.keys {
             self.keys.entry(name).or_insert(parts);
         }
@@ -222,6 +243,26 @@ fn relative_text(relative: &Relative) -> String {
 /// The name of one value of an enumeration or of a state.
 pub(crate) fn value_name(value: &str, lex: &Lexicon) -> String {
     crate::reading::key::text(&crate::reading::key::word_parts(&[value.to_string()], crate::reading::key::Place::Value, lex))
+}
+
+/// The attribute and alternatives of an explicit, unconditional enumeration.
+/// A caller can inspect its form without applying its contract.
+pub fn explicit_enumeration(sentence: &Sentence, lex: &Lexicon) -> Option<(String, BTreeSet<String>)> {
+    if !sentence.frames.scopes.is_empty() || !sentence.frames.states.is_empty()
+        || sentence.frames.trigger.is_some() || sentence.exception.is_some()
+        || sentence.iff.is_some() || sentence.necessary.is_some() || sentence.concession.is_some()
+    {
+        return None;
+    }
+    let Core::Description {
+        subject: NpGroup::Single(subject),
+        predicate: Predicate::Enumeration { values, .. },
+        adverb: None, agent: None, roles, ..
+    } = &sentence.core else { return None };
+    if subject.det == Some(Det::No) || !roles.is_empty() {
+        return None;
+    }
+    Some((np_key(subject, lex), values.iter().map(|value| value_name(value, lex)).collect()))
 }
 
 pub fn np_key(np: &Np, lex: &Lexicon) -> String {
@@ -731,6 +772,13 @@ pub(crate) fn clause_formula(clause: &Clause, lex: &Lexicon) -> Formula {
                 .map(|np| {
                     let attr = subject_key(np, lex);
                     let denied_subject = matches!(np.det, Some(Det::No));
+                    if agent.is_none() && roles.is_empty() {
+                        if let Predicate::Words { words, nominal: Some(group) } = predicate {
+                            let claim = super::nominal::claim(group, np, lex);
+                            let denied = denied_subject ^ words.first().is_some_and(|word| word.eq_ignore_ascii_case("not"));
+                            return if denied { Formula::not(claim) } else { claim };
+                        }
+                    }
                     if let Predicate::Comparison(c) = predicate {
                         if let Some(f) = comparison_formula(&attr, subject_sum(np, lex), c, lex) {
                             return if denied_subject { Formula::not(f) } else { f };
@@ -754,6 +802,18 @@ pub(crate) fn clause_formula(clause: &Clause, lex: &Lexicon) -> Formula {
             combine(conj, parts)
         }
         ClauseBody::Verbal { verb, object, roles, negation, .. } => {
+            if matches!(base_verb(verb).as_str(), "exist")
+                && matches!(&clause.body, ClauseBody::Verbal { particle: None, manner, object: None, roles, content: None, .. } if manner.is_empty() && roles.is_empty())
+            {
+                let parts = subjects.iter().map(|subject| {
+                    let Some(present) = representative_presence(subject, lex) else {
+                        crate::reading::key::unread_node(&subject.render(), "a population in a condition", "whose quantifier needs more than one representative");
+                        return Formula::True;
+                    };
+                    if negation.is_some() { Formula::not(present) } else { present }
+                }).collect();
+                return combine(conj, parts);
+            }
             if let ([np], None) = (subjects.as_slice(), negation) {
                 if let Some(bound) = verbal_comparison(np, verb, object, roles, lex) {
                     return if matches!(np.det, Some(Det::No)) { Formula::not(bound) } else { bound };
@@ -865,7 +925,7 @@ pub(crate) fn active_voice(subject: &Np, vp: &Vp, lex: &Lexicon) -> Option<(Stri
     if !vp.verb.eq_ignore_ascii_case("be") {
         return None;
     }
-    let Some(Predicate::Words { words }) = &vp.complement else { return None };
+    let Some(Predicate::Words { words, .. }) = &vp.complement else { return None };
     let [participle] = words.as_slice() else { return None };
     if !is_participle(participle) {
         return None;
@@ -902,7 +962,7 @@ fn state_formula(attr: &str, vp: &Vp, universe: &BTreeMap<String, BTreeSet<Strin
     }
     match vp.complement.as_ref()? {
         Predicate::Comparison(c) => comparison_formula(attr, None, c, lex),
-        Predicate::Words { words } => {
+        Predicate::Words { words, .. } => {
             let value = crate::reading::key::text(&crate::reading::key::predicate_word_parts(words, lex));
             is_value(&value).then(|| val(&value))
         }
@@ -1079,6 +1139,14 @@ fn base_action(vp: &Vp) -> Vp {
     base
 }
 
+fn relation_action(vp: &Vp, lex: &Lexicon) -> Vp {
+    let mut frame = base_action(vp);
+    frame.verb = super::vocabulary::verb_lemma(&vp.verb, lex);
+    frame.roles.clone_from(&vp.roles);
+    frame.manner.clone_from(&vp.manner);
+    frame
+}
+
 /// The formula of one verb phrase of an obligation, prohibition, advice or permission.
 fn item_formula(subject: &Np, item: &Vp, modal: Modal, negated: bool, universe: &BTreeMap<String, BTreeSet<String>>, lex: &Lexicon) -> Formula {
     // `support A, B, and C` is one action for each object, as coordinated
@@ -1184,7 +1252,21 @@ fn coordinated_role(item: &Vp) -> Option<(Vec<Vp>, Conj)> {
 }
 
 fn exists_formula(np: &Np, lex: &Lexicon) -> Formula {
-    Formula::atom(Atom::Event { key: format!("exists {}", np_key(np, lex)) })
+    let subject = np_key(np, lex);
+    Formula::atom(Atom::Rel { name: "representative exists".to_string(), args: vec![subject] })
+}
+
+/// A representative has zero or one occurrences in its domain. Counts
+/// that need distinct individuals are judged by the finite-domain reader.
+fn representative_presence(np: &Np, lex: &Lexicon) -> Option<Formula> {
+    let exists = || exists_formula(np, lex);
+    Some(match &np.det {
+        None | Some(Det::The | Det::A | Det::An | Det::Some | Det::OneOrMore)
+        | Some(Det::Exactly { n: 1 } | Det::AtLeast { n: 1 } | Det::Cardinal { n: 1, .. }) => exists(),
+        Some(Det::No | Det::Exactly { n: 0 } | Det::AtMost { n: 0 }) => Formula::not(exists()),
+        Some(Det::AtLeast { n: 0 } | Det::AtMost { n: 1 } | Det::ZeroOrMore) => Formula::True,
+        _ => return None,
+    })
 }
 
 /// What a relation says of one instance of its subject.
@@ -1195,7 +1277,7 @@ fn relation_item(subject: &Np, item: &Vp, lex: &Lexicon) -> Formula {
     let actor = subject_key(subject, lex);
     let denied = matches!(item.object.as_ref().and_then(single_np).and_then(|o| o.det.as_ref()), Some(Det::No));
     // `belongs to exactly one namespace` has no object: its role phrases say what holds.
-    let base = if item.object.is_none() && !item.roles.is_empty() { item.clone() } else { base_action(item) };
+    let base = if !item.object.is_none() && !item.roles.is_empty() { item.clone() } else { relation_action(item, lex) };
     let mut base_without_no = base.clone();
     if let Some(NpGroup::Single(object)) = &mut base_without_no.object {
         if matches!(object.det, Some(Det::No)) {
@@ -1409,7 +1491,10 @@ fn core_formula(core: &Core, scope: &str, guarded: bool, universe: &BTreeMap<Str
     match core {
         Core::Definition { .. } => None,
         Core::Conjoined { items } => Some(Formula::And(items.iter().filter_map(|item| core_formula(item, scope, guarded, universe, lex)).collect())),
-        Core::Existence { subject } => Some(Formula::And(group_parts(subject).0.into_iter().map(|np| exists_formula(np, lex)).collect())),
+        Core::Existence { subject } => {
+            let (subjects, conj) = group_parts(subject);
+            Some(combine(conj, subjects.into_iter().map(|np| representative_presence(np, lex).unwrap_or(Formula::True)).collect()))
+        }
         Core::Relation { subject, vp } => {
             // `The timeout exceeds the retry interval.` relates two quantities.
             if let (NpGroup::Single(np), VpGroup::Single(item)) = (subject, vp) {
@@ -1439,8 +1524,7 @@ fn core_formula(core: &Core, scope: &str, guarded: bool, universe: &BTreeMap<Str
                     plain.det = None;
                     let actor = subject_key(&plain, lex);
                     return Formula::And(vp.items().iter().map(|item| {
-                        let mut base = base_action(&timeless(item));
-                        base.verb = base_verb(&base.verb);
+                        let base = relation_action(&timeless(item), lex);
                         Formula::not(Formula::atom(Atom::Act { key: action_key(&actor, &base, lex) }))
                     }).collect());
                 }
@@ -1481,6 +1565,21 @@ fn core_formula(core: &Core, scope: &str, guarded: bool, universe: &BTreeMap<Str
                         }
                     };
                     let flip = |f: Formula| if negated { Formula::not(f) } else { f };
+                    if agent.is_none() && roles.is_empty() {
+                        if let Predicate::Words { nominal: Some(group), .. } = predicate {
+                            let held = flip(super::nominal::claim(group, np, lex));
+                            return match np.det {
+                                None | Some(Det::The) => held,
+                                Some(Det::Each | Det::Every | Det::All | Det::Any | Det::A | Det::An | Det::No) => {
+                                    Formula::implies(exists_formula(np, lex), held)
+                                }
+                                _ => {
+                                    super::key::unread_node(&np.render(), "a nominal predicate", "whose subject needs a reading over individuals");
+                                    Formula::True
+                                }
+                            };
+                        }
+                    }
                     if let Predicate::Comparison(c) = predicate {
                         if let Some(f) = comparison_formula(&attr, subject_sum(np, lex), c, lex) {
                             return flip(f);
@@ -1715,6 +1814,7 @@ pub const SUBJECT_VARIABLE: &str = "$subject";
 struct RoleInfo<'a> {
     qualified: String,
     role: &'a Role,
+    requires_binding: bool,
 }
 
 /// The namespace name that prefixes a document's roles.
@@ -1729,7 +1829,11 @@ pub fn role_prefix<'a>(package: &'a str, namespace: &'a str) -> &'a str {
 fn collect_roles(set: &SpecSet) -> Vec<RoleInfo<'_>> {
     set.packages
         .iter()
-        .flat_map(|pkg| pkg.documents.iter().flat_map(move |doc| doc.roles.iter().map(move |role| RoleInfo { qualified: format!("{}.{}", role_prefix(&pkg.name, &doc.namespace), role.name), role })))
+        .flat_map(|pkg| pkg.documents.iter().flat_map(move |doc| doc.roles.iter().map(move |role| RoleInfo {
+            qualified: format!("{}.{}", role_prefix(&pkg.name, &doc.namespace), role.name),
+            role,
+            requires_binding: doc.roles_require_binding,
+        })))
         .collect()
 }
 
@@ -2135,7 +2239,20 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     let set = grounded.as_ref().map_or(set, |g| &g.with_domain);
     let universe = value_universe(set, lex, &|id| grounded.as_ref().is_some_and(|g| g.claims.contains_key(id)), &|id| grounded.as_ref().is_some_and(|g| g.shares.contains(id)));
     let roles = collect_roles(set);
+    let mut role_bindings: BTreeSet<(String, String)> = BTreeSet::new();
+    for doc in set.packages.iter().flat_map(|pkg| &pkg.documents) {
+        let scoped = lex.in_document(doc);
+        for binding in &doc.bindings {
+            role_bindings.insert((binding.role.clone(), scoped.resolve(&scoped.canon(&binding.term))));
+        }
+        for (role, targets) in &doc.application_roles {
+            role_bindings.extend(targets.iter().map(|target| (role.clone(), target.clone())));
+        }
+    }
     let mut model = Model { background: background(&universe), ..Default::default() };
+    if let Some(grounded) = &grounded {
+        model.definition_expansions.clone_from(&grounded.definition_expansions);
+    }
     let mut guards = BTreeMap::<String, Vec<Formula>>::new();
     // An enumeration leaves out what is extended: an extension is declared to
     // lie outside the original whole without contradicting it.
@@ -2170,11 +2287,20 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
         for doc in &pkg.documents {
             let lex = &lex.in_document(doc);
             for binding in &doc.bindings {
+                let location = format!("{}:{}", binding.file, binding.line);
+                let id = doc.application_scope.as_ref().map_or_else(
+                    || location.clone(),
+                    |application| {
+                        let path = doc.application_ancestors.iter().chain([application])
+                            .map(|part| part.id.as_str()).collect::<Vec<_>>().join("/");
+                        format!("{}::{path}/{location}", pkg.name)
+                    },
+                );
                 model.constraints.push(Constraint {
                     kind: ConstraintKind::Binding,
                     assume: Formula::True,
                     guarantee: Formula::atom(Atom::Role { subject: lex.resolve(&lex.canon(&binding.term)), role: binding.role.clone() }),
-                    refs: vec![SpecRef { id: format!("{}:{}", binding.file, binding.line), file: binding.file.clone(), line: binding.line, text: binding.text.clone() }],
+                    refs: vec![SpecRef { id, file: binding.file.clone(), line: binding.line, text: binding.text.clone() }],
                 });
             }
             for (spec, sentence) in doc.specs.iter().flat_map(|spec| crate::expand::formalized(spec).into_iter().map(move |sentence| (spec, sentence))) {
@@ -2195,6 +2321,15 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 // The contract of a sentence is read from the sentence and
                 // from the names of its terms.
                 let read = read_sentence(sentence, spec.otherwise, &reference, lex);
+                if !grounded.as_ref().is_some_and(|domain| domain.about_the_domain.contains(&reference.id)) {
+                    if let Core::Existence { subject } = &sentence.core {
+                        for np in group_parts(subject).0 {
+                            if representative_presence(np, lex).is_none() {
+                                crate::reading::key::unread_node(&np.render(), "a population bound", "that needs a declared finite domain of individuals");
+                            }
+                        }
+                    }
+                }
                 // A bound on a share speaks about the activations as a whole:
                 // its contract is the bound on the quantity of the share.
                 if read.bounds_a_share {
@@ -2276,11 +2411,20 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 // sentence, and it stands beside the contract, as what
                 // follows from the claim of the sentence.
                 let mut bound_roles: Vec<Formula> = Vec::new();
-                for info in &roles {
+                for info in roles.iter().filter(|info| {
+                    if doc.application_scope.is_some() {
+                        doc.application_roles.contains_key(&info.qualified)
+                    } else {
+                        !info.requires_binding
+                    }
+                }) {
                     for activation in &info.role.activations {
                         for bound in match_core(&activation.core, &sentence.core) {
                             if let Some(subject) = bound.get(SUBJECT_VARIABLE) {
-                                bound_roles.push(Formula::atom(Atom::Role { subject: lex.resolve(&lex.canon(subject)), role: info.qualified.clone() }));
+                                let subject = lex.resolve(&lex.canon(subject));
+                                if doc.application_scope.is_none() || doc.application_roles[&info.qualified].contains(&subject) {
+                                    bound_roles.push(Formula::atom(Atom::Role { subject, role: info.qualified.clone() }));
+                                }
                             }
                         }
                     }
@@ -2313,7 +2457,8 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                 }
                 if !bound_roles.is_empty() {
                     let claimed = if assume == Formula::True { guarantee.clone() } else { Formula::And(vec![assume.clone(), guarantee.clone()]) };
-                    carried_roles.push(Constraint { kind: ConstraintKind::Carried, assume: claimed, guarantee: Formula::And(bound_roles), refs: vec![reference.clone()] });
+                    let kind = ConstraintKind::RoleActivation;
+                    carried_roles.push(Constraint { kind, assume: claimed, guarantee: Formula::And(bound_roles), refs: vec![reference.clone()] });
                 }
                 model.constraints.push(Constraint { kind, assume, guarantee, refs: vec![reference.clone()] });
                 model.constraints.append(&mut carried_roles);
@@ -2331,10 +2476,14 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
                             if selector.as_ref().is_some_and(|sel| !sel.is_match(value)) || re.is_match(value) != form.negated {
                                 continue;
                             }
+                            let subject = lex.resolve(&lex.canon(subject));
+                            if info.requires_binding && !role_bindings.contains(&(info.qualified.clone(), subject.clone())) {
+                                continue;
+                            }
                             model.constraints.push(Constraint {
                                 kind: ConstraintKind::Form,
                                 assume: Formula::True,
-                                guarantee: Formula::not(Formula::atom(Atom::Role { subject: lex.resolve(&lex.canon(subject)), role: info.qualified.clone() })),
+                                guarantee: Formula::not(Formula::atom(Atom::Role { subject, role: info.qualified.clone() })),
                                 refs: vec![SpecRef { id: format!("{}::{}", info.qualified, form.id), file: form.file.clone(), line: form.line, text: form.text.clone() }, reference.clone()],
                             });
                         }
@@ -2451,8 +2600,10 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
     // The statements about the domain are read over the domain of the instances.
     let scope = grounded.as_ref().map_or(scope, |g| g.individuals.scope);
     let with_domain = grounded.as_ref().map_or(set, |g| &g.with_domain);
-    crate::reading::instances::apply(with_domain, lex, &mut model, scope, grounded.is_some(), grounded.as_ref().map_or(&none, |g| &g.relations));
-    let domain = if grounded.is_some() { crate::reading::instances::facts(with_domain, lex, scope) } else { Vec::new() };
+    let no_domain = BTreeSet::new();
+    let domain_ids = grounded.as_ref().map_or(&no_domain, |g| &g.about_the_domain);
+    crate::reading::instances::apply(with_domain, lex, &mut model, scope, grounded.is_some(), grounded.as_ref().map_or(&none, |g| &g.relations), domain_ids);
+    let domain = if grounded.is_some() { crate::reading::instances::facts(with_domain, lex, scope, domain_ids) } else { Vec::new() };
     if let Some(grounded) = grounded {
         // A relation or a kind that a statement states of its individuals.
         for direct in grounded.direct {
@@ -2472,6 +2623,16 @@ fn compile_with(set: &SpecSet, lex: &Lexicon, scope: usize) -> Model {
         // or a relation between two. An individual is named by a noun of
         // its carrier, and a fact names it by the declared noun.
         let canonical: BTreeMap<String, String> = individuals.types.iter().cloned().collect();
+        for fact in domain.iter().filter(|fact| model.domain_contracts.contains_key(&fact.statement)) {
+            let narrow = match &fact.fact {
+                crate::reading::typed::DomainFact::Kind { narrow, .. }
+                | crate::reading::typed::DomainFact::Membership { narrow, .. } => narrow,
+                _ => continue,
+            };
+            if let Some(carrier) = canonical.get(narrow) {
+                individuals.explicit_membership_carriers.insert(carrier.clone());
+            }
+        }
         let named = |individual: &str| individual.rsplit_once('#').map(|(noun, index)| format!("{}#{index}", canonical.get(noun).map_or(noun, String::as_str)));
         let mut of_the_domain: BTreeSet<Atom> = BTreeSet::new();
         for formula in model.constraints.iter().flat_map(|c| [&c.assume, &c.guarantee]).chain(&model.background) {

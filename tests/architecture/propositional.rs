@@ -4,7 +4,7 @@ mod common;
 use common::{worker, SETTINGS};
 use trion_boolean::{Constructor, Contract, Preparation, QueryKind, EXACT};
 use trion_analysis::{analyze, Conclusion, Execution};
-use trion_cnl::{formalize, Grammar};
+use trion_cnl::{formalize};
 
 const RESTRICTED: Contract = Contract {
     id: "conjunctive-test/1",
@@ -17,12 +17,10 @@ const RESTRICTED: Contract = Contract {
 fn changing_grammar_and_backend_does_not_change_core() {
     let v1 = formalize(
         "proposition P. proposition Q. assume P implies Q. assume P. entails Q.",
-        Grammar::V1,
     )
     .unwrap();
     let v2 = formalize(
         "proposition P. proposition Q. assume if P then Q. assume P. entails Q.",
-        Grammar::V2,
     )
     .unwrap();
     assert_eq!(v1.problem(), v2.problem());
@@ -42,14 +40,13 @@ fn changing_grammar_and_backend_does_not_change_core() {
     }
     let supported = formalize(
         "proposition P. assume P and not P. satisfiable.",
-        Grammar::V1,
     )
     .unwrap();
     assert!(matches!(
         RESTRICTED.prepare(supported.problem(), SETTINGS.backend),
         Preparation::Applicable(_)
     ));
-    let query_only = formalize("proposition P. entails P or P.", Grammar::V1).unwrap();
+    let query_only = formalize("proposition P. entails P or P.").unwrap();
     assert!(matches!(
         RESTRICTED.prepare(query_only.problem(), SETTINGS.backend),
         Preparation::Unsupported(_)

@@ -20,6 +20,7 @@
 //! object roles)`, a frame `while{clause and clause}`.
 
 use std::collections::BTreeSet;
+use trion_language::reading::typed::{DomainFact, Nominal};
 use trion_language::syntax::ast::*;
 
 /// What the second reading of the text of a statement found.
@@ -132,7 +133,7 @@ fn flat_np(np: &Np) -> Option<String> {
 
 fn predicate_of(predicate: &Predicate, roles: &[RolePp]) -> Option<String> {
     let mut words: Vec<String> = match predicate {
-        Predicate::Words { words } => words.iter().map(|w| number(&w.to_lowercase())).collect(),
+        Predicate::Words { words, .. } => words.iter().map(|w| number(&w.to_lowercase())).collect(),
         Predicate::Enumeration { values, conj, .. } => vec![values.iter().map(|v| v.to_lowercase()).collect::<Vec<_>>().join(if *conj == Conj::Or { " or " } else { " and " })],
         _ => return None,
     };
@@ -616,4 +617,67 @@ pub fn kind(text: &str, nouns: &BTreeSet<String>) -> Option<(String, String)> {
         return None;
     }
     Some((declared(narrow)?, declared(wide)?))
+}
+
+/// Reads an unconditional Boolean classification over a declared carrier.
+pub(super) fn membership(text: &str, nouns: &BTreeSet<String>) -> Option<DomainFact> {
+    fn class(reader: &mut Reader<'_>) -> Option<Nominal<String>> {
+        if !["a", "an"].contains(&reader.peek()) {
+            return None;
+        }
+        reader.take();
+        if !reader.is_noun(reader.peek()) {
+            return None;
+        }
+        let word = reader.take();
+        let name = if reader.nouns.contains(&word) { word } else { singular(&word) };
+        let atom = Nominal::Atom(name);
+        if !["that", "who"].contains(&reader.peek()) {
+            return Some(atom);
+        }
+        reader.take();
+        if !["is", "are"].contains(&reader.take().as_str()) {
+            return None;
+        }
+        let denied = reader.peek() == "not";
+        if denied { reader.take(); }
+        if reader.peek() == "also" { reader.take(); }
+        let relative = class(reader)?;
+        let relative = if denied { Nominal::Not(Box::new(relative)) } else { relative };
+        Some(Nominal::And(vec![atom, relative]))
+    }
+
+    let mut reader = Reader { words: words_of(text), at: 0, nouns };
+    let each = match reader.peek() {
+        "each" | "every" | "a" | "an" | "no" => true,
+        "some" => false,
+        _ => return None,
+    };
+    let subject_denied = reader.take() == "no";
+    if !reader.is_noun(reader.peek()) {
+        return None;
+    }
+    let narrow = reader.take();
+    let narrow = if nouns.contains(&narrow) { narrow } else { singular(&narrow) };
+    if !["is", "are"].contains(&reader.take().as_str()) {
+        return None;
+    }
+    let denied = ["not", "never"].contains(&reader.peek());
+    if denied { reader.take(); }
+    let first = class(&mut reader)?;
+    let predicate = match reader.peek() {
+        "and" | "or" => {
+            let conjunction = reader.peek().to_string();
+            let mut items = vec![first];
+            while reader.peek() == conjunction {
+                reader.take();
+                items.push(class(&mut reader)?);
+            }
+            if conjunction == "and" { Nominal::And(items) } else { Nominal::Or(items) }
+        }
+        _ => first,
+    };
+    (reader.peek() == "." && reader.at + 1 == reader.words.len()).then_some(DomainFact::Membership {
+        narrow, predicate, each, denied: denied ^ subject_denied,
+    })
 }

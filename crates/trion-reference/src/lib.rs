@@ -2,7 +2,7 @@
 
 use trion_core::{Expr, Problem, Question};
 
-pub const VERSION: &str = "propositional-evaluator/1";
+pub const ID: &str = "propositional-evaluator";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Scan {

@@ -144,7 +144,7 @@ fn only_an_unread_part_is_an_opaque_reading() {
 #[test]
 fn a_term_defined_in_an_unused_namespace_is_pointed_out() {
     let manifest = "[package]\nname = \"p\"\nentry = \"p.trion\"\n";
-    let entry = "package p edition \"1\"\n\nnamespace p.words\n\nprimitive message\nA response means a message.\n\nnamespace p.rules\n\nprimitive parser\n[A] The parser shall keep the response.\n";
+    let entry = "package p\n\nnamespace p.words\n\nprimitive message\nA response means a message.\n\nnamespace p.rules\n\nprimitive parser\n[A] The parser shall keep the response.\n";
     let f = Fixture::raw(&[("trion.toml", manifest), ("p.trion", entry)]);
     let report = f.verify(&["--json"]).json();
     let messages = silent(&report, "ungrounded");

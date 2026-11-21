@@ -23,7 +23,7 @@ fn codes_of(f: &Fixture) -> Vec<String> {
 
 #[test]
 fn reads_the_files_the_entry_includes() {
-    let entry = "package p edition \"1\"\ninclude \"spec/a.trion\"\ninclude \"spec/b.trion\"\n";
+    let entry = "package p\ninclude \"spec/a.trion\"\ninclude \"spec/b.trion\"\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("spec/a.trion", "The API shall stop.\n"), ("spec/b.trion", "The API shall not stop.\n"), ("other/c.trion", "The API shall run.\n")]);
     let r = f.verify(&["--json"]);
     assert_eq!(r.code, 1, "{}", r.stdout);
@@ -33,7 +33,7 @@ fn reads_the_files_the_entry_includes() {
 
 #[test]
 fn an_include_is_relative_to_the_including_file() {
-    let entry = "package p edition \"1\"\ninclude \"spec/a.trion\"\n";
+    let entry = "package p\ninclude \"spec/a.trion\"\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("spec/a.trion", "include \"deeper/b.trion\"\nnamespace p:\n    The API shall stop.\n"), ("spec/deeper/b.trion", "The API shall not stop.\n")]);
     assert_eq!(codes_of(&f), ["contradiction"]);
 }
@@ -41,7 +41,7 @@ fn an_include_is_relative_to_the_including_file() {
 #[test]
 fn the_entry_file_can_be_named_in_the_manifest() {
     let manifest = "[package]\nname = \"p\"\nentry = \"spec/main.trion\"\n";
-    let f = Fixture::new(&[("trion.toml", manifest), ("spec/main.trion", "package p edition \"1\"\ninclude \"a.trion\"\n"), ("spec/a.trion", "primitive API\nThe API shall stop.\n")]);
+    let f = Fixture::new(&[("trion.toml", manifest), ("spec/main.trion", "package p\ninclude \"a.trion\"\n"), ("spec/a.trion", "primitive API\nThe API shall stop.\n")]);
     let r = f.verify(&["--json"]);
     assert_eq!(r.code, 0, "{}", r.stdout);
     assert_eq!(statements(&r.json()), 1, "{}", r.stdout);
@@ -49,21 +49,21 @@ fn the_entry_file_can_be_named_in_the_manifest() {
 
 #[test]
 fn a_file_is_loaded_once_however_often_it_is_included() {
-    let entry = "package p edition \"1\"\ninclude \"a.trion\"\ninclude \"./a.trion\"\ninclude \"b.trion\"\n";
+    let entry = "package p\ninclude \"a.trion\"\ninclude \"./a.trion\"\ninclude \"b.trion\"\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("a.trion", "[A] The API shall stop.\n"), ("b.trion", "include \"a.trion\"\nnamespace p:\n")]);
     assert!(codes_of_of_the_analysis(&f).is_empty(), "a twice-loaded file would duplicate [A]");
 }
 
 #[test]
 fn an_include_cycle_is_an_error() {
-    let entry = "package p edition \"1\"\ninclude \"a.trion\"\n";
+    let entry = "package p\ninclude \"a.trion\"\n";
     let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("a.trion", "include \"b.trion\"\nnamespace p:\n"), ("b.trion", "include \"a.trion\"\nnamespace p:\n")]);
     assert_eq!(codes_of(&f), ["INCLUDE_CYCLE"]);
 }
 
 #[test]
 fn a_missing_include_is_an_error() {
-    let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", "package p edition \"1\"\ninclude \"gone.trion\"\n")]);
+    let f = Fixture::new(&[("trion.toml", MANIFEST), ("trion.trion", "package p\ninclude \"gone.trion\"\n")]);
     assert_eq!(codes_of(&f), ["MISSING_SOURCE"]);
 }
 
@@ -77,14 +77,14 @@ fn a_missing_entry_file_is_an_error() {
 fn the_entry_file_declares_the_package_of_the_manifest() {
     let f = Fixture::raw(&[("trion.toml", MANIFEST), ("trion.trion", "namespace p:\n")]);
     assert_eq!(codes_of(&f), ["package-missing"]);
-    let f = Fixture::raw(&[("trion.toml", MANIFEST), ("trion.trion", "package q edition \"1\"\n")]);
+    let f = Fixture::raw(&[("trion.toml", MANIFEST), ("trion.trion", "package q\n")]);
     assert_eq!(codes_of(&f), ["package-mismatch"]);
 }
 
 #[test]
 fn an_included_file_has_no_package_declaration() {
-    let entry = "package p edition \"1\"\ninclude \"a.trion\"\n";
-    let f = Fixture::raw(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("a.trion", "package p edition \"1\"\nnamespace p:\n")]);
+    let entry = "package p\ninclude \"a.trion\"\n";
+    let f = Fixture::raw(&[("trion.toml", MANIFEST), ("trion.trion", entry), ("a.trion", "package p\nnamespace p:\n")]);
     assert_eq!(codes_of(&f), ["package-in-include"]);
 }
 

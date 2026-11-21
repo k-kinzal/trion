@@ -1366,7 +1366,7 @@ fn parse_relative_body(
         // agent shape and the role tail follow. Roles attach to the
         // RELATIVE's predicate (innermost attachment, as for verbal
         // relatives); the tail stops where its roles stop.
-        let (mut predicate, mut next) = parse_predicate(tokens, at, NpCtx::Vp, depth)?;
+        let (mut predicate, mut next) = copular_predicate(tokens, at, depth)?;
         resume_flat_able_predicate(tokens, &mut predicate, &mut next);
         let (agent, next) = parse_optional_agent(tokens, next)?;
         let (roles, next) = parse_roles(tokens, next, depth, true)?;
@@ -1807,7 +1807,7 @@ fn parse_clause(tokens: &[Token], depth: usize) -> Result<Clause, ParseError> {
         // `while the pump is active at the depot` carries a structured
         // Location role instead of flat predicate words. A `by` later in
         // the tail is the Agent role (a copular body is a passive site).
-        let (mut predicate, mut next) = parse_predicate(tokens, at, NpCtx::Vp, depth)?;
+        let (mut predicate, mut next) = copular_predicate(tokens, at, depth)?;
         resume_flat_able_predicate(tokens, &mut predicate, &mut next);
         // trion extension: `the token is expired or revoked`.
         if let Ok((listed, after)) = parse_enumeration(tokens, predicate.clone(), next, false) {
@@ -3260,12 +3260,25 @@ fn parse_predicate(
     if words.is_empty() || said.all(|w| ["a", "an", "the"].contains(&w.as_str())) {
         return Err(ParseError::EmptyPredicate);
     }
-    Ok((Predicate::Words { words }, at))
+    Ok((Predicate::Words { words, nominal: None }, at))
 }
 
-/// A predicate noun phrase with `of` or relative structure, as in `shall be a
-/// list that inherits the subject`, kept as the words it renders to. `None`
-/// when no determiner opens one here, or it carries no such structure.
+/// Parses a predicate noun phrase with an owner or a restriction.
+fn attach_nominal(tokens: &[Token], pos: usize, end: usize, ctx: NpCtx, depth: usize, predicate: &mut Predicate) {
+    let Predicate::Words { words, nominal } = predicate else { return };
+    let start = if kw_at(tokens, pos, "not") || kw_at(tokens, pos, "also") { pos + 1 } else { pos };
+    if parse_det(tokens, start).is_none() {
+        return;
+    }
+    if let Ok((group, next)) = parse_np_group(tokens, start, ctx, ParseError::EmptyPredicate, depth) {
+        if next == end && !words.is_empty() {
+            *nominal = Some(group);
+        }
+    }
+}
+
+/// Uses the same noun phrase parser as a definition. The old spelling is
+/// kept for the legacy reading and for the surface renderer.
 fn np_predicate(tokens: &[Token], pos: usize, ctx: NpCtx, depth: usize) -> Option<Result<(Predicate, usize), ParseError>> {
     // trion extension: `is part of the name` has `of` structure without a determiner.
     let determined = parse_det(tokens, pos).is_some();
@@ -3274,7 +3287,31 @@ fn np_predicate(tokens: &[Token], pos: usize, ctx: NpCtx, depth: usize) -> Optio
     }
     let (group, next) = parse_np_group(tokens, pos, ctx, ParseError::EmptyPredicate, depth).ok()?;
     let structured = np_group_has_structure(&group) || (determined && matches!(group, NpGroup::Coordinated { .. }));
-    structured.then(|| Ok((Predicate::Words { words: group.render().split_whitespace().map(str::to_string).collect() }, next)))
+    structured.then(|| Ok((Predicate::Words { words: group.render().split_whitespace().map(str::to_string).collect(), nominal: Some(group) }, next)))
+}
+
+/// A copular clause can end in a relative on its nominal predicate. Keep the
+/// flat reading for existing copular values, roles and enumerations.
+fn copular_predicate(tokens: &[Token], pos: usize, depth: usize) -> Result<(Predicate, usize), ParseError> {
+    let (mut flat, end) = parse_predicate(tokens, pos, NpCtx::Vp, depth)?;
+    let marker = word_at(tokens, pos).filter(|word| in_list(&["not", "also"], word));
+    let start = pos + usize::from(marker.is_some());
+    if let Some(Ok((mut candidate, next))) = np_predicate(tokens, start, NpCtx::Vp, depth) {
+        if let Predicate::Words { words, nominal: Some(group) } = &mut candidate {
+            let has_relative = match group {
+                NpGroup::Single(np) => np.relative.is_some(),
+                NpGroup::Coordinated { items, .. } => items.iter().any(|np| np.relative.is_some()),
+            };
+            if next > end && has_relative {
+                if let Some(marker) = marker {
+                    words.insert(0, marker.to_string());
+                }
+                return Ok((candidate, next));
+            }
+        }
+    }
+    attach_nominal(tokens, pos, end, NpCtx::Vp, depth, &mut flat);
+    Ok((flat, end))
 }
 
 /// Round-8 legislation (change 5): in copular CLAUSE and RELATIVE bodies,
@@ -3288,7 +3325,7 @@ fn np_predicate(tokens: &[Token], pos: usize, ctx: NpCtx, depth: usize) -> Optio
 /// locative prepositions open again; `by` still ends collection): the
 /// whole tail stays flat words, exactly as the legislation reads.
 fn resume_flat_able_predicate(tokens: &[Token], predicate: &mut Predicate, at: &mut usize) {
-    let Predicate::Words { words } = predicate else {
+    let Predicate::Words { words, .. } = predicate else {
         return;
     };
     if !words.last().is_some_and(|w| w.eq_ignore_ascii_case("able")) || !kw_at(tokens, *at, "to") {
@@ -4020,7 +4057,11 @@ fn parse_description(tokens: &[Token], at: usize, subject: NpGroup) -> Result<Co
                 Some(value) => value,
                 None => parse_predicate(tokens, pos, NpCtx::Predicate, 0)?,
             };
-            parse_enumeration(tokens, predicate, next, one_of)?
+            let (mut predicate, next) = parse_enumeration(tokens, predicate, next, one_of)?;
+            if !one_of {
+                attach_nominal(tokens, pos, next, NpCtx::Predicate, 0, &mut predicate);
+            }
+            (predicate, next)
         }
     };
     // The passive agent (round 5): `The request is logged by the daemon.`
@@ -4057,7 +4098,7 @@ fn parse_description(tokens: &[Token], at: usize, subject: NpGroup) -> Result<Co
 fn owned_value(tokens: &[Token], pos: usize) -> Option<(Predicate, usize)> {
     let (group, next) = parse_np_group(tokens, pos, NpCtx::Predicate, ParseError::EmptyPredicate, 0).ok()?;
     match &group {
-        NpGroup::Single(np) if np.of.is_some() => Some((Predicate::Words { words: group.render().split_whitespace().map(str::to_string).collect() }, next)),
+        NpGroup::Single(np) if np.of.is_some() => Some((Predicate::Words { words: group.render().split_whitespace().map(str::to_string).collect(), nominal: Some(group) }, next)),
         _ => None,
     }
 }
@@ -4071,7 +4112,7 @@ fn parse_enumeration(
     mut at: usize,
     one_of: bool,
 ) -> Result<(Predicate, usize), ParseError> {
-    let Predicate::Words { words } = &predicate else {
+    let Predicate::Words { words, .. } = &predicate else {
         return Ok((predicate, at));
     };
     let mut values = vec![words.join(" ")];
@@ -4099,7 +4140,7 @@ fn parse_enumeration(
             (None, _) => {}
         }
         let (item, after) = parse_predicate(tokens, next, NpCtx::Predicate, 0)?;
-        let Predicate::Words { words } = item else {
+        let Predicate::Words { words, .. } = item else {
             return Err(unexpected(tokens, next));
         };
         values.push(words.join(" "));

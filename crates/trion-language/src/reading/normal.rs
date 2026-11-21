@@ -194,7 +194,7 @@ impl Shaper<'_> {
     /// `are members of the room` is `is a member of the room`, and `are
     /// administrators` is `is an administrator`. A value stays as it is.
     fn of_one(&self, clause: &mut Clause) {
-        let ClauseBody::Copular { copula, predicate: Predicate::Words { words }, roles, .. } = &mut clause.body else { return };
+        let ClauseBody::Copular { copula, predicate: Predicate::Words { words, .. }, roles, .. } = &mut clause.body else { return };
         // `members of the room`: the owner stands among the words or as the role after them.
         let owned = matches!(roles.as_slice(), [RolePp::Other { preposition, .. }] if preposition.eq_ignore_ascii_case("of"));
         if *copula == ClauseCopula::Are {

@@ -26,6 +26,7 @@ use crate::document::SpecSet;
 use crate::diagnostic::SpecRef;
 use crate::reading::model::{base_verb, comparison_bound, subject_key, Constraint, ConstraintKind, Model};
 use crate::reading::lexicon::Lexicon;
+use crate::reading::nominal::{self, Nominal};
 use trion_solver::{Atom, Cmp, Formula};
 use crate::syntax::ast::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -62,6 +63,7 @@ enum Form {
     Counted { kind: String, relation: String, target: String, count: Count },
     /// `Each A is a B.`; `No A is a B.`
     Kind { narrow: String, wide: String, both: bool, denied: bool },
+    Membership { narrow: String, predicate: Nominal<String>, quantifier: Quantifier, denied: bool },
     /// `The R1 of a T means the U that the T <verb>s.`
     Same { first: String, first_target: String, second: String, second_target: String, owner: String },
     /// `A T means a G that <verb>s <count> U.`: each G with that count is a T.
@@ -157,7 +159,7 @@ fn generic(det: &Option<Det>) -> bool {
 fn member_phrase(predicate: &Predicate, lex: &Lexicon) -> Option<String> {
     let lower = |w: &String| w.to_lowercase();
     match predicate {
-        Predicate::Words { words } => {
+        Predicate::Words { words, .. } => {
             let words: Vec<String> = words.iter().map(lower).collect();
             let rest = match words.first().map(String::as_str) {
                 Some("a" | "an") => &words[1..],
@@ -179,18 +181,6 @@ fn member_phrase(predicate: &Predicate, lex: &Lexicon) -> Option<String> {
     }
 }
 
-/// `a user`, `a kind of user`: the wider type of an inclusion.
-fn kind_phrase(predicate: &Predicate, lex: &Lexicon) -> Option<String> {
-    let Predicate::Words { words } = predicate else { return None };
-    let words: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
-    let rest = match words.first().map(String::as_str) {
-        Some("a" | "an") => &words[1..],
-        _ => return None,
-    };
-    let rest = if rest.len() > 2 && rest[0] == "kind" && rest[1] == "of" { &rest[2..] } else { rest };
-    let simple = !rest.is_empty() && rest.iter().all(|w| w.chars().all(|c| c.is_alphanumeric() || c == '-') && matches!(crate::syntax::words::classify(w), crate::syntax::words::WordClass::Open));
-    simple.then(|| noun_of_words(rest, lex))
-}
 
 fn related(subject: &Np, item: &Vp, lex: &Lexicon) -> Option<Form> {
     let quantifier = quantifier(&subject.det)?;
@@ -305,49 +295,21 @@ fn of_core(core: &Core, lex: &Lexicon, out: &mut Vec<Form>) {
                 }
                 // `Each guest is a user.`; `No guest is a member.`
                 (None, _) if subject.relative.is_none() => {
-                    let Some(wide) = kind_phrase(predicate, lex) else { return };
-                    match &subject.det {
-                        Some(Det::Each | Det::Every | Det::A | Det::An) => out.push(Form::Kind { narrow: noun(subject, lex), wide, both: false, denied }),
-                        Some(Det::No) => out.push(Form::Kind { narrow: noun(subject, lex), wide, both: false, denied: !denied }),
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
-        }
-        Core::Definition { term, definiens: Definiens::Np { np: NpGroup::Single(genus), roles } } => {
-            match (&term.of, &genus.relative) {
-                // `The formal interpretation of a statement means the expression that the statement denotes.`
-                (Some(owner), Some(relative)) if plain(owner) && relative.and.is_none() && roles.is_empty() => {
-                    if let RelativeBody::ObjectGap { subject: NpGroup::Single(doer), verb, roles, .. } = &relative.body {
-                        if roles.is_empty() && noun(doer, lex) == noun(owner, lex) {
-                            let first_target = noun(term, lex);
-                            let mut bare = genus.clone();
-                            bare.relative = None;
-                            let second_target = noun(&bare, lex);
-                            out.push(Form::Same { first: first_target.clone(), first_target, second: relation(verb, &second_target), second_target, owner: noun(owner, lex) });
-                        }
-                    }
-                }
-                // `A guest means a user.`; `A guest means a user without an account.`
-                (None, None) if term.relative.is_none() && genus.of.is_none() => {
-                    out.push(Form::Kind { narrow: noun(term, lex), wide: noun(genus, lex), both: roles.is_empty(), denied: false });
-                }
-                // `A guest means a user that has no account.`: each guest is a
-                // user with that count, and each user with that count is a guest.
-                (None, Some(relative)) if term.relative.is_none() && genus.of.is_none() && relative.and.is_none() && roles.is_empty() => {
-                    let RelativeBody::Verbal { verb, particle: None, manner, object: Some(NpGroup::Single(object)), roles: inner, negation: None } = &relative.body else { return };
-                    if !manner.is_empty() || !inner.is_empty() || !plain(object) {
-                        return;
-                    }
-                    let Some(count) = count_of(&object.det) else { return };
-                    let mut bare = genus.clone();
-                    bare.relative = None;
-                    let (narrow, wide, target) = (noun(term, lex), noun(&bare, lex), noun(object, lex));
-                    let relation = relation(verb, &target);
-                    out.push(Form::Kind { narrow: narrow.clone(), wide: wide.clone(), both: false, denied: false });
-                    out.push(Form::Related { quantifier: Quantifier::All, kind: narrow.clone(), relation: relation.clone(), target: target.clone(), count });
-                    out.push(Form::Defined { narrow, wide, relation, target, count });
+                    let Predicate::Words { words, nominal: Some(group) } = predicate else { return };
+                    let Some(predicate) = nominal::classes(group, lex) else { return };
+                    let quantifier = match subject.det {
+                        Some(Det::A | Det::An | Det::Each | Det::Every | Det::No) => Quantifier::All,
+                        Some(Det::Some) => Quantifier::Some,
+                        _ => return,
+                    };
+                    let negated = words.first().is_some_and(|word| word.eq_ignore_ascii_case("not"));
+                    let denied = denied ^ negated ^ matches!(subject.det, Some(Det::No));
+                    let narrow = noun(subject, lex);
+                    out.push(match (quantifier, predicate) {
+                        (Quantifier::All, Nominal::Atom(wide)) => Form::Kind { narrow, wide, both: false, denied },
+                        (quantifier, predicate) => Form::Membership { narrow, predicate, quantifier, denied },
+                    });
+
                 }
                 _ => {}
             }
@@ -412,14 +374,14 @@ struct Grounder {
 }
 
 impl Grounder {
-    fn individual(&mut self, noun: &str, index: usize) -> String {
+    fn individual(&self, noun: &str, index: usize) -> String {
         // An individual is named by the noun of its statement: the name is a
         // part of the reading of that statement alone. That two nouns name
         // the individuals of one carrier is a relation, stated in `apply`.
         format!("{}#{}", noun, index + 1)
     }
 
-    fn is(&mut self, kind: &str, index: usize) -> Formula {
+    fn is(&self, kind: &str, index: usize) -> Formula {
         Formula::atom(Atom::Rel { name: kind.to_string(), args: vec![self.individual(kind, index)] })
     }
 
@@ -506,6 +468,21 @@ impl Grounder {
                     })
                     .collect(),
             ),
+            Form::Membership { narrow, predicate, quantifier, denied } => {
+                let parts = (0..scope).map(|index| {
+                    let subject = self.is(narrow, index);
+                    let body = predicate.formula(&|class| self.is(class, index));
+                    let body = if *denied { Formula::not(body) } else { body };
+                    match quantifier {
+                        Quantifier::All => Formula::implies(subject, body),
+                        Quantifier::Some => Formula::And(vec![subject, body]),
+                    }
+                }).collect();
+                match quantifier {
+                    Quantifier::All => Formula::And(parts),
+                    Quantifier::Some => Formula::Or(parts),
+                }
+            }
             Form::Same { first, first_target, second, second_target, owner } => {
                 let mut parts = Vec::new();
                 for i in 0..scope {
@@ -558,7 +535,7 @@ fn seed(form: &Form) -> bool {
         Form::Related { quantifier, .. } => *quantifier == Quantifier::Some,
         Form::Populated { count, .. } => !matches!(count, Count::AtLeast(1)),
         Form::Condition { denied, .. } => *denied,
-        Form::Kind { .. } | Form::Part { .. } | Form::Defined { .. } => false,
+        Form::Kind { .. } | Form::Membership { .. } | Form::Part { .. } | Form::Defined { .. } => false,
         _ => true,
     }
 }
@@ -622,6 +599,11 @@ fn plan(set: &SpecSet, lex: &Lexicon, scope: usize, every: bool) -> Option<(Vec<
                     Form::Same { first, second, .. } => relations.contains(first) || relations.contains(second),
                     Form::Populated { kind, .. } => kinds.contains(kind),
                     Form::Kind { narrow, wide, .. } => kinds.contains(narrow) || kinds.contains(wide),
+                    Form::Membership { narrow, predicate, .. } => {
+                        let mut found = kinds.contains(narrow);
+                        predicate.atoms(&mut |name| found |= kinds.contains(name));
+                        found
+                    }
                     Form::Total { part, .. } | Form::Part { part, .. } => quantities.contains(part),
                 };
             if !take {
@@ -657,6 +639,10 @@ fn plan(set: &SpecSet, lex: &Lexicon, scope: usize, every: bool) -> Option<(Vec<
                 Form::Kind { narrow, wide, .. } => {
                     kinds.insert(narrow.clone());
                     kinds.insert(wide.clone());
+                }
+                Form::Membership { narrow, predicate, .. } => {
+                    kinds.insert(narrow.clone());
+                    predicate.atoms(&mut |name| { kinds.insert(name.clone()); });
                 }
                 Form::Total { kind, part, .. } | Form::Part { kind, part, .. } => {
                     quantities.insert(part.clone());
@@ -696,6 +682,7 @@ fn plan(set: &SpecSet, lex: &Lexicon, scope: usize, every: bool) -> Option<(Vec<
         match &stated.form {
             Form::Included { narrow, wide, .. } => grounder.carriers.join(narrow, wide),
             Form::Kind { narrow, wide, .. } | Form::Defined { narrow, wide, .. } => grounder.carriers.join(narrow, wide),
+            Form::Membership { narrow, predicate, .. } => predicate.atoms(&mut |name| grounder.carriers.join(narrow, name)),
             Form::Same { first_target, second_target, .. } => grounder.carriers.join(first_target, second_target),
             _ => {}
         }
@@ -714,6 +701,10 @@ fn plan(set: &SpecSet, lex: &Lexicon, scope: usize, every: bool) -> Option<(Vec<
             Form::Kind { narrow, wide, .. } | Form::Defined { narrow, wide, .. } => {
                 owners.insert(narrow.clone());
                 owners.insert(wide.clone());
+            }
+            Form::Membership { narrow, predicate, .. } => {
+                owners.insert(narrow.clone());
+                predicate.atoms(&mut |name| { owners.insert(name.clone()); });
             }
         }
     }
@@ -766,6 +757,10 @@ pub(super) fn domain(set: &SpecSet, lex: &Lexicon, scope: usize) -> (usize, BTre
                 nouns.insert(kind.clone());
             }
             Form::Kind { narrow, wide, .. } => nouns.extend([narrow.clone(), wide.clone()]),
+            Form::Membership { narrow, predicate, .. } => {
+                nouns.insert(narrow.clone());
+                predicate.atoms(&mut |name| { nouns.insert(name.clone()); });
+            }
             Form::Same { first_target, second_target, owner, .. } => nouns.extend([first_target.clone(), second_target.clone(), owner.clone()]),
             Form::Defined { narrow, wide, target, .. } => nouns.extend([narrow.clone(), wide.clone(), target.clone()]),
         }
@@ -775,7 +770,7 @@ pub(super) fn domain(set: &SpecSet, lex: &Lexicon, scope: usize) -> (usize, BTre
 }
 
 /// What each statement about the domain says, as data.
-pub(super) fn facts(set: &SpecSet, lex: &Lexicon, scope: usize) -> Vec<crate::reading::typed::DomainStatement> {
+pub(super) fn facts(set: &SpecSet, lex: &Lexicon, scope: usize, domain: &BTreeSet<String>) -> Vec<crate::reading::typed::DomainStatement> {
     use crate::reading::typed::{Count as Bound, DomainFact, DomainStatement};
     let Some((all, _)) = plan(set, lex, scope, true) else { return Vec::new() };
     let bound = |count: &Count| match count {
@@ -784,6 +779,8 @@ pub(super) fn facts(set: &SpecSet, lex: &Lexicon, scope: usize) -> Vec<crate::re
         Count::Exactly(n) => Bound::Exactly(*n),
     };
     all.iter()
+        .filter(|stated| domain.contains(&stated.origin.id)
+            || !matches!(stated.form, Form::Kind { .. } | Form::Membership { .. } | Form::Populated { .. }))
         .map(|stated| {
             let fact = match &stated.form {
                 Form::Related { quantifier, kind, relation, target, count } => DomainFact::Related { each: *quantifier == Quantifier::All, kind: kind.clone(), relation: relation.clone(), target: target.clone(), count: bound(count) },
@@ -792,6 +789,9 @@ pub(super) fn facts(set: &SpecSet, lex: &Lexicon, scope: usize) -> Vec<crate::re
                 Form::Populated { kind, count } => DomainFact::Populated { kind: kind.clone(), count: bound(count) },
                 Form::Counted { kind, relation, target, count } => DomainFact::Counted { kind: kind.clone(), relation: relation.clone(), target: target.clone(), count: bound(count) },
                 Form::Kind { narrow, wide, both, denied } => DomainFact::Kind { narrow: narrow.clone(), wide: wide.clone(), both: *both, denied: *denied },
+                Form::Membership { narrow, predicate, quantifier, denied } => DomainFact::Membership {
+                    narrow: narrow.clone(), predicate: predicate.clone(), each: *quantifier == Quantifier::All, denied: *denied,
+                },
                 Form::Same { first, second, owner, .. } => DomainFact::Same { first: first.clone(), second: second.clone(), owner: owner.clone() },
                 Form::Defined { narrow, wide, relation, target, count } => DomainFact::Defined { narrow: narrow.clone(), wide: wide.clone(), relation: relation.clone(), target: target.clone(), count: bound(count) },
                 Form::Total { .. } | Form::Part { .. } | Form::Condition { .. } => DomainFact::Unevaluated,
@@ -814,11 +814,25 @@ pub(super) fn about_the_domain(spec: &crate::document::Spec, lex: &Lexicon) -> b
 /// Reads the statements about individuals and adds what they say to the
 /// model. `relations` names the relations that the instances of the other
 /// statements speak about, each with the noun of its owner and of its target.
-pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usize, every: bool, relations: &BTreeSet<(String, String, String)>) {
+pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usize, every: bool, relations: &BTreeSet<(String, String, String)>, domain: &BTreeSet<String>) {
     let Some((all, mut grounder)) = plan(set, lex, scope, every) else { return };
     let mut populated: BTreeMap<String, ()> = BTreeMap::new();
+    let mut domain_claims: BTreeMap<String, Vec<Formula>> = BTreeMap::new();
     for stated in &all {
         let Some(formula) = grounder.formula(&stated.form, lex) else { continue };
+        let subject = match &stated.form {
+            Form::Kind { narrow, .. } | Form::Membership { narrow, .. } => Some(narrow),
+            Form::Populated { kind, .. } => Some(kind),
+            _ => None,
+        };
+        if let Some(subject) = subject {
+            if domain.contains(&stated.origin.id) {
+                model.over_instances.insert(stated.origin.id.clone());
+                model.domain_contracts.entry(stated.origin.id.clone()).or_default().insert(subject.clone());
+                domain_claims.entry(stated.origin.id.clone()).or_default().push(formula);
+            }
+            continue;
+        }
         model.over_instances.insert(stated.origin.id.clone());
         if let Form::Related { kind, .. } | Form::Populated { kind, .. } | Form::Counted { kind, .. } | Form::Condition { kind, .. } | Form::Part { kind, .. } | Form::Distinct { kind, .. } = &stated.form {
             populated.insert(kind.clone(), ());
@@ -834,6 +848,11 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, model: &mut Model, scope: usiz
             None => (if seed(&stated.form) { ConstraintKind::Axiom } else { ConstraintKind::Carried }, Formula::True),
         };
         model.constraints.push(Constraint { kind, assume, guarantee: formula, refs: vec![stated.origin.clone()] });
+    }
+    for constraint in &mut model.constraints {
+        if let Some(claims) = constraint.refs.first().and_then(|source| domain_claims.remove(&source.id)) {
+            constraint.guarantee = if claims.len() == 1 { claims.into_iter().next().unwrap() } else { Formula::And(claims) };
+        }
     }
     // The total of a quantity is the sum over the individuals that exist.
     for stated in &all {

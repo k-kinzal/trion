@@ -13,6 +13,6 @@ The initial analysis covered classical two-valued logic over declared propositio
 | Write `P and Q or R` without parentheses. | Ambiguous, even with valid declarations and tokens. |
 | Write `always Q`. | Unsupported. |
 
-The initial work excluded A/G responsibility and duties, arithmetic, quantification, state updates, time, probability, concurrency, general recursion, context-dependent references, and automatic extraction from diagrams or tables. We chose a versioned empty definition environment. Named definitions, approximate adapters, certificate formats, a semantic contract connecting to A/G, and encoding into the existing MMT form were follow-up design topics.
+The initial work excluded A/G responsibility and duties, arithmetic, quantification, state updates, time, probability, concurrency, general recursion, context-dependent references, and automatic extraction from diagrams or tables. We chose an empty definition environment. Named definitions, approximate adapters, certificate formats, a semantic contract connecting to A/G, and encoding into the existing MMT form were follow-up design topics.
 
 See the [architecture survey](current-architecture.md) for the treatment of existing assets and [decision 001](../decisions/001-foundation-scope.md) for the rationale.

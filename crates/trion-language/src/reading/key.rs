@@ -186,6 +186,7 @@ pub struct Unread {
 pub(crate) struct Sink {
     pub unread: Vec<Unread>,
     pub keys: BTreeMap<String, Vec<Part>>,
+    pub definitions: Vec<crate::SpecRef>,
 }
 
 thread_local! {
@@ -220,14 +221,15 @@ fn report(unread: Unread) {
     });
 }
 
-/// Hands the account of an inner run to the account of the statement.
-pub(crate) fn forward(sink: Sink) {
-    for unread in sink.unread {
-        report(unread);
-    }
-    for (name, parts) in sink.keys {
-        register(&name, &parts);
-    }
+
+pub(super) fn register_definition(reference: &crate::SpecRef) {
+    SINK.with(|s| {
+        if let Some(sink) = s.borrow_mut().as_mut() {
+            if !sink.definitions.contains(reference) {
+                sink.definitions.push(reference.clone());
+            }
+        }
+    });
 }
 
 /// Reports a node that has no reading.
@@ -376,6 +378,18 @@ impl<'a> Emit<'a> {
     fn np(&mut self, np: &Np, position: Position) {
         let Np { det, modifiers, head, of, relative, of_also, of_conj } = np;
         self.det(det, position);
+        if matches!(position, Position::Argument | Position::Owner)
+            && of.is_none() && relative.is_none() && of_also.is_empty()
+        {
+            let written = text(&np_parts(np, self.lex));
+            let resolved = self.lex.resolve(&written);
+            if self.lex.known(&resolved) && (resolved != written || self.lex.is_applied()) {
+                self.runs += 1;
+                self.push(&resolved, Intent::Quoted);
+                self.runs += 1;
+                return;
+            }
+        }
         self.name_words(det, modifiers, head);
         if let Some(owner) = of {
             self.mark(Mark::Role, "of");
@@ -438,6 +452,9 @@ impl<'a> Emit<'a> {
         let Np { det, modifiers, head, of, relative, of_also, of_conj } = np;
         self.runs += 1;
         self.owner_first(of, of_also, of_conj);
+        if of.is_some() {
+            self.runs += 1;
+        }
         for (i, word) in modifiers.iter().enumerate() {
             if !misplaced_article(det, i, word) {
                 self.name_word(word, Place::Modifier);
@@ -474,6 +491,9 @@ impl<'a> Emit<'a> {
             Some(Det::AtLeast { .. } | Det::Cardinal { .. } | Det::AtMost { .. } | Det::Exactly { .. } | Det::ZeroOrMore) => unread_node(&det.as_ref().map(Det::render).unwrap_or_default(), "a count", "before the owner of a thing"),
         }
         self.owner_first(of, of_also, of_conj);
+        if of.is_some() {
+            self.runs += 1;
+        }
         for (i, word) in modifiers.iter().enumerate() {
             if !misplaced_article(det, i, word) {
                 self.name_word(word, Place::Modifier);
@@ -565,7 +585,11 @@ impl<'a> Emit<'a> {
 
     fn verb(&mut self, verb: &str, particle: &Option<String>, manner: &[String]) {
         self.runs += 1;
-        self.push(verb, Intent::Open(Place::Verb));
+        if let Some(name) = self.lex.predicate_identity(verb) {
+            self.push(&name, Intent::Quoted);
+        } else {
+            self.push(verb, Intent::Open(Place::Verb));
+        }
         if let Some(particle) = particle {
             self.push(particle, Intent::Mark(Mark::Role));
         }
@@ -623,7 +647,7 @@ impl<'a> Emit<'a> {
                 self.mark(Mark::Role, preposition);
                 self.group(np, Position::Argument);
             }
-            Predicate::Words { words } => self.predicate_words(words),
+            Predicate::Words { words, .. } => self.predicate_words(words),
             Predicate::Enumeration { one_of, conj, values } => {
                 if *one_of {
                     self.mark(Mark::Enumeration, "one of");
@@ -835,7 +859,20 @@ impl<'a> Emit<'a> {
         let mut parts = Vec::new();
         let mut quoted = false;
         let mut last_run = usize::MAX;
-        for (text, range, declared) in lex.canon_words(&words) {
+        let canonical: Vec<_> = {
+            let mut start = 0;
+            toks.chunk_by(|a, b| a.run == b.run).flat_map(|run| {
+                let end = start + run.len();
+                let words = lex.canon_words(&words[start..end]);
+                let offset = start;
+                start = end;
+                words.into_iter().map(move |(text, range, declared)| {
+                    (text, range.start + offset..range.end + offset, declared)
+                })
+            }).collect()
+        };
+
+        for (text, range, declared) in canonical {
             let first = &toks[range.start];
             if first.run != last_run {
                 quoted = false;

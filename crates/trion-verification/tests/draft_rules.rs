@@ -1,4 +1,4 @@
-//! Rules of the language draft (edition 0.1.0-draft.1) that the parser and the
+//! Rules of the language draft that the parser and the
 //! analysis decide on their own.
 
 mod common;
@@ -34,7 +34,7 @@ fn an_ears_requirement_has_one_trigger_and_any_number_of_states() {
 
 #[test]
 fn a_source_file_parses_as_one_trion_document() {
-    let (parsed, diags) = parse_document("package p edition \"test\"\nnamespace p:\n    [A] The API shall stop.\n", "a.trion");
+    let (parsed, diags) = parse_document("package p\nnamespace p:\n    [A] The API shall stop.\n", "a.trion");
     assert!(diags.is_empty(), "{diags:?}");
     assert_eq!(parsed.package.map(|p| p.name), Some("p".to_string()));
     assert_eq!(parsed.documents.len(), 1);
@@ -264,7 +264,7 @@ fn a_section_holds_a_title_and_an_ordered_body() {
 
 #[test]
 fn an_include_belongs_to_the_file_level() {
-    let (file, codes) = d_parse("package p edition \"1\"\ninclude \"a.trion\"\nnamespace p:\n");
+    let (file, codes) = d_parse("package p\ninclude \"a.trion\"\nnamespace p:\n");
     assert!(codes.is_empty(), "{codes:?}");
     assert_eq!(file.includes[0].path, "a.trion");
 

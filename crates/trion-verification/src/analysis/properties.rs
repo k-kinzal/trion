@@ -44,7 +44,7 @@ fn root_statements(set: &SpecSet) -> Vec<(&Document, &Spec, &str)> {
 
 /// A document of the namespace of `doc` that holds the given statements only.
 fn alone(doc: &Document, specs: Vec<Spec>) -> Document {
-    Document { namespace: doc.namespace.clone(), file: doc.file.clone(), imports: doc.imports.clone(), specs, ..Document::default() }
+    Document { namespace: doc.namespace.clone(), file: doc.file.clone(), imports: doc.imports.clone(), application_mapping: doc.application_mapping.clone(), application_scope: doc.application_scope.clone(), application_ancestors: doc.application_ancestors.clone(), application_roles: doc.application_roles.clone(), specs, ..Document::default() }
 }
 
 fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> Option<R> + Sync) -> Vec<R> {
@@ -306,7 +306,7 @@ fn readings(model: &Model) -> BTreeMap<String, Vec<String>> {
 
 /// Round trip: the package with each statement replaced by its expansion in
 /// controlled English has the model of the package.
-fn round_trip(set: &SpecSet, package: &Model) -> Vec<Diagnostic> {
+fn round_trip(set: &SpecSet, package: &Model, options: &Options) -> Vec<Diagnostic> {
     let mut expanded = set.clone();
     let mut out = Vec::new();
     for doc in expanded.packages.iter_mut().filter(|p| p.is_root).flat_map(|p| &mut p.documents) {
@@ -334,7 +334,8 @@ fn round_trip(set: &SpecSet, package: &Model) -> Vec<Diagnostic> {
         }
         doc.specs = specs;
     }
-    let (first, mut second) = (readings(package), readings(&analyze(&expanded, &Options::default()).model));
+    let replay = Options { bounds: options.bounds, ..Options::default() };
+    let (first, mut second) = (readings(package), readings(&analyze(&expanded, &replay).model));
     if fault("roundtrip") {
         second.insert("the background".to_string(), vec!["seeded".to_string()]);
     }
@@ -367,7 +368,7 @@ pub fn check(set: &SpecSet, base: &Analysis, options: &Options) -> Vec<Diagnosti
         let context = threads.spawn(|| timed("context", context(set, &base.model, scope)));
         let relations = threads.spawn(|| timed("relations", relations(set, base, options)));
         let order = threads.spawn(|| timed("order", order(set, base, options)));
-        let round_trip = threads.spawn(|| timed("round trip", round_trip(set, &base.model)));
+        let round_trip = threads.spawn(|| timed("round trip", round_trip(set, &base.model, options)));
         let rules = threads.spawn(|| timed("the two rules", rules(set, &base.model, scope)));
         [context, relations, order, round_trip, rules].into_iter().flat_map(|handle| handle.join().unwrap_or_default()).collect()
     })

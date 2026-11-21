@@ -223,7 +223,7 @@ fn run_example(doc: &Document, pkg: &Package, example: &trion_language::document
                         }
                         reread.id = spec.id.clone();
                         reread.abbreviates = spec.abbreviates.clone();
-                        let mut document = Document { namespace: doc.namespace.clone(), imports: doc.imports.clone(), file: doc.file.clone(), ..Document::default() };
+                        let mut document = Document { namespace: doc.namespace.clone(), imports: doc.imports.clone(), file: doc.file.clone(), application_mapping: doc.application_mapping.clone(), ..Document::default() };
                         document.specs.push(reread);
                         super::local_reading(&compile(vec![document]), &id)
                     });

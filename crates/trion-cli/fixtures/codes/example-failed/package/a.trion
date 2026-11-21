@@ -7,7 +7,7 @@ example E:
     kind syntax
     form fragment
     input """
-package q edition "x"
+package q
 include "missing.trion"
 namespace q:
     source R:

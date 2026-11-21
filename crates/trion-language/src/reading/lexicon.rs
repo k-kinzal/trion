@@ -64,6 +64,17 @@ pub struct Lexicon {
     namespace: String,
     /// The namespaces named by the current block's `use` declarations.
     uses: Vec<String>,
+    qualifiers: BTreeMap<String, String>,
+    derived: Arc<BTreeMap<String, Derived>>,
+    predicates: Arc<BTreeSet<String>>,
+    mapping: Arc<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Derived {
+    pub origin: Document,
+    pub reference: SpecRef,
+    pub body: NpGroup,
 }
 
 type AliasList = Vec<(Vec<String>, String)>;
@@ -74,13 +85,15 @@ pub struct Scopes {
     /// Term to the namespaces that declare or define it.
     pub declared: BTreeMap<String, BTreeSet<String>>,
     pub namespaces: BTreeSet<String>,
+    root: Option<String>,
+    inference_cycles: BTreeSet<(String, String)>,
 }
 
 impl Scopes {
     /// The used namespaces that declare a term.
     pub fn import_candidates(&self, uses: &[String], term: &str) -> Vec<String> {
         let Some(owners) = self.declared.get(term) else { return Vec::new() };
-        uses.iter().filter(|i| owners.contains(*i)).cloned().collect()
+        uses.iter().filter(|i| owners.contains(*i)).cloned().collect::<BTreeSet<_>>().into_iter().collect()
     }
 
     /// Resolves the namespace part of a qualified name: an absolute name, or
@@ -89,7 +102,17 @@ impl Scopes {
         if self.namespaces.contains(qualifier) {
             return Some(qualifier.to_string());
         }
-        uses.iter().find(|i| i.as_str() == qualifier || i.ends_with(&format!(".{qualifier}"))).filter(|candidate| self.namespaces.contains(*candidate)).cloned()
+        if let Some(root) = &self.root {
+            if let Some(tail) = qualifier.strip_prefix(root) {
+                let local = tail.strip_prefix('.').unwrap_or(tail);
+                if (tail.is_empty() || tail.starts_with('.')) && self.namespaces.contains(local) {
+                    return Some(local.to_string());
+                }
+            }
+        }
+        let mut candidates = uses.iter().filter(|i| i.ends_with(&format!(".{qualifier}")) && self.namespaces.contains(*i)).collect::<BTreeSet<_>>().into_iter();
+        let candidate = candidates.next()?;
+        candidates.next().is_none().then(|| candidate.clone())
     }
 
     /// The namespace that owns a term used in `namespace`: its own declaration,
@@ -183,9 +206,17 @@ impl Lexicon {
     fn scoped(&self, namespace: &str, uses: Vec<String>) -> Self {
         let mut out = self.clone();
         out.namespace = namespace.to_string();
+        out.visible.clear();
         out.visible = self.members.get(namespace).cloned().unwrap_or_default();
         for used in &uses {
             for (alias, canonical) in self.members.get(used).into_iter().flatten() {
+                if self.scopes.as_ref().is_some_and(|scopes| {
+                    let spelling = alias.join(" ");
+                    scopes.declared.get(&spelling).is_some_and(|owners| owners.contains(namespace))
+                        || scopes.import_candidates(&uses, &spelling).len() > 1
+                }) {
+                    continue;
+                }
                 if out.visible.iter().any(|(existing, _)| existing == alias) {
                     continue;
                 }
@@ -209,7 +240,7 @@ impl Lexicon {
     /// a sentence follow from the sentence alone; that two names name one
     /// term is said beside the contracts, when they are verified.
     pub fn without_aliases(&self) -> Self {
-        Self { members: Arc::new(BTreeMap::new()), visible: Vec::new(), ..self.clone() }
+        Self { visible: Vec::new(), ..self.clone() }
     }
 
     /// `true` when a namespace of the set declares an alias.
@@ -218,16 +249,100 @@ impl Lexicon {
     }
 
     pub fn in_document(&self, doc: &Document) -> Self {
-        self.scoped(&doc.namespace, doc.imports.iter().map(|i| i.namespace.clone()).collect())
+        let mut lex = self.clone();
+        lex.mapping = Arc::new(doc.application_mapping.clone());
+        lex.qualifiers = doc.imports.iter().filter(|import| import.name != import.namespace)
+            .map(|import| (import.name.clone(), import.namespace.clone())).collect();
+        lex.scoped(&doc.namespace, doc.imports.iter().map(|i| i.namespace.clone()).collect())
+    }
+
+    pub(crate) fn is_applied(&self) -> bool {
+        !self.mapping.is_empty()
+    }
+
+    /// The action identity of a declared predicate, including that of an alias.
+    pub fn predicate_identity(&self, lemma: &str) -> Option<String> {
+        let name = self.resolve(&self.canon(lemma));
+        self.predicates.contains(&name).then_some(name)
+    }
+
+    pub(crate) fn derived(&self, name: &str) -> Option<&Derived> {
+        self.derived.get(name)
+    }
+
+
+
+    /// The syntax and declaration scope of a class abbreviation.
+    pub fn class_body(&self, name: &str) -> Option<(&NpGroup, Self)> {
+        self.derived(name).map(|derived| (&derived.body, self.in_definition(derived)))
+    }
+
+    /// Resolve a definition in the namespace that owns it, using the mapping
+    /// under which its body is being used.
+    pub(crate) fn in_definition(&self, derived: &Derived) -> Self {
+        let mut scoped = self.in_document(&derived.origin);
+        scoped.mapping = Arc::clone(&self.mapping);
+        scoped
+    }
+
+    pub(crate) fn local_name(&self, spelling: &str) -> String {
+        let plain = Self { members: Arc::new(BTreeMap::new()), visible: Vec::new(), ..self.clone() };
+        qualified(&self.namespace, &plain.canon(spelling))
+    }
+
+    fn declared_key(&self, key: &str) -> bool {
+        let (namespace, term) = key.rsplit_once("::").unwrap_or(("", key));
+        self.scopes.as_ref().and_then(|scopes| scopes.declared.get(term)).is_some_and(|owners| owners.contains(namespace))
+    }
+
+    fn grounded_key(&self, key: &str) -> bool {
+        key.rsplit_once('#').is_some_and(|(name, index)| {
+            !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()) && self.declared_key(name)
+        })
+    }
+
+    pub(crate) fn known(&self, key: &str) -> bool {
+        self.declared_key(key) || self.grounded_key(key)
+    }
+
+    fn qualifier(&self, name: &str) -> Option<String> {
+        let scopes = self.scopes.as_ref()?;
+        let canonical = self.qualifiers.get(name).map_or(name, String::as_str);
+        scopes.qualifier(&self.uses, canonical)
     }
 
     /// The key of a term: its name, qualified by the namespace that owns it.
     pub fn resolve(&self, term: &str) -> String {
         let Some(scopes) = &self.scopes else { return term.to_string() };
-        if let Some((qualifier, name)) = term.split_once("::") {
-            return qualified(&scopes.qualifier(&self.uses, qualifier).unwrap_or_else(|| qualifier.to_string()), name);
+        if self.grounded_key(term) {
+            return term.to_string();
         }
-        qualified(&scopes.owner(&self.namespace, &self.uses, term), term)
+        let name = if let Some((qualifier, name)) = term.split_once("::") {
+            qualified(&self.qualifier(qualifier).unwrap_or_else(|| qualifier.to_string()), name)
+        } else {
+            qualified(&scopes.owner(&self.namespace, &self.uses, term), term)
+        };
+        self.mapping.get(&name).cloned().unwrap_or(name)
+    }
+
+    /// Resolves an explicitly written name before the caller checks its kind or
+    /// decides whether its own declaration context can introduce it.
+    pub fn resolve_explicit(&self, spelling: &str) -> Result<String, String> {
+        if let Some(scopes) = &self.scopes {
+            let plain = Self { members: Arc::new(BTreeMap::new()), visible: Vec::new(), ..self.clone() };
+            let written = plain.canon(spelling);
+            if let Some((qualifier, _)) = written.split_once("::") {
+                if self.qualifier(qualifier).is_none() {
+                    return Err(format!("namespace `{qualifier}` is unknown or ambiguous in this scope"));
+                }
+            } else if !scopes.declared.get(&written).is_some_and(|owners| owners.contains(&self.namespace)) {
+                let candidates = scopes.import_candidates(&self.uses, &written);
+                if candidates.len() > 1 {
+                    return Err(format!("`{written}` is ambiguous between {}; write a qualified name", candidates.join(" and ")));
+                }
+            }
+        }
+        Ok(self.resolve(&self.canon(spelling)))
     }
 
     pub fn with_verbs(mut self, verbs: BTreeSet<String>) -> Self {
@@ -238,8 +353,7 @@ impl Lexicon {
     /// Reads an alias written with its namespace: `orders::buyer`.
     fn qualified_alias(&self, words: &[String]) -> Option<(usize, String)> {
         let (qualifier, name) = words.first()?.split_once("::")?;
-        let scopes = self.scopes.as_ref()?;
-        let namespace = scopes.qualifier(&self.uses, qualifier)?;
+        let namespace = self.qualifier(qualifier)?;
         let mut wanted = vec![name.to_string()];
         wanted.extend(words[1..].iter().cloned());
         let (alias, canonical) = self.members.get(&namespace)?.iter().find(|(alias, _)| wanted.starts_with(alias.as_slice()))?;
@@ -261,7 +375,6 @@ impl Lexicon {
         if !last.chars().all(|c| c.is_ascii_alphabetic()) {
             return word.to_string();
         }
-        let declared = |w: &str| self.declared_words.contains(w);
         let mut chars = last.chars();
         let first = chars.next().unwrap_or(' ');
         let rest = chars.as_str();
@@ -276,12 +389,6 @@ impl Lexicon {
             return word.to_string();
         };
         if crate::syntax::words::is_no_plural(&lowered) {
-            return lowered;
-        }
-        if let Some(singular) = singular_candidates(&lowered).into_iter().find(|c| declared(c)) {
-            return singular;
-        }
-        if declared(&lowered) {
             return lowered;
         }
         // `organizes` and `caches` are forms of `organize` and `cache`.
@@ -303,39 +410,12 @@ impl Lexicon {
     /// words that it covers, and each other word in the spelling of a key.
     pub(crate) fn canon_words(&self, raw: &[String]) -> Vec<(String, std::ops::Range<usize>, bool)> {
         let words: Vec<String> = raw.iter().map(|w| if w.len() >= 3 && w.starts_with('`') && w.ends_with('`') { strip_backticks(w).to_string() } else { self.number(w) }).collect();
-        let mut out: Vec<(String, std::ops::Range<usize>, bool)> = Vec::new();
-        let mut i = 0;
-        'scan: while i < words.len() {
-            if let Some((length, canonical)) = self.qualified_alias(&words[i..]) {
-                out.push((canonical, i..i + length, true));
-                i += length;
-                continue 'scan;
-            }
-            // The longest name that starts here decides. A name that an alias
-            // stands for may hold that alias (`statement` for `normative
-            // statement`): the whole name is then read once, and the alias
-            // inside it is not read again.
-            let mut best: Option<(usize, &String)> = None;
-            for (alias, canonical) in &self.visible {
-                let target: Vec<&str> = canonical.rsplit("::").next().unwrap_or(canonical).split_whitespace().collect();
-                let holds_alias = target.len() > alias.len() && target.windows(alias.len()).any(|w| w.iter().zip(alias).all(|(a, b)| a == b));
-                let spelled = holds_alias && words.len() - i >= target.len() && words[i..i + target.len()].iter().zip(&target).all(|(a, b)| a == b);
-                if spelled && best.is_none_or(|(length, _)| length < target.len()) {
-                    best = Some((target.len(), canonical));
-                }
-                if words[i..].starts_with(alias.as_slice()) && best.is_none_or(|(length, _)| length < alias.len()) {
-                    best = Some((alias.len(), canonical));
-                }
-            }
-            if let Some((length, canonical)) = best {
-                out.push((canonical.clone(), i..i + length, true));
-                i += length;
-                continue 'scan;
-            }
-            out.push((words[i].clone(), i..i + 1, false));
-            i += 1;
+        let canonical = self.qualified_alias(&words).filter(|(len, _)| *len == words.len()).map(|(_, name)| name)
+            .or_else(|| self.visible.iter().find(|(alias, _)| alias == &words).map(|(_, name)| name.clone()));
+        match canonical {
+            Some(name) => vec![(name, 0..words.len(), true)],
+            None => words.into_iter().enumerate().map(|(i, word)| (word, i..i + 1, false)).collect(),
         }
-        out
     }
 
     /// The declared names, as folded word sequences.
@@ -415,7 +495,7 @@ fn declared_words(set: &SpecSet) -> BTreeSet<String> {
             add(&a.term);
             add(&a.canonical);
         });
-        for spec in &doc.specs {
+        for spec in doc.specs.iter().chain(&doc.symbol_sources) {
             // A capital that only opens the sentence is no part of the name.
             if let Core::Definition { term, .. } = &spec.sentence.core {
                 let mut words = np_words(term);
@@ -445,21 +525,62 @@ fn language_verbs(set: &SpecSet) -> BTreeSet<String> {
 
 /// Records which namespaces declare which terms.
 fn build_scopes(set: &SpecSet, lex: &Lexicon) -> Scopes {
-    let mut scopes = Scopes::default();
-    for doc in set.packages.iter().flat_map(|p| &p.documents) {
+    let mut scopes = Scopes {
+        root: set.packages.iter().find(|package| package.is_root)
+            .map(|package| package.name.clone()),
+        ..Default::default()
+    };
+    let mut inferred: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
+    for doc in set.packages.iter().flat_map(|p| &p.documents).filter(|doc| doc.application_mapping.is_empty()) {
         let ns = &doc.namespace;
         let scoped = lex.in_document(doc);
         scopes.namespaces.insert(ns.clone());
         for decl in &doc.vocabulary {
-            scopes.declared.entry(scoped.canon(&decl.term)).or_default().insert(ns.clone());
+            let written = scoped.local_name(&decl.term).rsplit("::").next().unwrap_or_default().to_string();
+            scopes.declared.entry(written).or_default().insert(ns.clone());
         }
-        for spec in &doc.specs {
+        let names = doc.primitives.iter().chain(&doc.measures).chain(&doc.individuals).map(|decl| &decl.name)
+            .chain(doc.predicates.iter().map(|decl| &decl.name))
+            .chain(doc.controls.iter().map(|decl| &decl.name))
+            .chain(doc.aliases.iter().map(|decl| &decl.term));
+        let raw = Lexicon { members: Arc::new(BTreeMap::new()), visible: Vec::new(), ..scoped.clone() };
+        for name in names {
+            scopes.declared.entry(raw.canon(name)).or_default().insert(ns.clone());
+        }
+        for spec in doc.specs.iter().chain(&doc.symbol_sources) {
             for (term, kind) in occurrences(&spec.sentence, &scoped) {
+                if term.contains("::") || term.starts_with('$') {
+                    continue;
+                }
                 if kind == "defined" {
                     scopes.declared.entry(term).or_default().insert(ns.clone());
+                } else if kind != "action" && set.vocabulary_mode == crate::document::VocabularyMode::Inferred && super::grounding::describes(&spec.sentence.core) {
+                    inferred.entry(term).or_default().entry(ns.clone()).or_default().extend(doc.imports.iter().map(|import| import.namespace.clone()));
                 }
             }
         }
+    }
+    for (term, candidates) in inferred {
+        let owners = scopes.declared.entry(term.clone()).or_default();
+        // First register names whose candidate scopes have no imported candidate.
+        // A chain resolves from the supplying end. A cycle without a declaration
+        // has no inferred export.
+        let mut pending = candidates;
+        loop {
+            let ready: Vec<_> = pending.iter().filter(|(ns, uses)| {
+                owners.contains(*ns) || uses.iter().any(|import| owners.contains(import)) || uses.iter().all(|import| !pending.contains_key(import) || import == *ns)
+            }).map(|(ns, _)| ns.clone()).collect();
+            if ready.is_empty() {
+                break;
+            }
+            for ns in ready {
+                let uses = pending.remove(&ns).unwrap_or_default();
+                if !uses.iter().any(|import| owners.contains(import)) {
+                    owners.insert(ns);
+                }
+            }
+        }
+        scopes.inference_cycles.extend(pending.into_keys().map(|ns| (ns, term.clone())));
     }
     scopes
 }
@@ -470,32 +591,57 @@ fn check_scopes(set: &SpecSet, scopes: &Scopes, lex: &Lexicon, out: &mut Vec<Dia
     for doc in set.packages.iter().flat_map(|p| &p.documents) {
         let uses: Vec<String> = doc.imports.iter().map(|i| i.namespace.clone()).collect();
         for import in &doc.imports {
-            if !scopes.namespaces.contains(&import.namespace) {
+            let package_reference = import.reference_only
+                && scopes.namespaces.iter().any(|namespace| namespace.starts_with(&format!("{}.", import.namespace)));
+            if !scopes.namespaces.contains(&import.namespace) && !package_reference {
                 let at = SpecRef { id: format!("{}:{}", import.file, import.line), file: import.file.clone(), line: import.line, text: format!("use {}", import.name) };
                 out.push(Diagnostic::error("namespace-unknown", format!("the namespace `{}` does not exist", import.name), vec![at]));
             }
         }
-        let scoped = lex.in_document(doc);
-        for spec in &doc.specs {
-            let at = SpecRef { id: spec.display_id(), file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() };
-            for (term, kind) in occurrences(&spec.sentence, &scoped) {
-                if kind == "action" || kind == "value" {
+        let mut scoped = lex.in_document(doc);
+        scoped.members = Arc::new(BTreeMap::new());
+        scoped.visible.clear();
+        let mut check_names = |names: Vec<(String, &'static str)>, at: &SpecRef| {
+            for (term, _) in names {
+                if term.starts_with('$') {
+                    out.push(Diagnostic::error("UNBOUND_VARIABLE", format!("`{term}` has no binder in this statement"), vec![at.clone()]));
                     continue;
                 }
-                if let Some((qualifier, _)) = term.split_once("::") {
+                if let Some((qualifier, name)) = term.split_once("::") {
                     // A modifier may stand before a qualified head: `applicable packages::declaration`.
                     let qualifier = qualifier.rsplit(' ').next().unwrap_or(qualifier);
-                    if scopes.qualifier(&uses, qualifier).is_none() {
-                        out.push(Diagnostic::error("namespace-unknown", format!("the namespace `{qualifier}` does not exist"), vec![at.clone()]));
+                    let declared = scoped.qualifiers.get(qualifier).map_or(qualifier, String::as_str);
+                    match scopes.qualifier(&uses, declared) {
+                        None => out.push(Diagnostic::error("namespace-unknown", format!("the namespace `{qualifier}` is unknown or ambiguous in this scope"), vec![at.clone()])),
+                        Some(namespace) if !scopes.declared.get(name).is_some_and(|owners| owners.contains(&namespace)) => {
+                            out.push(Diagnostic::error("UNRESOLVED_TERM", format!("namespace `{namespace}` exports no symbol named `{name}`"), vec![at.clone()]));
+                        }
+                        _ => {}
                     }
                     continue;
+                }
+                if scopes.inference_cycles.contains(&(doc.namespace.clone(), term.clone())) && seen.insert((doc.namespace.clone(), term.clone())) {
+                    out.push(Diagnostic::error("AMBIGUOUS_TERM", format!("mutually used namespaces could introduce `{term}`; declare its owner explicitly"), vec![at.clone()]));
                 }
                 let local = scopes.declared.get(&term).is_some_and(|owners| owners.contains(&doc.namespace));
                 let candidates = scopes.import_candidates(&uses, &term);
                 if !local && candidates.len() > 1 && seen.insert((doc.namespace.clone(), term.clone())) {
-                    out.push(Diagnostic::error("AMBIGUOUS_TERM", format!("`{term}` is declared by {}; write the namespace, as in `{}::{term}`", candidates.join(" and "), candidates[0]), vec![at.clone()]));
+                    let diagnostic = Diagnostic::error("AMBIGUOUS_TERM", format!("`{term}` is declared by {}; write the namespace, as in `{}::{term}`", candidates.join(" and "), candidates[0]), vec![at.clone()]);
+                    out.push(diagnostic.qualifying(&term, &candidates));
                 }
             }
+        };
+        for alias in &doc.aliases {
+            let at = SpecRef::point(&alias.file, alias.line, &format!("alias {} = {}", alias.term, alias.canonical));
+            check_names(vec![(scoped.canon(&alias.canonical), "alias target")], &at);
+        }
+        for spec in doc.specs.iter().chain(&doc.symbol_sources) {
+            let at = SpecRef { id: spec.display_id(), file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() };
+            let mut names = occurrences(&spec.sentence, &scoped);
+            if let Core::Definition { definiens: Definiens::Np { np, .. }, .. } = &spec.sentence.core {
+                super::nominal::symbols(np, &scoped, &mut names);
+            }
+            check_names(names, &at);
         }
     }
 }
@@ -505,7 +651,7 @@ fn check_name_collisions(set: &SpecSet, lex: &Lexicon, out: &mut Vec<Diagnostic>
     let mut defined: BTreeMap<(String, String), &Spec> = BTreeMap::new();
     for doc in set.packages.iter().flat_map(|p| &p.documents) {
         let scoped = lex.in_document(doc);
-        for spec in &doc.specs {
+        for spec in doc.specs.iter().chain(&doc.symbol_sources) {
             let Core::Definition { term, definiens } = &spec.sentence.core else { continue };
             let key = (doc.namespace.clone(), np_key(term, &scoped));
             // An alias can give the term and its definiens one name: the definition then says nothing.
@@ -535,7 +681,39 @@ fn tables(set: &SpecSet, diagnostics: &mut Vec<Diagnostic>) -> (Lexicon, Scopes)
     let terms = super::meaning::declared_terms(set, &lex);
     let lex = lex.with_terms(terms);
     let scopes = build_scopes(set, &lex);
-    (lex, scopes)
+    let initial = lex.clone().with_scopes(scopes.clone());
+    let mut members = (*lex.members).clone();
+    for doc in set.packages.iter().flat_map(|pkg| &pkg.documents) {
+        let scoped = initial.in_document(doc);
+        let Some(aliases) = members.get_mut(&doc.namespace) else { continue };
+        for (spelling, target) in aliases {
+            let written = spelling.join(" ");
+            if doc.aliases.iter().any(|alias| scoped.local_name(&alias.term).rsplit("::").next() == Some(written.as_str())) {
+                let resolved = scoped.resolve(target);
+                *target = if resolved.contains("::") { resolved } else { format!("::{resolved}") };
+            }
+        }
+    }
+    let lex = Lexicon { members: Arc::new(members), ..lex };
+    let resolved = lex.clone().with_scopes(scopes.clone());
+    let mut derived = BTreeMap::new();
+    let mut predicates = BTreeSet::new();
+    for doc in set.packages.iter().flat_map(|p| &p.documents) {
+        let mut origin = Document { namespace: doc.namespace.clone(), imports: doc.imports.clone(), ..Document::default() };
+        origin.file = doc.file.clone();
+        let scoped = resolved.in_document(doc);
+        predicates.extend(doc.predicates.iter().map(|decl| scoped.local_name(&decl.name)));
+        for spec in doc.specs.iter().chain(&doc.symbol_sources) {
+            if let Core::Definition { term, definiens: Definiens::Np { np, roles } } = &spec.sentence.core {
+                if roles.is_empty() && super::nominal::definable(np) {
+                    let id = if doc.namespace.is_empty() { spec.display_id() } else { format!("{}::{}", doc.namespace, spec.display_id()) };
+                    let reference = SpecRef { id, file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() };
+                    derived.insert(np_key(term, &scoped), Derived { origin: origin.clone(), reference, body: np.clone() });
+                }
+            }
+        }
+    }
+    (Lexicon { derived: Arc::new(derived), predicates: Arc::new(predicates), ..lex }, scopes)
 }
 
 impl Lexicon {

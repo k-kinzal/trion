@@ -38,7 +38,7 @@ fn grpc_manifest() -> String {
 
 #[test]
 fn the_loader_reads_the_entry_then_its_includes_then_the_used_dependencies() {
-    let entry = "package p edition \"1\"\ninclude \"spec/a.trion\"\n";
+    let entry = "package p\ninclude \"spec/a.trion\"\n";
     let a = "include \"deeper/b.trion\"\nnamespace p:\n    primitive API\n    [A] The API shall stop.\n";
     let b = "namespace p:\n    [B] The API shall not stop.\n";
     // Step entry: without the entry file nothing is loaded.
@@ -56,7 +56,7 @@ fn the_loader_reads_the_entry_then_its_includes_then_the_used_dependencies() {
     let unused = Fixture::new(&[("trion.toml", &grpc_manifest()), ("a.trion", "primitive API\nprimitive foo\nThe API GET /foo shall return foo.\n")]);
     assert!(!codes_of_the_analysis(&unused).contains(&"shape-violation".to_string()), "a dependency that no file uses states nothing here");
     // A missing include stops the loader before any dependency is read.
-    let missing = Fixture::raw(&[("trion.toml", &grpc_manifest()), ("trion.trion", "package p edition \"1\"\ninclude \"gone.trion\"\n")]);
+    let missing = Fixture::raw(&[("trion.toml", &grpc_manifest()), ("trion.trion", "package p\ninclude \"gone.trion\"\n")]);
     let r = missing.verify(&[]);
     assert!(r.code != 0 && r.stdout.contains("the included file gone.trion cannot be read") && r.stdout.trim_end().ends_with("does not conform"), "{}", r.stdout);
     assert_eq!(statements(&missing), 0);

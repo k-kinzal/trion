@@ -84,7 +84,7 @@ impl Fixture {
             if *has_entry || files.iter().any(|(p, _)| *p == entry) {
                 continue;
             }
-            let mut text = format!("package {name} edition \"test\"\n");
+            let mut text = format!("package {name}\n");
             for file in includes.get(dir).into_iter().flatten() {
                 text.push_str(&format!("include \"{file}\"\n"));
             }

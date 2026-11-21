@@ -3,7 +3,7 @@ namespace trion.propositional:
     primitive added assumption, approximation, assumption, auxiliary variable, candidate scope
     primitive checked problem, constant, conversion stage, missing capability, negative polarity
     primitive original slot order, query condition truth, query scope, required capability, result
-    primitive version, violated conversion precondition, witness
+    primitive violated conversion precondition, witness
 
     section "Exact Boolean conversion":
         cite FOUNDATION
@@ -32,11 +32,11 @@ namespace trion.propositional:
         The propositional translator shall preserve the checked document.
 
         [PROP-TRANSLATION-TRACE]
-        The propositional translator shall record the conversion stages, versions, and target problem.
+        The propositional translator shall record the conversion stages and target problem.
 
     source PROP-APPROXIMATION:
         title "Counterexample contracts for future extensions"
-        locator "urn:trion:propositional:counterexample-contracts:1"
+        locator "urn:trion:propositional:counterexample-contracts"
         kind citation
         quote RULES """
 Exact translation represents exactly the original counterexamples.

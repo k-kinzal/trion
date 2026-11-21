@@ -215,16 +215,33 @@ fn parse_predicate(rest: &str) -> Option<(String, Vec<String>)> {
     let (name, arguments) = rest.trim().strip_suffix(')')?.split_once('(')?;
     let word = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == ' ');
     let signature: Vec<String> = arguments.split(',').map(|a| a.trim().to_string()).collect();
-    (word(name.trim()) && !name.trim().contains(' ') && signature.iter().all(|a| word(a))).then(|| (name.trim().to_string(), signature))
+    let argument = |name: &str| {
+        name.split_once("::").map_or_else(|| word(name), |(namespace, name)| {
+            namespace.split('.').all(|part| word(part) && !part.contains(' ')) && word(name)
+        })
+    };
+    (word(name.trim()) && !name.trim().contains(' ') && signature.iter().all(|a| argument(a))).then(|| (name.trim().to_string(), signature))
 }
 
 /// `use a.b`: makes the term domain of a namespace available in a block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Import {
     pub name: String,
+    /// A reference exports names without taking its contracts.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub reference_only: bool,
     pub namespace: String,
     pub file: String,
     pub line: usize,
+}
+
+/// One application of a dependency in the current namespace.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Application {
+    pub dependency: String,
+    pub name: String,
+    pub mapping: std::collections::BTreeMap<String, String>,
+    pub at: SpecRef,
 }
 
 /// `extend X with A, B.`
@@ -331,7 +348,7 @@ pub struct Check {
     pub relation: String,
     pub left: Vec<String>,
     pub right: Vec<String>,
-    /// `true` when the block states no question that this edition decides:
+    /// `true` when the block states no question that the checker decides:
     /// a field is missing or unknown, or the relation is not `equivalent`.
     /// The block is reported where it is read, and nothing is proved of it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -396,6 +413,28 @@ pub struct Document {
     pub extensions: Vec<Extension>,
     pub classifications: Vec<Classification>,
     pub imports: Vec<Import>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub applications: Vec<Application>,
+    /// Source statements available to name resolution in a reference-only
+    /// package or the isolated reading of one statement.
+    #[serde(skip)]
+    pub symbol_sources: Vec<Spec>,
+    /// Referenced form roles require an explicit `bind`; their activation
+    /// patterns do not apply to the importing document.
+    #[serde(skip)]
+    pub roles_require_binding: bool,
+    /// Canonical renamings for an applied copy of a namespace.
+    #[serde(skip)]
+    pub application_mapping: std::collections::BTreeMap<String, String>,
+    #[serde(skip)]
+    pub application_scope: Option<SpecRef>,
+    /// The applications enclosing this application, outermost first.
+    #[serde(skip)]
+    pub application_ancestors: Vec<SpecRef>,
+    /// Source roles whose activations can be carried by this application,
+    /// with the mapped subjects that may enter each role.
+    #[serde(skip)]
+    pub application_roles: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     pub vocabulary: Vec<VocabDecl>,
     pub predicates: Vec<PredicateDecl>,
     pub primitives: Vec<PrimitiveDecl>,
@@ -429,7 +468,6 @@ pub struct Document {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackageDecl {
     pub name: String,
-    pub edition: String,
     pub line: usize,
 }
 
@@ -633,6 +671,23 @@ fn is_dotted(name: &str) -> bool {
 fn keyword<'a>(line: &'a str, kw: &str) -> Option<&'a str> {
     let rest = line.strip_prefix(kw)?;
     rest.starts_with(char::is_whitespace).then(|| rest.trim())
+}
+
+fn parse_application(rest: &str, file: &str, line: usize, text: &str) -> Option<Application> {
+    let (dependency, rest) = rest.split_once(" as ")?;
+    let (name, pairs) = rest.split_once(" with ")?;
+    if !(is_component(dependency) && is_component(name)) {
+        return None;
+    }
+    let mut mapping = std::collections::BTreeMap::new();
+    for pair in pairs.split(',') {
+        let (source, target) = pair.split_once('=')?;
+        let (source, target) = (source.trim(), target.trim());
+        if source.is_empty() || target.is_empty() || mapping.insert(source.to_string(), target.to_string()).is_some() {
+            return None;
+        }
+    }
+    Some(Application { dependency: dependency.to_string(), name: name.to_string(), mapping, at: SpecRef::point(file, line, text) })
 }
 
 /// Lists the namespaces a file names in `use` declarations, without parsing
@@ -1847,7 +1902,7 @@ impl<'a> Parser<'a> {
 
     fn check_block(&mut self, doc: &mut Document, name: &str, line: usize) {
         let fields = self.fields();
-        if fields.iter().any(|(_, raw)| keyword(raw, "grammar").is_some() || keyword(raw, "input").is_some()) {
+        if fields.iter().any(|(_, raw)| keyword(raw, "input").is_some()) {
             self.propositional_check(doc, name, line, fields);
             return;
         }
@@ -1869,7 +1924,7 @@ impl<'a> Parser<'a> {
         }
         if check.relation != "equivalent" {
             check.malformed = true;
-            self.error("parse-check", "this edition accepts `equivalent` as the relation of a check", line, name);
+            self.error("parse-check", "the relation of a check must be `equivalent`", line, name);
         }
         if check.left.is_empty() || check.right.is_empty() || !using {
             check.malformed = true;
@@ -1879,23 +1934,20 @@ impl<'a> Parser<'a> {
     }
 
     fn propositional_check(&mut self, doc: &mut Document, name: &str, line: usize, fields: Vec<(usize, String)>) {
-        let mut grammar = None;
         let mut input = None;
         for (no, raw) in fields {
-            if let Some(version) = keyword(&raw, "grammar").and_then(whole_string).filter(|_| grammar.is_none()) {
-                grammar = Some(version);
-            } else if let Some(source) = keyword(&raw, "input").and_then(whole_string).filter(|_| input.is_none()) {
+            if let Some(source) = keyword(&raw, "input").and_then(whole_string).filter(|_| input.is_none()) {
                 input = Some((no, source));
             } else {
-                self.error("parse-check", "a propositional check holds one quoted grammar and one quoted input", no, &raw);
+                self.error("parse-check", "a propositional check holds one quoted input", no, &raw);
                 return;
             }
         }
-        let (Some(grammar), Some((input_line, source))) = (grammar, input) else {
-            self.error("parse-check", "a propositional check requires a grammar version and an input", line, name);
+        let Some((input_line, source)) = input else {
+            self.error("parse-check", "a propositional check requires an input", line, name);
             return;
         };
-        let input = match trion_cnl::formalize_version(&source, Some(&grammar)) {
+        let input = match trion_cnl::formalize(&source) {
             Ok(accepted) => accepted,
             Err(rejected) => {
                 use trion_cnl::Rejected::*;
@@ -1905,7 +1957,7 @@ impl<'a> Parser<'a> {
                     Invalid(diagnostic) => ("invalid", diagnostic),
                 };
                 let message = format!("{status} propositional input [{}]: {} (input bytes {}..{})", diagnostic.rule, diagnostic.reason, diagnostic.span.start, diagnostic.span.end);
-                self.error("parse-check", &message, if diagnostic.rule == "CNL-VERSION" { line } else { input_line }, name);
+                self.error("parse-check", &message, input_line, name);
                 return;
             }
         };
@@ -2219,11 +2271,30 @@ impl<'a> Parser<'a> {
             self.error("parse-block", "a block closes where its indentation ends: `end` is not written", line, &text);
             return;
         }
+        if let Some(rest) = keyword(&text, "refer") {
+            let name = rest.trim();
+            if is_component(name) {
+                if !in_namespace {
+                    self.error("parse-placement", "refer occurs directly within a namespace", line, &text);
+                }
+                doc.imports.push(Import { name: name.to_string(), reference_only: true, namespace: name.to_string(), file, line });
+            } else {
+                self.error("unresolved-import", "write `refer DEPENDENCY`", line, &text);
+            }
+            return;
+        }
+        if let Some(rest) = keyword(&text, "apply") {
+            match parse_application(rest, &file, line, &text) {
+                Some(application) if in_namespace => doc.applications.push(application),
+                _ => self.error("parse-placement", "write apply DEPENDENCY as NAME with SOURCE = TARGET directly within a namespace", line, &text),
+            }
+            return;
+        }
         if let Some(name) = keyword(&text, "use").filter(|r| is_dotted(r)) {
             if !in_namespace {
                 self.error("parse-placement", "a use declaration occurs directly within a namespace block", line, &text);
             }
-            doc.imports.push(Import { name: name.to_string(), namespace: name.to_string(), file, line });
+            doc.imports.push(Import { name: name.to_string(), reference_only: false, namespace: name.to_string(), file, line });
             return;
         }
         if let Some(rest) = keyword(&text, "note") {
@@ -2492,10 +2563,11 @@ impl<'a> Parser<'a> {
     }
 
     fn package(&mut self, parsed: &mut ParsedFile, rest: &str, line: usize, text: &str) {
-        let decl = rest.split_once(" edition ").and_then(|(name, edition)| Some((name.trim(), whole_string(edition)?)));
-        match decl {
-            Some((name, edition)) if is_dotted(name) && parsed.package.is_none() => parsed.package = Some(PackageDecl { name: name.to_string(), edition, line }),
-            _ => self.error("parse-package", "write one `package NAME edition \"EDITION\"` declaration", line, text),
+        let name = rest.trim();
+        if is_dotted(name) && parsed.package.is_none() {
+            parsed.package = Some(PackageDecl { name: name.to_string(), line });
+        } else {
+            self.error("parse-package", "write one `package NAME` declaration", line, text);
         }
     }
 }

@@ -1,0 +1,5 @@
+[package]
+name = "telemetry"
+
+[dependencies]
+wire.path = "wire"

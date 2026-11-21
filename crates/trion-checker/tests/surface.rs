@@ -46,7 +46,7 @@ fn a_tree_that_brackets_the_words_otherwise_is_refused() {
     let clause = &mut trigger.clause.items[0];
     let NpGroup::Single(subject) = &mut clause.subject else { panic!("one subject") };
     let Some(relative) = subject.relative.as_mut() else { panic!("a relative clause") };
-    relative.body = RelativeBody::Copular { copula: ClauseCopula::Is, predicate: Predicate::Words { words: vec!["a".to_string()] }, agent: None, roles: Vec::new() };
+    relative.body = RelativeBody::Copular { copula: ClauseCopula::Is, predicate: Predicate::Words { words: vec!["a".to_string()], nominal: None }, agent: None, roles: Vec::new() };
     let named = |det: Det, modifiers: &[&str], head: &str| NpGroup::Single(Np { det: Some(det), modifiers: modifiers.iter().map(|m| m.to_string()).collect(), head: head.to_string(), of: None, relative: None, of_also: Vec::new(), of_conj: None });
     clause.body = ClauseBody::Verbal {
         verb: "member".to_string(),

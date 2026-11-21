@@ -1,5 +1,7 @@
 # Semantics of the trion patterns
 
+[Names and target constraints](symbols.md)
+
 This directory holds the meaning of the patterns (plan section 4.1):
 
 - `core.md`: the rules that give a statement about individuals its meaning

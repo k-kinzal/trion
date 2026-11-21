@@ -20,8 +20,8 @@ const FRAME_WORDS: [&str; 13] = ["where", "while", "when", "if", "then", "unless
 const MODAL_WORDS: [&str; 7] = ["shall", "must", "should", "may", "not", "never", "means"];
 const STRUCTURE_WORDS: [&str; 11] = ["is", "are", "and", "or", "either", "both", "at", "least", "most", "exactly", "no"];
 /// Words that open a structural line.
-const DIRECTIVES: [&str; 55] = [
-    "environment", "system", "package", "include", "namespace", "use", "section", "note", "ref", "source", "quote", "term", "predicate", "primitive", "alias", "bind", "extend", "classify", "role", "check", "example", "step", "start", "finish", "choose", "otherwise", "concept", "diagram", "compatibility", "title", "locator", "revision", "select", "kind", "path", "sha256", "retrieved", "minimum", "relation", "expect", "form", "element", "types", "expansion", "preserves", "input", "left", "right", "base", "candidate", "measure", "individuals", "scenario", "given", "at",
+const DIRECTIVES: [&str; 57] = [
+    "environment", "system", "package", "include", "namespace", "use", "refer", "apply", "section", "note", "ref", "source", "quote", "term", "predicate", "primitive", "alias", "bind", "extend", "classify", "role", "check", "example", "step", "start", "finish", "choose", "otherwise", "concept", "diagram", "compatibility", "title", "locator", "revision", "select", "kind", "path", "sha256", "retrieved", "minimum", "relation", "expect", "form", "element", "types", "expansion", "preserves", "input", "left", "right", "base", "candidate", "measure", "individuals", "scenario", "given", "at",
 ];
 const ROLE_ITEMS: [&str; 3] = ["activate:", "form", "required"];
 /// Words that annotate the statement above them or the block they open.
@@ -291,7 +291,7 @@ fn classify_line(line: &str, lex: &Lexicon, vocabulary: &BTreeMap<String, VocabE
             continue;
         }
         if let Some((first, last, entry)) = term_at(line, &spans, i, lex, vocabulary).filter(|(first, _, _)| *first == i) {
-            let known = entry.defined_at.is_some() || entry.declared_at.is_some();
+            let known = entry.defined_at.is_some() || entry.declared_at.is_some() || entry.introduced_at.is_some();
             tokens.push((spans[first].0, spans[last].1, TERM, known));
             i = last + 1;
             continue;
@@ -330,7 +330,9 @@ fn keyword_doc(word: &str) -> Option<&'static str> {
         "should" => "**should**: a recommendation. A trion extension to EARS.",
         "may" => "**may**: a permission. A trion extension to EARS.",
         "never" => "**never**: reads as `not`.",
-        "means" => "**means**: defines a term. A trion extension to EARS.",
+        "means" => "**means** introduces a fresh class abbreviation. Every use expands to the same nominal formula over its subject.",
+        "refer" => "**refer** makes a pinned specification and its public names available. Its contracts are applied with `apply`.",
+        "apply" => "**apply** instantiates the referenced specification with the stated symbol mapping and responsibilities.",
         _ => return None,
     })
 }
@@ -346,6 +348,11 @@ fn describe_entry(entry: &VocabEntry) -> String {
     }
     if let Some(kind) = &entry.declared_kind {
         text.push_str(&format!(" ({kind})"));
+        if kind == "predicate" {
+            if let Some(signature) = &entry.signature {
+                text.push_str(&format!("\n\n`{}({})`", entry.term, signature.join(", ")));
+            }
+        }
     } else if !entry.inferred_kinds.is_empty() {
         let kinds: Vec<&str> = entry.inferred_kinds.iter().map(String::as_str).collect();
         text.push_str(&format!(" (inferred: {})", kinds.join(", ")));
@@ -354,8 +361,14 @@ fn describe_entry(entry: &VocabEntry) -> String {
         text.push_str(&format!("\n\n{}\n\n`{}:{}`", at.text, at.file, at.line));
     } else if let Some(at) = &entry.declared_at {
         text.push_str(&format!("\n\nDeclared at `{}:{}`", at.file, at.line));
-    } else {
-        text.push_str("\n\nNot defined. The term is inferred from its use.");
+    } else if let Some(at) = entry.introduced_at.as_ref().or(entry.first_use.as_ref()) {
+        text.push_str(&format!("\n\nInferred from `{}:{}`", at.file, at.line));
+    }
+    if !entry.targets.is_empty() {
+        text.push_str(&format!("\n\nResolves through {}", entry.targets.iter().map(|name| format!("`{name}`")).collect::<Vec<_>>().join(", ")));
+    }
+    for constraint in entry.constraints.iter().take(6) {
+        text.push_str(&format!("\n\n`{}:{}` {}", constraint.file, constraint.line, constraint.text));
     }
     text.push_str(&format!("\n\nUsed {} time(s).", entry.occurrences));
     text
@@ -386,7 +399,7 @@ fn describe_spec(spec: &Spec, state: &State) -> String {
     if let Some(individuals) = &state.analysis.model.individuals {
         let id = spec.display_id();
         if let Some(meaning) = individuals.meanings.iter().find(|m| m.statement == id) {
-            text.push_str(&format!("\n\nReading over individuals (semantic version {}, domains of {} individuals):", meaning.version, individuals.scope));
+            text.push_str(&format!("\n\nReading over individuals (domains of {} individuals):", individuals.scope));
             for line in meaning.lines() {
                 text.push_str(&format!("\n- {line}"));
             }
@@ -417,6 +430,49 @@ impl Server {
         self.overlay.get(path).cloned().or_else(|| std::fs::read_to_string(path).ok())
     }
 
+    fn code_actions(&self, path: &Path, first: usize, last: usize) -> Vec<Value> {
+        let (Some(state), Some(text)) = (&self.state, self.document_text(path)) else { return Vec::new() };
+        let lines: Vec<&str> = text.lines().collect();
+        let uri = path_to_uri(path);
+        let mut actions = Vec::new();
+        for diagnostic in &state.analysis.diagnostics {
+            let (Some(fix), Some(at)) = (&diagnostic.qualification, diagnostic.refs.first()) else { continue };
+            if state.project.files.get(&at.file).is_none_or(|file| file.as_path() != path) {
+                continue;
+            }
+            let line = at.line.saturating_sub(1);
+            if line < first || line > last {
+                continue;
+            }
+            let Some(source) = lines.get(line) else { continue };
+            let spelling: Vec<_> = fix.name.split_whitespace().collect();
+            if spelling.is_empty() {
+                continue;
+            }
+            let spans = word_spans(source);
+            let mut matches = spans.windows(spelling.len()).filter(|window| {
+                window.iter().zip(&spelling).all(|(&(start, end), word)| source[start..end].eq_ignore_ascii_case(word))
+            });
+            let Some(window) = matches.next() else { continue };
+            // An exact spelling on one line is an edit only where it denotes
+            // one occurrence. Let the user pick a span in other cases.
+            if matches.next().is_some() {
+                continue;
+            }
+            let start = utf16_len(&source[..window[0].0]);
+            let end = utf16_len(&source[..window[window.len() - 1].1]);
+            let range = json!({ "start": { "line": line, "character": start }, "end": { "line": line, "character": end } });
+            for target in &fix.candidates {
+                actions.push(json!({
+                    "title": format!("Use {target}"),
+                    "kind": "quickfix",
+                    "edit": { "changes": { (uri.clone()): [{ "range": range, "newText": target }] } }
+                }));
+            }
+        }
+        actions
+    }
+
     /// The namespace blocks of a file, each with the first line it occupies.
     fn documents<'a>(state: &'a State, path: &Path) -> Vec<(usize, &'a Document)> {
         let Some(label) = state.project.files.iter().find(|(_, p)| p.as_path() == path).map(|(l, _)| l) else { return Vec::new() };
@@ -426,9 +482,13 @@ impl Server {
             .packages
             .iter()
             .flat_map(|p| &p.documents)
-            .filter(|d| d.file == *label || d.specs.iter().any(|s| &s.file == label) || d.imports.iter().any(|i| &i.file == label) || Self::declares_in(d, label))
+            .filter(|d| d.application_mapping.is_empty() && (d.file == *label || d.specs.iter().chain(&d.symbol_sources).any(|s| &s.file == label) || d.imports.iter().any(|i| &i.file == label) || Self::declares_in(d, label)))
             .map(|d| {
-                let lines = d.specs.iter().filter(|s| &s.file == label).map(|s| s.line).chain(d.imports.iter().filter(|i| &i.file == label).map(|i| i.line)).chain(d.sources.iter().filter(|s| &s.file == label).map(|s| s.line)).chain(d.aliases.iter().filter(|a| &a.file == label).map(|a| a.line));
+                let lines = d.specs.iter().chain(&d.symbol_sources).filter(|s| &s.file == label).map(|s| s.line)
+                    .chain(d.imports.iter().filter(|i| &i.file == label).map(|i| i.line))
+                    .chain(d.sources.iter().filter(|s| &s.file == label).map(|s| s.line))
+                    .chain(d.aliases.iter().filter(|a| &a.file == label).map(|a| a.line))
+                    .chain(d.applications.iter().filter(|a| &a.at.file == label).map(|a| a.at.line));
                 (lines.min().unwrap_or(usize::MAX), d)
             })
             .collect();
@@ -518,7 +578,7 @@ impl Server {
         let contents = if let Some(id) = detail {
             Self::statement(state, &id).map(|s| describe_spec(s, state))
         } else if word.starts_with('[') {
-            doc.and_then(|d| d.specs.iter().find(in_spec_line)).map(|s| describe_spec(s, state))
+            doc.and_then(|d| d.specs.iter().chain(&d.symbol_sources).find(in_spec_line)).map(|s| describe_spec(s, state))
         } else if index == 0 && in_ignore_case(&ANNOTATIONS, word) {
             let cited = line.split_whitespace().nth(1).unwrap_or("");
             let (name, quote) = cited.split_once('#').unwrap_or((cited, ""));
@@ -536,7 +596,7 @@ impl Server {
         } else {
             let lex = Self::lexicon_for(state, path, line_no);
             term_at(line, &spans, index, &lex, &state.analysis.vocabulary).map(|(_, _, e)| describe_entry(e)).or_else(|| keyword_doc(word).map(str::to_string)).or_else(|| {
-                let sentence = doc.and_then(|d| d.specs.iter().find(in_spec_line))?;
+                let sentence = doc.and_then(|d| d.specs.iter().chain(&d.symbol_sources).find(in_spec_line))?;
                 Some(format!("Syntax: {}", trion_language::syntax::syntax_forms(&sentence.sentence).join(", ")))
             })
         };
@@ -570,15 +630,15 @@ impl Server {
         if let Some(id) = named {
             return Self::statement(state, &id).map_or(Value::Null, |s| self.location_of(state, &SpecRef { id: s.display_id(), file: s.file.clone(), line: s.line, text: String::new() }));
         }
-        if line.trim_start().starts_with("use ") && index == 1 {
+        if (line.trim_start().starts_with("use ") || line.trim_start().starts_with("refer ")) && index == 1 {
             let name = &line[spans[index].0..spans[index].1];
             let target = Self::document_at(state, path, line_no).and_then(|d| d.imports.iter().find(|i| i.name == name)).map(|i| i.namespace.clone());
             let doc = target.and_then(|ns| state.project.set.packages.iter().flat_map(|p| &p.documents).find(|d| d.namespace == ns));
-            let spec = doc.and_then(|d| d.specs.first());
+            let spec = doc.and_then(|d| d.specs.first().or(d.symbol_sources.first()));
             return spec.map_or(Value::Null, |s| self.location_of(state, &SpecRef { id: s.display_id(), file: s.file.clone(), line: s.line, text: String::new() }));
         }
         let lex = Self::lexicon_for(state, path, line_no);
-        term_at(line, &spans, index, &lex, &state.analysis.vocabulary).and_then(|(_, _, e)| e.defined_at.as_ref().or(e.declared_at.as_ref()).or(e.first_use.as_ref())).map_or(Value::Null, |at| self.location_of(state, at))
+        term_at(line, &spans, index, &lex, &state.analysis.vocabulary).and_then(|(_, _, e)| e.defined_at.as_ref().or(e.declared_at.as_ref()).or(e.introduced_at.as_ref()).or(e.first_use.as_ref())).map_or(Value::Null, |at| self.location_of(state, at))
     }
 
     fn completion(&self) -> Value {
@@ -678,10 +738,11 @@ fn capabilities() -> Value {
             "textDocumentSync": { "openClose": true, "change": 1, "save": true },
             "hoverProvider": true,
             "definitionProvider": true,
+            "codeActionProvider": { "codeActionKinds": ["quickfix"] },
             "completionProvider": {},
             "semanticTokensProvider": { "legend": { "tokenTypes": TOKEN_TYPES, "tokenModifiers": TOKEN_MODIFIERS }, "full": true }
         },
-        "serverInfo": { "name": "trion", "version": env!("CARGO_PKG_VERSION") }
+        "serverInfo": { "name": "trion" }
     })
 }
 
@@ -725,6 +786,10 @@ pub fn serve(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<()
                 server.definition(path, line, character)
             }
             ("textDocument/completion", _) => server.completion(),
+            ("textDocument/codeAction", Some(path)) => {
+                let at = |side| params.pointer(side).and_then(Value::as_u64).unwrap_or(0) as usize;
+                json!(server.code_actions(path, at("/range/start/line"), at("/range/end/line")))
+            }
             ("textDocument/semanticTokens/full", Some(path)) => server.semantic_tokens(path),
             (_, _) => {
                 if let Some(id) = message.get("id") {

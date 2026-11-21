@@ -65,7 +65,7 @@ fn canonical_round_trip_and_name_validation() {
     let doc = CoreDocument::new(vec!["P".into(), "p".into()], vec![Expr::Atom(1)]).unwrap();
     assert_eq!(
         doc.canonical_json(),
-        r#"{"semantics":"classical-propositional/1","schema":"core-json/1","definitions":"empty/1","declarations":["P","p"],"premises":[{"atom":1}]}"#
+        r#"{"semantics":"classical-propositional","schema":"core-json","definitions":"empty","declarations":["P","p"],"premises":[{"atom":1}]}"#
     );
     let roundtrip: CoreDocument = serde_json::from_str(&doc.canonical_json()).unwrap();
     assert_eq!(roundtrip.id(), doc.id());
@@ -86,9 +86,9 @@ fn rejects_corrupt_forms_and_queries() {
     let json = serde_json::to_string(&subject).unwrap();
     assert_eq!(serde_json::from_str::<Problem>(&json).unwrap(), subject);
     for (original, broken) in [
-        ("classical-propositional/1", "classical-propositional/2"),
-        ("empty/1", "empty/2"),
-        ("core-json/1", "core-json/2"),
+        ("classical-propositional", "other-semantics"),
+        ("empty", "other-definition-environment"),
+        ("core-json", "other-schema"),
         (r#""atom":0"#, r#""atom":1"#),
         (r#""atom":0"#, r#""unknown":0"#),
         (r#""atom":0"#, r#""atom":0,"atom":0"#),
@@ -116,7 +116,7 @@ fn decoder_accepts_only_the_declared_wire_shapes() {
     }
     assert!(serde_json::from_str::<Question>(r#"{"satisfiable":null}"#).is_err());
     let doc = problem(&["P"], vec![Expr::Atom(0)], Question::Satisfiable);
-    let reordered = r#"{"definitions":"empty/1","schema":"core-json/1","declarations":["P"],"premises":[{"atom":0}],"semantics":"classical-propositional/1"}"#;
+    let reordered = r#"{"definitions":"empty","schema":"core-json","declarations":["P"],"premises":[{"atom":0}],"semantics":"classical-propositional"}"#;
     assert_eq!(
         serde_json::from_str::<CoreDocument>(reordered)
             .unwrap()
@@ -128,7 +128,7 @@ fn decoder_accepts_only_the_declared_wire_shapes() {
 #[test]
 fn named_records_reject_positional_arrays() {
     assert!(
-        serde_json::from_str::<CoreDocument>(r#"["classical-propositional/1","core-json/1","empty/1",[],[]]"#).is_err()
+        serde_json::from_str::<CoreDocument>(r#"["classical-propositional","core-json","empty",[],[]]"#).is_err()
     );
     let valid = problem(&[], vec![], Question::Satisfiable);
     let document = valid.document().canonical_json();

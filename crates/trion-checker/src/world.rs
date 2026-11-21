@@ -47,6 +47,9 @@ pub struct Moment {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct World {
+    /// Carriers whose slot names imply no class membership.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub explicit_membership_carriers: BTreeSet<String>,
     /// Each individual with the declared type of its carrier.
     pub individuals: BTreeMap<String, String>,
     /// Each kind with an individual of it: `(member, user#1)`.
@@ -90,7 +93,9 @@ impl World {
     pub fn closed(&self) -> World {
         let mut world = self.clone();
         for (name, carrier) in &self.individuals {
-            world.kinds.insert((carrier.clone(), name.clone()));
+            if !self.explicit_membership_carriers.contains(carrier) {
+                world.kinds.insert((carrier.clone(), name.clone()));
+            }
         }
         for (relation, _, member) in &self.relations {
             world.kinds.insert((relation.clone(), member.clone()));

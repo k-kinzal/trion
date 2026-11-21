@@ -64,28 +64,27 @@ pub struct FormatNote {
     pub message: String,
 }
 
-/// What a result is about: the texts of the package, the semantics and
-/// the program that read them, and the bounds of its obligations. A
+/// What a result is about: the package inputs, its obligations and their bounds. A
 /// result says nothing about another subject.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Subject {
     pub package: String,
-    pub revision: String,
-    pub semantics: String,
-    pub tool: String,
+    pub input_digest: String,
+    pub obligations_digest: String,
     pub moments: usize,
     pub individuals: Option<usize>,
 }
 
 impl Subject {
     pub fn of(form: &Form) -> Self {
-        Subject { package: form.package.clone(), revision: form.revision.clone(), semantics: form.semantics.clone(), tool: form.tool.clone(), moments: form.obligations.moments, individuals: form.obligations.individuals }
+        let obligations_digest = crate::digest::hex(serde_json::to_vec(&form.obligations).expect("serializable proof obligations"));
+        Subject { package: form.package.clone(), input_digest: form.input_digest.clone(), obligations_digest, moments: form.obligations.moments, individuals: form.obligations.individuals }
     }
 
     /// The fields in which a saved subject differs from this one.
     pub fn differs_from(&self, saved: &serde_json::Value) -> Vec<String> {
         let mine = serde_json::to_value(self).unwrap_or_default();
-        ["package", "revision", "semantics", "tool", "moments", "individuals"].iter().filter(|field| saved.get(**field) != mine.get(**field)).map(|field| format!("{field} (`{}` here, `{}` saved)", mine[*field], saved.get(*field).cloned().unwrap_or_default())).collect()
+        ["package", "input_digest", "obligations_digest", "moments", "individuals"].iter().filter(|field| saved.get(**field) != mine.get(**field)).map(|field| format!("{field} (`{}` here, `{}` saved)", mine[*field], saved.get(*field).cloned().unwrap_or_default())).collect()
     }
 }
 
@@ -94,7 +93,7 @@ impl Subject {
 pub struct Proved {
     pub subject: Subject,
     pub package: String,
-    pub revision: String,
+    pub input_digest: String,
     pub results: Vec<Result>,
     pub notes: Vec<FormatNote>,
     /// What the certificates need beside them to be checked.
@@ -385,7 +384,7 @@ pub fn prove(form: &Form, decisions: Option<u64>, certificates: Option<&Path>, f
         results.push(Result { obligation: obligation.name.clone(), property: obligation.property.clone(), proposition: obligation.proposition.clone(), verdict, reason, questions: decision.asked.len(), certificates: written, counterexamples, propositional });
     }
     let diagnostics = findings(form, &results);
-    Ok(Proved { subject: Subject::of(form), package: form.package.clone(), revision: form.revision.clone(), results, notes, certification, diagnostics })
+    Ok(Proved { subject: Subject::of(form), package: form.package.clone(), input_digest: form.input_digest.clone(), results, notes, certification, diagnostics })
 }
 
 /// The finding of each obligation that is not proved: what is refuted, with

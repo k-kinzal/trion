@@ -6,7 +6,7 @@ use trion_analysis::{
     analyze, compare, ComparisonError, Conclusion, Evidence, Execution, Premises, Record,
 };
 use trion_boolean::{solve, Preparation, Reply, EXACT};
-use trion_cnl::{formalize, Grammar};
+use trion_cnl::{formalize};
 use trion_core::{CoreDocument, Expr, Problem, Question};
 use trion_reference::{check_witness, scan, Scan};
 
@@ -45,7 +45,7 @@ fn worked_examples_and_replay() {
             Evidence::CheckedModel(vec![true, false]),
         ),
     ] {
-        let input = formalize(&format!("{declarations}{text}"), Grammar::V1).unwrap();
+        let input = formalize(&format!("{declarations}{text}")).unwrap();
         let record = analyze(input.problem(), &EXACT, SETTINGS, worker);
         assert_eq!(record.outcome().conclusion(), conclusion, "{text}");
         assert_eq!(record.outcome().premises(), premises, "{text}");
@@ -56,7 +56,7 @@ fn worked_examples_and_replay() {
         let bytes = serde_json::to_vec(&record).unwrap();
         assert_eq!(Record::replay(input.problem(), &bytes).unwrap(), record);
     }
-    let empty = formalize("entails false.", Grammar::V1).unwrap();
+    let empty = formalize("entails false.").unwrap();
     let record = analyze(empty.problem(), &EXACT, SETTINGS, worker);
     assert_eq!(
         *record.outcome().evidence(),
@@ -66,7 +66,7 @@ fn worked_examples_and_replay() {
 
 #[test]
 fn budget_and_partial_evidence() {
-    let uncertain = formalize("proposition P. entails (P or not P).", Grammar::V1).unwrap();
+    let uncertain = formalize("proposition P. entails (P or not P).").unwrap();
     let mut settings = SETTINGS;
     settings.backend.max_assignments = 1;
     let stopped = analyze(uncertain.problem(), &EXACT, settings, worker);
@@ -81,7 +81,7 @@ fn budget_and_partial_evidence() {
     assert_eq!(external.outcome().conclusion(), Conclusion::None);
     assert_eq!(*external.outcome().evidence(), Evidence::ExternalResponse);
 
-    let refuted = formalize("proposition P. entails P.", Grammar::V1).unwrap();
+    let refuted = formalize("proposition P. entails P.").unwrap();
     settings.reference_assignments = 0;
     let checked = analyze(refuted.problem(), &EXACT, settings, worker);
     assert_eq!(checked.outcome().conclusion(), Conclusion::DoesNotEntail);
@@ -94,7 +94,7 @@ fn budget_and_partial_evidence() {
         .map(|i| format!("proposition P{i}. "))
         .collect::<String>()
         + "satisfiable.";
-    let large = formalize(&many, Grammar::V1).unwrap();
+    let large = formalize(&many).unwrap();
     let decision = analyze(large.problem(), &EXACT, settings, worker);
     assert_eq!(decision.outcome().conclusion(), Conclusion::Satisfiable);
     assert_eq!(

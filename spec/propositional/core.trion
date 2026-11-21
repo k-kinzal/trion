@@ -4,14 +4,14 @@ namespace trion.propositional:
     primitive declaration order, document identifier, duplicate JSON field, duplicate name, formula depth
     primitive insignificant whitespace, issued artifact, lowercase name, malformed payload, missing JSON field
     primitive name spelling, operand order, ordinary JSON whitespace, premise duplicate, premise order
-    primitive unknown JSON field, unsupported version, uppercase, UTF-8
+    primitive unknown JSON field, unsupported format identifier, uppercase, UTF-8
 
     source PROP-JSON:
-        title "classical-propositional/1 canonical Core JSON"
-        locator "urn:trion:core-json:1"
+        title "classical-propositional canonical Core JSON"
+        locator "urn:trion:core-json"
         kind citation
         quote DOCUMENT """
-document = {"semantics":"classical-propositional/1","schema":"core-json/1","definitions":"empty/1","declarations":[name,...],"premises":[expr,...]}
+document = {"semantics":"classical-propositional","schema":"core-json","definitions":"empty","declarations":[name,...],"premises":[expr,...]}
 expr = "true" | "false" | {"atom":u32} | {"not":expr} | {"and":[expr,expr]} | {"or":[expr,expr]}
 """
         quote QUERY """
@@ -105,7 +105,7 @@ Or(True,False) evaluates to true.
         The propositional core shall reject each unknown JSON field.
         The propositional core shall reject each duplicate JSON field.
         The propositional core shall reject each missing JSON field.
-        The propositional core shall reject each unsupported version.
+        The propositional core shall reject each unsupported format identifier.
         The propositional core shall reject each malformed payload.
 
         [PROP-IDENTITY]

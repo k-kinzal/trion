@@ -31,9 +31,9 @@ fn reads_declarations_and_specifications() {
 
 #[test]
 fn reads_the_package_declaration_and_includes() {
-    let file = parsed_file("// entry\npackage chat edition \"0.1\"\ninclude \"a/b.trion\"\nnamespace chat.rooms:\n    The API shall stop.\nnamespace chat:\n");
+    let file = parsed_file("// entry\npackage chat\ninclude \"a/b.trion\"\nnamespace chat.rooms:\n    The API shall stop.\nnamespace chat:\n");
     let package = file.package.expect("a package");
-    assert_eq!((package.name.as_str(), package.edition.as_str()), ("chat", "0.1"));
+    assert_eq!(package.name, "chat");
     assert_eq!(file.includes[0].path, "a/b.trion");
     assert_eq!(file.documents.len(), 2);
     assert_eq!(file.documents[0].namespace, "chat.rooms");
@@ -41,8 +41,8 @@ fn reads_the_package_declaration_and_includes() {
 
 #[test]
 fn rejects_malformed_file_level_declarations() {
-    assert_eq!(codes("package chat\n"), ["parse-package"]);
-    assert_eq!(codes("package a edition \"1\"\npackage b edition \"1\"\n"), ["parse-package"]);
+    assert_eq!(codes("package chat extra\n"), ["parse-package"]);
+    assert_eq!(codes("package a\npackage b\n"), ["parse-package"]);
     assert_eq!(codes("include a.trion\n"), ["parse-include"]);
     assert_eq!(codes("The API shall stop.\n"), ["parse-placement"]);
     // A block closes where its indentation ends, and `end` is not written.

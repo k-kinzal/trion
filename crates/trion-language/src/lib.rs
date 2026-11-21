@@ -23,6 +23,6 @@ pub mod expand;
 pub mod reading;
 pub mod syntax;
 
-pub use diagnostic::{Diagnostic, Severity, SpecRef, CODES};
+pub use diagnostic::{Diagnostic, Qualification, Severity, SpecRef, CODES};
 pub use document::{parse_document, parse_sentence, parse_statement, scan_imports, Document, Meta, Package, ParsedFile, Spec, SpecSet, VocabularyMode};
 pub use reading::{glossary, occurrences, rules, Applied, Constraint, ConstraintKind, Extent, GlossaryDerivation, GlossaryEntry, Lexicon, Model, Obligation, Preference, Priority, Silence, VocabDerivation, VocabEntry};

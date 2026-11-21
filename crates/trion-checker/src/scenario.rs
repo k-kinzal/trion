@@ -168,7 +168,7 @@ fn stated(reader: &Reader, words: &[String]) -> Option<Stated> {
 pub fn world(scenario: &Scenario, individuals: &Individuals, lex: &Lexicon) -> Result<World, Vec<Problem>> {
     let mut problems: Vec<Problem> = Vec::new();
     let mut reader = Reader { lex, named: BTreeMap::new(), phrase: BTreeMap::new() };
-    let mut world = World::default();
+    let mut world = World { explicit_membership_carriers: individuals.explicit_membership_carriers.clone(), ..World::default() };
     let mut of_noun: BTreeMap<String, usize> = BTreeMap::new();
     let mut of_carrier: BTreeMap<String, usize> = BTreeMap::new();
     for (variable, written) in &scenario.individuals {
@@ -198,7 +198,7 @@ pub fn world(scenario: &Scenario, individuals: &Individuals, lex: &Lexicon) -> R
     }
     let described = |reader: &Reader, text: &str| -> Option<(String, Stated)> {
         let sentence = trion_language::parse_sentence(&reader.written(text)).ok()?;
-        let Core::Description { subject: NpGroup::Single(subject), predicate: Predicate::Words { words }, agent: None, adverb: None, .. } = &sentence.core else { return None };
+        let Core::Description { subject: NpGroup::Single(subject), predicate: Predicate::Words { words, .. }, agent: None, adverb: None, .. } = &sentence.core else { return None };
         if !sentence.frames.is_empty() || sentence.exception.is_some() {
             return None;
         }

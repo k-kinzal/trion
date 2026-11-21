@@ -22,7 +22,7 @@
 use crate::diagnostic::SpecRef;
 use crate::document::{Spec, SpecSet};
 use crate::reading::lexicon::Lexicon;
-use crate::reading::typed::{self, Condition, Force, Meaning, Reading, Relation, Response, Site, Term, Types, Variable};
+use crate::reading::typed::{self, Condition, Force, Meaning, Nominal, Reading, Relation, Response, Site, Term, Types, Variable};
 use crate::syntax::ast::*;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,8 +75,9 @@ pub struct AtomOf {
 /// statement and the instances over the domain.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Individuals {
-    /// The version of the meaning rules.
-    pub version: &'static str,
+    /// Carriers whose names identify slots without implying a class.
+    #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub explicit_membership_carriers: std::collections::BTreeSet<String>,
     /// Each noun that names individuals, with the declared type of its carrier.
     pub types: Vec<(String, String)>,
     /// The number of individuals of each carrier.
@@ -118,6 +119,8 @@ pub(super) struct Grounded {
     pub individuals: Individuals,
     /// The condition of each instance, by its identifier.
     pub guards: BTreeMap<String, Formula>,
+    /// The class definitions expanded by an authored sentence.
+    pub definition_expansions: BTreeMap<String, Vec<SpecRef>>,
     pub direct: Vec<Direct>,
     /// What an instance states of the domain under its conditions: a
     /// relation or a kind of its individuals, by the identifier of the instance.
@@ -188,6 +191,11 @@ impl Assignment<'_> {
         Some(denied_if(rel(kind, vec![individual(kind, self.index_of(subject)?)]), denied))
     }
 
+    fn membership(&self, predicate: &Nominal<String>, subject: &Term, denied: bool) -> Option<Formula> {
+        let index = self.index_of(subject)?;
+        Some(denied_if(predicate.formula(&|kind| rel(kind, vec![individual(kind, index)])), denied))
+    }
+
     /// The name of what a term denotes in the instance.
     fn term(&self, term: &Term) -> String {
         match term {
@@ -227,6 +235,7 @@ impl Assignment<'_> {
             match condition {
                 Condition::Related(relation) => found.extend(self.related_fact(relation)),
                 Condition::Kind { kind, subject, .. } => found.extend(self.kind_fact(kind, subject)),
+                Condition::Membership { predicate, subject, .. } => predicate.atoms(&mut |kind| found.extend(self.kind_fact(kind, subject))),
                 _ => {}
             }
         }
@@ -234,6 +243,7 @@ impl Assignment<'_> {
             match response {
                 Response::Related(relation) => found.extend(self.related_fact(relation)),
                 Response::Kind { kind, subject, .. } => found.extend(self.kind_fact(kind, subject)),
+                Response::Membership { predicate, subject, .. } => predicate.atoms(&mut |kind| found.extend(self.kind_fact(kind, subject))),
                 _ => {}
             }
         }
@@ -258,12 +268,14 @@ impl Assignment<'_> {
             match condition {
                 Condition::Related(relation) => parts.extend(self.related(relation, relations)),
                 Condition::Kind { kind, subject, denied } => parts.extend(self.kind(kind, subject, *denied)),
+                Condition::Membership { predicate, subject, denied } => parts.extend(self.membership(predicate, subject, *denied)),
                 _ => {}
             }
         }
         match &self.meaning.exception {
             Some(Condition::Related(relation)) => parts.extend(self.related(relation, relations).map(Formula::not)),
             Some(Condition::Kind { kind, subject, denied }) => parts.extend(self.kind(kind, subject, *denied).map(Formula::not)),
+            Some(Condition::Membership { predicate, subject, denied }) => parts.extend(self.membership(predicate, subject, !*denied)),
             _ => {}
         }
         parts.dedup();
@@ -412,9 +424,9 @@ impl Substitution<'_> {
     /// `true` for a clause that states a relation between individuals or
     /// the kind of an individual: it stands in the condition of the instance.
     fn of_the_domain(&self, clause: &Clause) -> bool {
-        let ClauseBody::Copular { predicate: Predicate::Words { words }, agent: None, roles, .. } = &clause.body else { return false };
+        let ClauseBody::Copular { predicate, agent: None, roles, .. } = &clause.body else { return false };
         let NpGroup::Single(subject) = &clause.subject else { return false };
-        self.key(subject).is_some() && matches!(typed::said(words, roles, self.lex), Some(typed::Said::Related { .. } | typed::Said::Kind { .. }))
+        self.key(subject).is_some() && matches!(typed::said_predicate(predicate, roles, self.lex), Some(typed::Said::Related { .. } | typed::Said::Kind { .. } | typed::Said::Membership { .. }))
     }
 
     fn clauses(&self, group: &mut ClauseGroup) {
@@ -517,26 +529,38 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, scope: usize) -> Option<Ground
             scope = scope.max(named.values().copied().max().unwrap_or(0));
         }
     }
-    let mut individuals = Individuals { version: typed::VERSION, types: types.nouns().map(|(noun, declared)| (noun.to_string(), declared.to_string())).collect(), scope, ..Default::default() };
+    let mut individuals = Individuals { types: types.nouns().map(|(noun, declared)| (noun.to_string(), declared.to_string())).collect(), scope, ..Default::default() };
     // The meaning of each statement, by the package and the identifier of the statement.
     let mut read: BTreeMap<(usize, String), Meaning> = BTreeMap::new();
     let mut about_the_domain: BTreeSet<String> = BTreeSet::new();
+    let mut definition_expansions = BTreeMap::new();
     for (p, pkg) in set.packages.iter().enumerate() {
         for doc in &pkg.documents {
             let scoped = lex.in_document(doc);
             for spec in &doc.specs {
                 let display = if pkg.is_root { spec.display_id() } else { format!("{}::{}", pkg.name, spec.display_id()) };
-                if crate::reading::instances::about_the_domain(spec, &scoped) {
+                if matches!(spec.sentence.core, Core::Definition { .. }) {
+                    continue;
+                }
+                let (domain, sink) = super::key::collect(|| crate::reading::instances::about_the_domain(spec, &scoped));
+                if domain {
                     if typed::names_a_type(&spec.sentence, &types, &scoped) {
-                        about_the_domain.insert(display);
+                        about_the_domain.insert(display.clone());
+                        if !sink.definitions.is_empty() {
+                            definition_expansions.insert(display, sink.definitions);
+                        }
                     }
                     continue;
                 }
-                match typed::read(&display, &crate::expand::lowered(&spec.sentence), &types, &scoped) {
+                let (reading, sink) = super::key::collect(|| typed::read(&display, &crate::expand::lowered(&spec.sentence), &types, &scoped));
+                if !sink.definitions.is_empty() {
+                    definition_expansions.insert(display.clone(), sink.definitions);
+                }
+                match reading {
                     Reading::Untyped => {}
                     Reading::Typed(meaning) if spec.otherwise && meaning.frames.iter().any(|frame| {
                         matches!(frame.kind, typed::FrameKind::When | typed::FrameKind::If)
-                            && frame.conditions.iter().any(|condition| matches!(condition, Condition::Related(_) | Condition::Kind { .. }))
+                            && frame.conditions.iter().any(Condition::of_domain)
                     }) => {
                         individuals.outside.push(OutsideOf {
                             statement: SpecRef { id: display, file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() },
@@ -588,7 +612,7 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, scope: usize) -> Option<Ground
             .collect()
     };
     let order: BTreeMap<(usize, String), usize> = read.keys().cloned().enumerate().map(|(at, key)| (key, at)).collect();
-    let mut grounded = Grounded { bindings: BTreeMap::new(), with_domain: SpecSet::default(), set: set.clone(), individuals, guards: BTreeMap::new(), direct: Vec::new(), claims: BTreeMap::new(), relations: BTreeSet::new(), about_the_domain: BTreeSet::new(), shares: BTreeSet::new(), counted: BTreeMap::new(), alternatives: BTreeMap::new() };
+    let mut grounded = Grounded { bindings: BTreeMap::new(), with_domain: SpecSet::default(), set: set.clone(), individuals, guards: BTreeMap::new(), definition_expansions, direct: Vec::new(), claims: BTreeMap::new(), relations: BTreeSet::new(), about_the_domain: BTreeSet::new(), shares: BTreeSet::new(), counted: BTreeMap::new(), alternatives: BTreeMap::new() };
     for (p, pkg) in grounded.set.packages.iter_mut().enumerate() {
         let (is_root, name) = (pkg.is_root, pkg.name.clone());
         for doc in &mut pkg.documents {
@@ -645,10 +669,11 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, scope: usize) -> Option<Ground
                     let stated = match (meaning.force, meaning.responses.as_slice()) {
                         (Force::Description, [Response::Related(relation)]) => assignment.related(relation, &mut grounded.relations),
                         (Force::Description, [Response::Kind { kind, subject, denied }]) => assignment.kind(kind, subject, *denied),
+                        (Force::Description, [Response::Membership { predicate, subject, denied }]) => assignment.membership(predicate, subject, *denied),
                         _ => None,
                     };
                     if let Some(guarantee) = &stated {
-                        if meaning.frames.iter().flat_map(|f| &f.conditions).all(|c| matches!(c, Condition::Related(_) | Condition::Kind { .. })) && meaning.exception.as_ref().is_none_or(|c| matches!(c, Condition::Related(_) | Condition::Kind { .. })) {
+                        if meaning.frames.iter().flat_map(|f| &f.conditions).all(Condition::of_domain) && meaning.exception.as_ref().is_none_or(Condition::of_domain) {
                             grounded.direct.push(Direct { reference: SpecRef { id: display(&instance_id), file: spec.file.clone(), line: spec.line, text: spec.sentence.source.clone() }, assume: guard, guarantee: guarantee.clone() });
                             continue;
                         }
@@ -718,7 +743,7 @@ pub(super) fn apply(set: &SpecSet, lex: &Lexicon, scope: usize) -> Option<Ground
 }
 
 fn placeholder() -> Meaning {
-    Meaning { statement: String::new(), version: typed::VERSION, source: String::new(), variables: Vec::new(), restrictions: Vec::new(), frames: Vec::new(), exception: None, force: Force::Description, choice: typed::Choice::One, responses: Vec::new(), share: None, steps: Vec::new() }
+    Meaning { statement: String::new(), source: String::new(), variables: Vec::new(), restrictions: Vec::new(), frames: Vec::new(), exception: None, force: Force::Description, choice: typed::Choice::One, responses: Vec::new(), share: None, steps: Vec::new() }
 }
 
 fn single_atom(formula: &Formula) -> Option<Atom> {
@@ -755,7 +780,7 @@ impl Grounded {
             .chain(sentence.frames.trigger.iter().map(|t| (t.keyword.as_str(), &t.clause)))
             .flat_map(|(keyword, group)| group.items.iter().map(move |clause| (keyword, clause)))
             .collect();
-        let stated = meaning.frames.iter().flat_map(|f| &f.conditions).filter(|c| !matches!(c, Condition::Related(_) | Condition::Kind { .. }));
+        let stated = meaning.frames.iter().flat_map(|f| &f.conditions).filter(|c| !c.of_domain());
         for ((keyword, clause), stated) in kept.into_iter().zip(stated) {
             let Some(atom) = single_atom(&condition(keyword, clause)) else { continue };
             match stated {

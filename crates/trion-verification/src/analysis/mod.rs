@@ -406,20 +406,25 @@ pub fn stated_contracts(set: &SpecSet, analysis: &Analysis) -> (Vec<StatedContra
             }
         };
         let timing: Vec<String> = model.temporal.iter().find(|o| c.refs.first().is_some_and(|r| r.id == o.statement.id)).map(|o| o.lines().iter().map(|line| renamed(line, &pairs)).collect()).unwrap_or_default();
-        let scope = specs.get(&statement.id).map(|s| match (s.scopes.last(), s.scope_lines.last()) {
-            (Some(head), Some(line)) => Scope::Block { head: head.clone(), file: s.file.clone(), line: *line },
-            _ => Scope::Document,
-        });
+        let (source, application_scope) = authored.owner(&statement)
+            .map_or((None, None), |(spec, doc)| (Some(spec), doc.application_scope.as_ref()));
+        let scope = source.or_else(|| specs.get(&statement.id).copied())
+            .and_then(|s| Some(Scope::Block {
+                head: s.scopes.last()?.clone(),
+                file: s.file.clone(),
+                line: *s.scope_lines.last()?,
+            }))
+            .or_else(|| application_scope.map(|at| Scope::Block { head: at.text.clone(), file: at.file.clone(), line: at.line }));
         let (role, assume, guarantee) = match c.kind {
             ConstraintKind::Refinement => continue,
             // The form that a bound role requires of the system.
-            ConstraintKind::Binding | ConstraintKind::Form => ("form", c.assume.clone(), c.guarantee.clone()),
+            kind if kind.is_form() => ("form", c.assume.clone(), c.guarantee.clone()),
             kind if kind.is_vocabulary() => ("axiom", Formula::True, c.formula()),
             // A requirement of what only the environment does is an assumption .
             ConstraintKind::Spec | ConstraintKind::Permission if !authored.is_description(c) && environment::of_environment(c, &actors) => ("assumption", c.formula(), Formula::True),
             ConstraintKind::Permission => ("permission", c.assume.clone(), c.guarantee.clone()),
             _ if authored.is_recommendation(c) => ("recommendation", c.assume.clone(), c.guarantee.clone()),
-            _ if authored.is_description(c) && !situated.about_system(&c.formula()) => ("assumption", c.formula(), Formula::True),
+            _ if authored.is_description(c) && !situated.describes_system(model, c) => ("assumption", c.formula(), Formula::True),
             _ => ("guarantee", c.assume.clone(), c.guarantee.clone()),
         };
         let (assume, guarantee) = if matches!(role, "guarantee" | "recommendation" | "permission") {
@@ -432,8 +437,9 @@ pub fn stated_contracts(set: &SpecSet, analysis: &Analysis) -> (Vec<StatedContra
         // The individuals that the parameters name: each is no choice.
         let fixed: BTreeSet<String> = pairs.iter().map(|(individual, _)| individual.clone()).collect();
         let mut chosen = Vec::new();
-        let (assume, guarantee) = if individuals.is_empty() { (assume, guarantee) } else { (chosen_individuals(&assume, &kinds, &taken, &fixed, &mut chosen), chosen_individuals(&guarantee, &kinds, &taken, &fixed, &mut chosen)) };
-        let (assume, guarantee) = if individuals.is_empty() { (simplify(assume), simplify(guarantee)) } else { (schematic(&assume, &pairs, &kinds), schematic(&guarantee, &pairs, &kinds)) };
+        let schematic_instances = !individuals.is_empty() && !model.domain_contracts.contains_key(&statement.id);
+        let (assume, guarantee) = if !schematic_instances { (assume, guarantee) } else { (chosen_individuals(&assume, &kinds, &taken, &fixed, &mut chosen), chosen_individuals(&guarantee, &kinds, &taken, &fixed, &mut chosen)) };
+        let (assume, guarantee) = if !schematic_instances { (simplify(assume), simplify(guarantee)) } else { (schematic(&assume, &pairs, &kinds), schematic(&guarantee, &pairs, &kinds)) };
         let timing: Vec<String> = timing.iter().map(|line| renamed(line, &chosen.iter().flat_map(|(variable, kind)| kinds.iter().filter(move |(k, _)| k == kind).map(move |(_, individual)| (individual.clone(), variable.clone()))).collect::<Vec<_>>())).collect();
         // The same line for each individual that the response may choose is one line.
         let timing: Vec<String> = timing.into_iter().fold(Vec::new(), |mut kept, line| {
@@ -481,6 +487,12 @@ pub fn analyze(set: &SpecSet, options: &Options) -> Analysis {
     structure::check_identifiers(set, &mut diagnostics);
     diagnostics.extend(trion_language::reading::check_refinements(set));
     let model = trion_language::reading::compile(set, &lex, bounds.scope);
+    if model.individuals.is_some() {
+        let control = environment::control(set, &model, &lex);
+        diagnostics.extend(control.conflicting_carriers.into_iter().map(|(carrier, refs)| {
+            Diagnostic::error("vocabulary-kind-conflict", format!("the carrier `{carrier}` has both system and environment responsibility for its individual actors"), refs)
+        }));
+    }
     diagnostics.extend(trion_language::reading::check_priorities(set, &model));
     structure::find_unsupported(set, &model, &mut diagnostics);
     // What the language requires of the form of the statements: the

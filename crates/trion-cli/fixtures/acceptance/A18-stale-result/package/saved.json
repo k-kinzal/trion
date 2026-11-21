@@ -1,36 +1,34 @@
 {
- "subject": {
-  "package": "x",
-  "revision": "0000000000000000000000000000000000000000000000000000000000000000",
-  "semantics": "0.1.0",
-  "tool": "0.1.0",
-  "moments": 3,
-  "individuals": null
- },
- "package": "x",
- "revision": "0000000000000000000000000000000000000000000000000000000000000000",
- "results": [
-  {
-   "obligation": "consistency",
-   "property": "consistency",
-   "proposition": "within traces of 3 moments: for every behaviour of the environment that its assumptions allow, some behaviour of the system keeps every guarantee over the whole trace",
-   "verdict": "proved",
-   "reason": null,
-   "questions": 1,
-   "certificates": [],
-   "counterexamples": []
+  "subject": {
+    "package": "x",
+    "moments": 3,
+    "individuals": null,
+    "input_digest": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  {
-   "obligation": "compatibility",
-   "property": "compatibility",
-   "proposition": "within traces of 3 moments: an environment that the statements without normative force allow meets an assumption of a statement",
-   "verdict": "proved",
-   "reason": null,
-   "questions": 1,
-   "certificates": [],
-   "counterexamples": []
-  }
- ],
- "notes": [],
- "diagnostics": []
+  "package": "x",
+  "results": [
+    {
+      "obligation": "consistency",
+      "property": "consistency",
+      "proposition": "within traces of 3 moments: for every behaviour of the environment that its assumptions allow, some behaviour of the system keeps every guarantee over the whole trace",
+      "verdict": "proved",
+      "reason": null,
+      "questions": 1,
+      "certificates": [],
+      "counterexamples": []
+    },
+    {
+      "obligation": "compatibility",
+      "property": "compatibility",
+      "proposition": "within traces of 3 moments: an environment that the statements without normative force allow meets an assumption of a statement",
+      "verdict": "proved",
+      "reason": null,
+      "questions": 1,
+      "certificates": [],
+      "counterexamples": []
+    }
+  ],
+  "notes": [],
+  "diagnostics": [],
+  "input_digest": "0000000000000000000000000000000000000000000000000000000000000000"
 }

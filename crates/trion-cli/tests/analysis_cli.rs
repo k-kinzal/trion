@@ -12,22 +12,16 @@ fn propositional_checks_are_decided_from_the_mmt_form() {
             "checks.trion",
             r#"
 check VALID:
-    grammar "propositional-cnl/1"
     input "proposition P. proposition Q. assume P implies Q. assume P. entails Q."
 check ALTERNATE-SPELLING:
-    grammar "propositional-cnl/2"
     input "proposition P. proposition Q. assume if P then Q. assume P. entails Q."
 check CONVERSE:
-    grammar "propositional-cnl/1"
     input "proposition P. proposition Q. assume P implies Q. assume Q. entails P."
 check VACUOUS:
-    grammar "propositional-cnl/1"
     input "proposition P. assume P. assume not P. entails false."
 check EMPTY-MODEL:
-    grammar "propositional-cnl/1"
     input "satisfiable."
 check FALSE-TARGET:
-    grammar "propositional-cnl/1"
     input "entails false."
 "#,
         ),
@@ -72,7 +66,6 @@ check FALSE-TARGET:
     assert_eq!(outcome("VACUOUS")["premises"], "contradictory");
     assert_eq!(outcome("VACUOUS")["conclusion"], "entails");
     assert_eq!(check("VACUOUS")["reason"], "vacuous entailment: contradictory premises");
-    assert_eq!(check("ALTERNATE-SPELLING")["propositional"]["input"]["input"]["grammar"], "propositional-cnl/2");
 
     let text = fixture.prove(&["archive"]);
     assert!(text.stdout.contains("counterexample: P=false, Q=true"), "{}", text.stdout);
@@ -125,17 +118,15 @@ check FALSE-TARGET:
 }
 
 #[test]
-fn a_propositional_check_rejects_input_outside_its_pinned_grammar() {
+fn a_propositional_check_rejects_unsupported_and_undeclared_input() {
     let fixture = Fixture::new(&[
         ("trion.toml", "[package]\nname = \"cards\"\n"),
         (
             "checks.trion",
             r#"
-check WRONG-VERSION:
-    grammar "propositional-cnl/1"
-    input "entails if true then true."
+check UNSUPPORTED:
+    input "entails 12 + 3."
 check UNDECLARED:
-    grammar "propositional-cnl/1"
     input "entails R."
 "#,
         ),
@@ -156,10 +147,8 @@ fn mmt_propositional_proof_reports_limits_and_checked_certificates() {
         ("trion.toml", "[package]\nname = \"limits\"\n"),
         ("checks.trion", r#"
 check SEARCH:
-    grammar "propositional-cnl/1"
     input "proposition P. proposition Q. assume P or Q. satisfiable."
 check LARGE:
-    grammar "propositional-cnl/1"
     input "proposition A. proposition B. proposition C. proposition D. proposition E. proposition F. proposition G. proposition H. proposition I. proposition J. proposition K. proposition L. proposition M. entails true."
 "#),
     ]);
@@ -203,7 +192,6 @@ fn propositional_formalize_analyze_and_replay_use_the_pinned_artifact() {
         .unwrap();
     assert!(analyzed.status.success(), "{analyzed:?}");
     let record: Value = serde_json::from_slice(&analyzed.stdout).unwrap();
-    assert_eq!(record["artifact"]["grammar"], "propositional-cnl/1");
     assert_eq!(record["analysis"]["outcome"]["conclusion"], "entails");
     assert_eq!(record["analysis"]["outcome"]["evidence"], "exhaustive");
     assert_eq!(record["analysis"]["outcome"]["reference_assignments"], 4);
